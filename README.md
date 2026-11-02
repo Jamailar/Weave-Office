@@ -15,6 +15,7 @@
 - [早期三编辑器实验](integration/README.md)：保留作集成参考，不是正式产品入口。
 - [macOS 打包说明](packaging/README.md)：优化 release `.app` 已安装，四格式保存重开及中文系统文件面板已复验；正式发行验证仍待完成。
 - [本机验收记录](docs/acceptance.md)：自动测试、GUI 实际操作、范围及剩余工作。
+- [命令行](docs/cli.md)：`weave-office create/view/get/run/batch/export …` 不开窗口操作四类文档，面向 AI 代理和脚本；`weave-office help agent` 打印给 AI 的使用说明。
 
 界面语言只控制公共 UI。Word Language Preferences pane 保留并只读显示校对状态；切换语言不会更改文档校对语言、dirty 状态或 undo 历史。第三方办公软件生成的 DOCX/XLSX/PPTX 小样本互操作、PDF 字体优先级修复及原生 AppMenu/快捷键回归见验收记录；这些样本不代表复杂文件的完整格式保真。
 

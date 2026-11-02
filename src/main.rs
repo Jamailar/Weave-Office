@@ -3,9 +3,13 @@ use weave_office::app::WeaveApp;
 
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    // `weave-office <verb> …` (create, view, run, batch …) is the command line: no window.
+    if weave_cli::is_cli(&args) {
+        std::process::exit(weave_cli::main(&args));
+    }
     if args.iter().any(|s| s == "--help" || s == "-h") {
         println!(
-            "Weave Office\nUsage: weave-office [FILE...]\nOpen documents, spreadsheets, presentations and PDFs in one workspace."
+            "Weave Office\nUsage: weave-office [FILE...]\nOpen documents, spreadsheets, presentations and PDFs in one workspace.\n\nCommand line (no window): weave-office help"
         );
         return Ok(());
     }

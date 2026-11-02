@@ -4521,6 +4521,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdfcraft-automation"
+version = "0.16.1"
+dependencies = [
+ "pdfcraft-cos",
+ "pdfcraft-engine",
+ "pdfcraft-organize",
+ "pdfcraft-platform",
+ "pdfcraft-render",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+]
+
+[[package]]
 name = "pdfcraft-compare"
 version = "0.16.1"
 
@@ -7833,6 +7847,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "weave-cli"
+version = "0.1.0"
+dependencies = [
+ "deckcraft-engine",
+ "gridcraft-engine",
+ "pdfcraft-automation",
+ "serde_json",
+ "tempfile",
+ "wordcraft-doc",
+ "wordcraft-engine",
+ "wordcraft-render",
+]
+
+[[package]]
 name = "weave-font-assets"
 version = "0.1.0"
 
@@ -7863,6 +7891,7 @@ dependencies = [
  "serde_json",
  "skrifa 0.44.0",
  "tempfile",
+ "weave-cli",
  "weave-font-assets",
  "weave-ribbon",
  "weave-system-fonts",
