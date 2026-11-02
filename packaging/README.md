@@ -1,5 +1,73 @@
 # macOS local bundle
 
+## Five-architecture release
+
+Release installers are two macOS disk images (`arm64`, `x64`) and three Windows NSIS
+installers (`x64`, `arm64`, `x86`). All builds use the root Cargo version and the same
+locked dependencies, pinned fonts, translations and bundled attribution.
+
+On the Mac, prepare the inputs below, install both Rust targets, and prefetch the
+target-specific dependencies before invoking the offline bundle builder:
+
+```sh
+export WEAVE_DEV_VOLUME=/Volumes/MyDrive
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+cargo fetch --locked --target aarch64-apple-darwin --target x86_64-apple-darwin
+python3 scripts/build-macos-app.py --target aarch64-apple-darwin --output "$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/packages/arm64/Weave Office.app"
+python3 scripts/build-macos-app.py --target x86_64-apple-darwin --output "$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/packages/x64/Weave Office.app"
+python3 scripts/package-macos-dmg.py --app "$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/packages/arm64/Weave Office.app" --output "$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/packages/WeaveOffice-0.1.0-macos-arm64.dmg"
+python3 scripts/package-macos-dmg.py --app "$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/packages/x64/Weave Office.app" --output "$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/packages/WeaveOffice-0.1.0-macos-x64.dmg"
+```
+
+Windows builds run on the local Linux builder through the SSH alias `jamdebian`,
+using Rust 1.95.0, `cargo-xwin`, LLVM/Clang and NSIS. Sync the source checkout
+(excluding `.git`, `target` directories and the machine-local `.cargo/config.toml`)
+to a dedicated directory such as `/home/jam/build/weave-office-release/source`.
+Sync `craft-fonts`, `craft-i18n` (including their Git metadata for revision checks),
+and `weave-document-fonts` to a sibling `inputs` directory. Keep all build outputs
+outside the source checkout. On the Linux builder:
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+export RUSTUP_TOOLCHAIN=1.95.0
+rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc i686-pc-windows-msvc
+cd /home/jam/build/weave-office-release/source
+python3 scripts/build-windows-app.py \
+  --inputs /home/jam/build/weave-office-release/inputs \
+  --target-dir /home/jam/build/weave-office-release/target \
+  --output /home/jam/build/weave-office-release/installers
+```
+
+Use `--arch x64`, `--arch arm64` or `--arch x86` to build a subset, and `--offline`
+after the dependencies have been fetched. The script verifies the font and catalog
+inputs, statically links the MSVC runtime, verifies each application's PE machine
+type, and packages the executable and attribution. Installers install for the
+current user, add a Start menu shortcut and register an uninstaller without
+requiring administrator privileges or changing file associations. Existing user
+documents and settings are preserved on uninstall. Use a dedicated `XWIN_CACHE_DIR`
+and a valid `clang-cl` on `PATH` if sharing a machine with other builds. Parallel
+build processes need separate target directories and `XWIN_CACHE_DIR` paths, since
+`cargo-xwin` replaces its compiler symlink on startup. The x86 build explicitly
+enables SSE2 for Clang's native C/C++ compilation, as required by AWS-LC.
+
+For signed releases, pass `--sign-identity "Developer ID Application: …"` to the
+macOS builder, notarize and staple the resulting application, then package, sign,
+notarize and staple the DMG. Windows accepts `--sign-command` (or
+`WEAVE_WINDOWS_SIGN_COMMAND`) as a JSON object with `cmd` and an `args` list;
+`%1` is replaced with the file to sign. It signs the application before packaging
+and uses NSIS finalizers to sign both the uninstaller and the finished installer.
+This also supports a private SSH signing relay while credentials remain on the Mac.
+
+Before publishing, run the existing workspace tests, check each executable's
+architecture and dependencies, verify the DMGs, and smoke-test installation,
+launch and uninstall on available runtimes. Document untested architectures and
+OS versions in the release notes. Include `SHA256SUMS.txt` for the five installers.
+The default macOS build is ad-hoc signed and not notarized; Windows installers
+are unsigned unless a signing command is supplied. Windows packaging requires
+Python 3.11 or newer for `tomllib`.
+
+## Native macOS bundle details
+
 Run from a macOS machine with Rust 1.95.0 and Python 3:
 
 ```sh

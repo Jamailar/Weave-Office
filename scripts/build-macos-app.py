@@ -214,6 +214,13 @@ def main() -> int:
     parser.add_argument(
         "--replace", action="store_true", help="replace an existing Weave Office app bundle"
     )
+    parser.add_argument(
+        "--target", choices=("aarch64-apple-darwin", "x86_64-apple-darwin"),
+        help="Rust target (default: this Mac's architecture)"
+    )
+    parser.add_argument(
+        "--sign-identity", default="-", help="Developer ID identity (default: local ad-hoc signature)"
+    )
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("macOS is required to build a macOS app bundle")
@@ -237,10 +244,15 @@ def main() -> int:
         ]
         if not args.debug:
             build_command.append("--release")
+        if args.target:
+            build_command.extend(["--target", args.target])
         subprocess.run(build_command, cwd=ROOT, env=env, check=True)
 
         profile = "debug" if args.debug else "release"
-        executable = Path(metadata["target_directory"]) / profile / BINARY
+        target_dir = Path(metadata["target_directory"])
+        if args.target:
+            target_dir /= args.target
+        executable = target_dir / profile / BINARY
         if not executable.is_file() or not os.access(executable, os.X_OK):
             raise FileNotFoundError(f"built executable not found or not executable: {executable}")
 
@@ -259,10 +271,10 @@ def main() -> int:
             copy_font_notices(resources / "licenses", Path(env["CRAFT_FONTS_DIR"]))
             copy_document_font_notice(resources / "licenses", Path(env["WEAVE_DOCUMENT_FONTS_DIR"]))
             copy_i18n_notices(resources / "licenses", Path(env["CRAFT_I18N_DIR"]))
-            subprocess.run(
-                ["codesign", "--sign", "-", "--force", "--timestamp=none", str(bundle)],
-                check=True,
-            )
+            signing = ["codesign", "--sign", args.sign_identity, "--force"]
+            signing.extend(["--timestamp=none"] if args.sign_identity == "-"
+                           else ["--options", "runtime", "--timestamp"])
+            subprocess.run([*signing, str(bundle)], check=True)
             subprocess.run(["codesign", "--verify", "--strict", str(bundle)], check=True)
             commit_bundle(bundle, output, args.replace)
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError, KeyError) as error:
