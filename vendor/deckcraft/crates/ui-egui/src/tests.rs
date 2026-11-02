@@ -2374,6 +2374,12 @@ fn interface_fonts_merged_in_another_order_count_as_installed() {
         chain.insert(0, "host-face".into());
     }
     merged.font_data.insert("host-face".into(), merged.font_data.values().next().unwrap().clone());
+    // Another editor's copy of a shared face, placed on the baseline as a fallback.
+    for data in merged.font_data.values_mut() {
+        let mut copy = (**data).clone();
+        copy.tweak.set_baseline_fallback(true);
+        *data = std::sync::Arc::new(copy);
+    }
     ctx.set_fonts(merged);
     ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
     ctx.run_ui(egui::RawInput::default(), |ui| {

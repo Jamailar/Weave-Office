@@ -203,31 +203,38 @@ fn a_new_presentations_ribbon_buttons_take_clicks() {
     assert_eq!(slides.session.active().unwrap().doc.slides.len(), 2);
 }
 
-/// As in the window: a presentation made with the New button while a PDF is open.
+/// As in the window: a presentation made with the New button while a PDF (or a spreadsheet,
+/// whose copies of shared faces the host keeps) is open.
 #[test]
-fn a_presentation_made_next_to_a_pdf_takes_clicks_and_typing() {
-    let (mut running, id) = Running::after(&[DocumentKind::Pdf], DocumentKind::Presentation);
-    assert_eq!(running.idle(5), 1, "frames keep being replayed");
-    let crate::editor::Editor::Slides(slides) = running.editor(id) else {
-        panic!("presentation");
-    };
-    let slide = slides.slide_rect.expect("the slide was drawn");
-    let title = egui::pos2(slide.center().x, slide.top() + slide.height() * 0.4);
-    running.click(title);
-    running.click(title);
-    running.type_text("Weave");
-    let crate::editor::Editor::Slides(slides) = running.editor(id) else {
-        panic!()
-    };
-    let document = slides.session.active().unwrap();
-    let text = serde_json::to_string(&document.doc.slides[0]).unwrap();
-    assert!(text.contains("Weave"), "selection {:?}", document.selection);
-    let button = running.widget("新建 幻灯片").expect("New Slide button");
-    running.click(button.center());
-    let crate::editor::Editor::Slides(slides) = running.editor(id) else {
-        panic!()
-    };
-    assert_eq!(slides.session.active().unwrap().doc.slides.len(), 2);
+fn a_presentation_made_next_to_another_document_takes_clicks_and_typing() {
+    for before in [DocumentKind::Pdf, DocumentKind::Spreadsheet] {
+        let (mut running, id) = Running::after(&[before], DocumentKind::Presentation);
+        assert_eq!(running.idle(5), 1, "frames keep being replayed");
+        let crate::editor::Editor::Slides(slides) = running.editor(id) else {
+            panic!("presentation");
+        };
+        let slide = slides.slide_rect.expect("the slide was drawn");
+        let title = egui::pos2(slide.center().x, slide.top() + slide.height() * 0.4);
+        running.click(title);
+        running.click(title);
+        running.type_text("Weave");
+        let crate::editor::Editor::Slides(slides) = running.editor(id) else {
+            panic!()
+        };
+        let document = slides.session.active().unwrap();
+        let text = serde_json::to_string(&document.doc.slides[0]).unwrap();
+        assert!(
+            text.contains("Weave"),
+            "{before:?}: selection {:?}",
+            document.selection
+        );
+        let button = running.widget("新建 幻灯片").expect("New Slide button");
+        running.click(button.center());
+        let crate::editor::Editor::Slides(slides) = running.editor(id) else {
+            panic!()
+        };
+        assert_eq!(slides.session.active().unwrap().doc.slides.len(), 2);
+    }
 }
 
 /// The ribbon commands under the host's tab row take clicks in every editor, also next to
