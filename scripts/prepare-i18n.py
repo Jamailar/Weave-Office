@@ -9,8 +9,10 @@ import subprocess
 import sys
 import tempfile
 
+from weave_volume import dev_volume
+
 ROOT = Path(__file__).resolve().parent.parent
-VOLUME = Path("/Volumes/Jamba")
+VOLUME = dev_volume()
 DEFAULT_DIR = VOLUME / "DevCache/WeaveOffice/inputs/craft-i18n"
 REPOSITORY = "https://github.com/storytold/craft-i18n"
 
@@ -63,10 +65,10 @@ def main() -> int:
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
     if not VOLUME.is_mount():
-        parser.error("mount /Volumes/Jamba before preparing translations")
+        parser.error(f"mount {VOLUME} (WEAVE_DEV_VOLUME) before preparing translations")
     directory = args.dir.expanduser().resolve()
     if not directory.is_relative_to(VOLUME.resolve(strict=True)) or directory.is_relative_to(ROOT):
-        parser.error("translation inputs must stay on the mounted Jamba volume, outside the source tree")
+        parser.error("translation inputs must stay on the mounted external volume, outside the source tree")
     try:
         if not directory.exists() and not args.verify_only:
             directory.parent.mkdir(parents=True, exist_ok=True)

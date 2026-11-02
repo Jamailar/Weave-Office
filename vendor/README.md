@@ -24,7 +24,7 @@ Upstream source licenses are MIT OR Apache-2.0; individual third-party assets an
 
 四者都是实际代码依赖，不只是视觉参考。根目录 `Cargo.toml` 和 `Cargo.lock` 决定正式应用使用哪些 crate、feature 和 git revision。共享库还包括 [craft-libs](https://github.com/storytold/craft-libs)、[craft-fonts](https://github.com/storytold/craft-fonts) 与 [craft-i18n](https://github.com/storytold/craft-i18n)；字体和翻译的固定输入、许可证及准备方法分别见 [字体说明](../docs/fonts.md)、[翻译说明](../docs/i18n.md) 和 `scripts/prepare-*.py`。不要因为名字相同就假定依赖版本已统一；当前仍存在多个 craft-libs revision。
 
-WPS 是交互与视觉体验参考，不是上述开源代码的来源。本机 WPS 的 REA 分析和实际操作证据在 [WPS 行为记录](../docs/wps-behavior.md)，不能把观察到的界面行为当作已经证实的 WPS 内部架构，也不能把上游的功能清单当作 Weave 的验收结果。
+主流办公套件仅是交互与视觉体验参考，不是上述开源代码的来源；不能把上游的功能清单当作 Weave 的验收结果。
 
 ### 建议阅读顺序与代码定位
 
@@ -39,7 +39,7 @@ WPS 是交互与视觉体验参考，不是上述开源代码的来源。本机 
 - 复用四种专业引擎，逐项统一可共享的应用级服务。不要启动上游的四个独立桌面程序，也不要恢复它们各自争夺窗口、全局设置、文件面板或退出事件的行为。
 - 本地补丁不仅在 `hosted.rs`，还涉及字体、主题、文件请求、剪贴板、渲染、模态操作边界等位置。下文列出关键契约，但不是完整逐文件 diff；升级前应以固定快照为基线检查整个 vendor 子树并保留本地修改。
 - 字体字节已单份共享，字体发现/缓存尚未统一；保存入口已统一，可靠落盘尚未统一；宿主自动保存和异常恢复尚未接上。不要再次写成“底层已经全部合并”。
-- 构建产物和大型输入留在外置盘。常规验证使用 `python3 scripts/cargo.py test -p weave-office --lib --test shared_fonts --test hosted_views --test paint_continuity --test wps_interop --locked --offline -j 3`，按实际改动选择测试；打包方法见 [macOS 打包说明](../packaging/README.md)。不要为了交接文档更新重跑整套引擎测试。
+- 构建产物和大型输入留在外置盘。常规验证使用 `python3 scripts/cargo.py test -p weave-office --lib --test shared_fonts --test hosted_views --test paint_continuity --test external_interop --locked --offline -j 3`，按实际改动选择测试；打包方法见 [macOS 打包说明](../packaging/README.md)。不要为了交接文档更新重跑整套引擎测试。
 - 保留各上游 LICENSE、NOTICE 和资产署名；开源代码许可不等于所有品牌素材都可复用。Weave 使用自己的应用标识和图标。
 
 ## Hosted integration patches

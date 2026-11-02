@@ -146,7 +146,12 @@ fn fresh_host_reads_the_four_files_saved_through_the_native_ui() {
                 );
                 let note = notes[0];
                 assert_eq!(note.page, 0);
-                assert_eq!(note.author.as_deref(), Some("Jam"));
+                assert!(
+                    note.author
+                        .as_deref()
+                        .is_some_and(|author| !author.is_empty()),
+                    "the annotation records the local user as its author"
+                );
                 assert_eq!(note.contents.as_deref(), Some("Reviewed amount: 123.45"));
                 assert!(note.rect[2] > note.rect[0] && note.rect[3] > note.rect[1]);
             }

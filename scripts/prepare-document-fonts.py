@@ -11,9 +11,11 @@ import sys
 import tempfile
 from urllib.request import urlopen
 
+from weave_volume import dev_volume
+
 
 REV = "f8d157532fbfaeda587e826d4cd5b21a49186f7c"
-DEFAULT_DIR = Path("/Volumes/Jamba/DevCache/WeaveOffice/inputs/weave-document-fonts")
+DEFAULT_DIR = dev_volume() / "DevCache/WeaveOffice/inputs/weave-document-fonts"
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts/document-fonts-manifest.txt"
 FONT = "NotoSerifCJKsc-Regular.otf"
@@ -57,11 +59,11 @@ def main() -> int:
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
     target = args.dir.expanduser().resolve()
-    volume = Path("/Volumes/Jamba")
+    volume = dev_volume()
     if not volume.is_mount():
-        parser.error("/Volumes/Jamba is not mounted")
+        parser.error(f"{volume} is not mounted")
     if not target.is_relative_to(volume.resolve(strict=True)) or target.is_relative_to(ROOT):
-        parser.error("--dir must be outside this repository on the mounted Jamba volume")
+        parser.error("--dir must be outside this repository on the mounted external volume")
     try:
         if not target.exists() and not args.verify_only:
             target.parent.mkdir(parents=True, exist_ok=True)

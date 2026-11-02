@@ -1,4 +1,4 @@
-//! A small external-producer interop check using a workbook created and saved in WPS.
+//! A small external-producer interop check using a workbook created and saved by a third-party office suite.
 //! It covers these cells and styles, rather than general XLSX fidelity.
 
 use serde_json::{Value, json};
@@ -17,7 +17,7 @@ use wordcraft_doc::{
 fn cell(host: &mut Host, id: TabId, address: &str) -> Value {
     let editor = &mut host.documents.get_mut(&id).expect("open workbook").editor;
     let Editor::Sheet(app) = editor else {
-        panic!("WPS workbook opened in a non-spreadsheet editor");
+        panic!("external workbook opened in a non-spreadsheet editor");
     };
     app.hosted_command("cell.get", json!({"cell": address}))
         .unwrap_or_else(|error| panic!("read {address}: {error}"))
@@ -107,15 +107,15 @@ fn assert_workbook(host: &mut Host, id: TabId, quantity: f64, first_total: f64, 
 }
 
 #[test]
-fn wps_workbook_edit_save_and_fresh_host_reopen() {
-    let fixture =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wps-origin-pricing.xlsx");
-    let original_bytes = fs::read(&fixture).expect("WPS fixture");
+fn external_workbook_edit_save_and_fresh_host_reopen() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/external-origin-pricing.xlsx");
+    let original_bytes = fs::read(&fixture).expect("external fixture");
     let directory = tempfile::tempdir().expect("output directory");
     let output = directory.path().join("edited.xlsx");
 
     let mut host = Host::default();
-    let id = host.open(&fixture).expect("open WPS workbook");
+    let id = host.open(&fixture).expect("open external workbook");
     assert_workbook(&mut host, id, 2.0, 30.0, 292.5);
 
     let editor = &mut host.documents.get_mut(&id).expect("open workbook").editor;
@@ -143,7 +143,7 @@ fn wps_workbook_edit_save_and_fresh_host_reopen() {
 }
 
 // Inspect the actual OOXML package independently of the WordCraft parser. Python's standard
-// library keeps this test free of a second DOCX implementation and checks the WPS producer too.
+// library keeps this test free of a second DOCX implementation and checks the external producer too.
 const DOCX_XML_PROBE: &str = r#"
 import json, sys, zipfile, xml.etree.ElementTree as ET
 w = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
@@ -203,7 +203,7 @@ fn assert_word_xml(xml: &Value, edited: bool) {
     assert_eq!(xml["title_color"], "17365D");
     assert_eq!(
         xml["intro"],
-        "这是一份在 WPS 新建的文字样本，用于核对中文、English 与段落格式。"
+        "这是一份在外部办公软件新建的文字样本，用于核对中文、English 与段落格式。"
     );
     assert_eq!(xml["space_before"], "240");
     assert_eq!(xml["space_after"], "160");
@@ -228,7 +228,7 @@ fn assert_word_xml(xml: &Value, edited: bool) {
 
 fn assert_word_model(host: &mut Host, id: TabId, edited: bool) {
     let Editor::Word(app) = &mut host.documents.get_mut(&id).expect("open DOCX").editor else {
-        panic!("WPS DOCX opened in a non-Word editor");
+        panic!("external DOCX opened in a non-Word editor");
     };
     let body = &app.session.doc.body;
     let Block::Para(title) = body[0].as_ref() else {
@@ -263,7 +263,7 @@ fn assert_word_model(host: &mut Host, id: TabId, edited: bool) {
     let table = body
         .iter()
         .find_map(|block| block.as_table())
-        .expect("WPS table");
+        .expect("external table");
     assert_eq!(table.rows.len(), 2);
     assert!(table.rows.iter().all(|row| row.cells.len() == 2));
     assert!(
@@ -290,23 +290,23 @@ fn assert_word_model(host: &mut Host, id: TabId, edited: bool) {
 }
 
 #[test]
-fn wps_docx_edit_save_and_fresh_host_reopen_preserves_layout_semantics() {
+fn external_docx_edit_save_and_fresh_host_reopen_preserves_layout_semantics() {
     let fixture =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wps-origin-text.docx");
-    let original_bytes = fs::read(&fixture).expect("WPS DOCX fixture");
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external-origin-text.docx");
+    let original_bytes = fs::read(&fixture).expect("external DOCX fixture");
     let source_xml = docx_xml(&fixture);
     assert!(
         source_xml["application"]
             .as_str()
             .expect("producer metadata")
-            .starts_with("WPS Office_")
+            .starts_with("ExternalOffice_")
     );
     assert_word_xml(&source_xml, false);
 
     let directory = tempfile::tempdir().expect("output directory");
     let output = directory.path().join("edited.docx");
     let mut host = Host::default();
-    let id = host.open(&fixture).expect("open WPS DOCX");
+    let id = host.open(&fixture).expect("open external DOCX");
     assert_word_model(&mut host, id, false);
 
     let Editor::Word(app) = &mut host.documents.get_mut(&id).expect("open DOCX").editor else {
@@ -468,7 +468,7 @@ fn assert_pptx_xml(xml: &Value, edited: bool) {
 
 fn assert_pptx_model(host: &Host, id: TabId, edited: bool) {
     let Editor::Slides(app) = &host.documents.get(&id).expect("open PPTX").editor else {
-        panic!("WPS PPTX opened in a non-presentation editor");
+        panic!("external PPTX opened in a non-presentation editor");
     };
     let presentation = &app.session.active().expect("active presentation").doc;
     assert_eq!(presentation.slides.len(), 2);
@@ -503,18 +503,18 @@ fn assert_pptx_model(host: &Host, id: TabId, edited: bool) {
 }
 
 #[test]
-fn wps_pptx_edit_save_and_fresh_host_reopen_preserves_shape_semantics() {
-    let fixture =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wps-origin-slides.pptx");
-    let original_bytes = fs::read(&fixture).expect("WPS PPTX fixture");
+fn external_pptx_edit_save_and_fresh_host_reopen_preserves_shape_semantics() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/external-origin-slides.pptx");
+    let original_bytes = fs::read(&fixture).expect("external PPTX fixture");
     let source_xml = pptx_xml(&fixture);
-    assert_eq!(source_xml["application"], "WPS 表格");
+    assert_eq!(source_xml["application"], "ExternalOffice");
     assert_pptx_xml(&source_xml, false);
 
     let directory = tempfile::tempdir().expect("output directory");
     let output = directory.path().join("edited.pptx");
     let mut host = Host::default();
-    let id = host.open(&fixture).expect("open WPS PPTX");
+    let id = host.open(&fixture).expect("open external PPTX");
     assert_pptx_model(&host, id, false);
     let Editor::Slides(app) = &mut host.documents.get_mut(&id).expect("open PPTX").editor else {
         panic!("expected presentation editor");
@@ -564,9 +564,9 @@ fn wps_pptx_edit_save_and_fresh_host_reopen_preserves_shape_semantics() {
 }
 
 #[test]
-fn wps_pptx_unedited_save_preserves_exact_shape_geometry() {
-    let fixture =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wps-origin-slides.pptx");
+fn external_pptx_unedited_save_preserves_exact_shape_geometry() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/external-origin-slides.pptx");
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("unedited.pptx");
     let mut host = Host::default();

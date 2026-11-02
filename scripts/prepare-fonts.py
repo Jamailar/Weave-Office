@@ -11,10 +11,12 @@ import subprocess
 import sys
 import tempfile
 
+from weave_volume import dev_volume
+
 
 REPO = "https://github.com/storytold/craft-fonts"
 REV = "37827adc41fd165f9a9234ac40f94dbad353aa69"
-DEFAULT_DIR = Path("/Volumes/Jamba/DevCache/WeaveOffice/inputs/craft-fonts")
+DEFAULT_DIR = dev_volume() / "DevCache/WeaveOffice/inputs/craft-fonts"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MANIFESTS = (
     "fonts/manifest.txt",
@@ -120,11 +122,11 @@ def main() -> int:
     parser.add_argument("--verify-only", action="store_true", help="check an existing checkout without network")
     args = parser.parse_args()
     target = args.dir.expanduser().resolve()
-    volume = Path("/Volumes/Jamba")
+    volume = dev_volume()
     if not volume.is_mount():
-        parser.error("/Volumes/Jamba is not mounted; mount the external volume before preparing fonts")
+        parser.error(f"{volume} is not mounted; mount the external volume (WEAVE_DEV_VOLUME) before preparing fonts")
     if not target.is_relative_to(volume.resolve(strict=True)):
-        parser.error("--dir must be on the mounted Jamba volume")
+        parser.error("--dir must be on the mounted external volume")
     if target.is_relative_to(PROJECT_ROOT):
         parser.error("--dir must be outside this repository")
     try:
