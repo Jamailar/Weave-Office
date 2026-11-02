@@ -161,6 +161,7 @@ fn families(ctx: &egui::Context) -> (FontFamily, FontFamily) {
 
 pub fn show(app: &mut TextApp, ui: &mut Ui) {
     ensure_fonts(ui.ctx());
+    crate::sidebar::begin_frame(app);
     shortcuts(app, ui);
     if app.ribbon_tab.is_some() {
         egui::Panel::top("weave-text-commands")
@@ -182,17 +183,27 @@ pub fn show(app: &mut TextApp, ui: &mut Ui) {
                 .inner_margin(egui::Margin::symmetric(10, 2)),
         )
         .show(ui, |ui| status_bar(app, ui));
-    if app.kind == Kind::Markdown && app.outline {
-        egui::Panel::left("weave-text-outline")
+    egui::Panel::left("weave-text-activity")
+        .exact_size(38.0)
+        .resizable(false)
+        .frame(
+            egui::Frame::NONE
+                .fill(ui.visuals().panel_fill)
+                .inner_margin(egui::Margin::symmetric(4, 0)),
+        )
+        .show(ui, |ui| crate::sidebar::activity_bar(app, ui));
+    if app.sidebar.pane.is_some_and(|p| p.available(app.kind)) {
+        // One id for every text tab, so the width the user drags to is kept across tabs.
+        egui::Panel::left("weave-text-sidebar")
             .resizable(true)
-            .default_size(220.0)
-            .size_range(140.0..=420.0)
+            .default_size(250.0)
+            .size_range(160.0..=480.0)
             .frame(
                 egui::Frame::NONE
                     .fill(ui.visuals().panel_fill)
                     .inner_margin(egui::Margin::same(10)),
             )
-            .show(ui, |ui| outline(app, ui));
+            .show(ui, |ui| crate::sidebar::pane(app, ui));
     }
     if app.find.open {
         egui::Panel::top("weave-text-find")
@@ -255,6 +266,13 @@ fn shortcuts(app: &mut TextApp, ui: &mut Ui) {
                 false
             }
         };
+        key(
+            cmd | shift,
+            Key::F,
+            "edit.searchFolder",
+            json!({}),
+            &mut commands,
+        );
         key(cmd | alt, Key::F, "edit.replace", json!({}), &mut commands);
         key(cmd, Key::F, "edit.find", json!({}), &mut commands);
         key(
@@ -810,10 +828,6 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
                         clicked = Some(("view.mode", json!({"value": value})));
                     }
                 }
-                separator(ui);
-                if ui.selectable_label(app.outline, tr(app, "大纲")).clicked() {
-                    clicked = Some(("view.outline", json!({})));
-                }
             } else if ui
                 .selectable_label(app.line_numbers, tr(app, "行号"))
                 .clicked()
@@ -822,6 +836,16 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
             }
             if ui.selectable_label(app.wrap, tr(app, "自动换行")).clicked() {
                 clicked = Some(("view.wrap", json!({})));
+            }
+            separator(ui);
+            for pane in crate::sidebar::Pane::ALL {
+                if pane.available(app.kind)
+                    && ui
+                        .selectable_label(app.sidebar.pane == Some(pane), tr(app, pane.label()))
+                        .clicked()
+                {
+                    clicked = Some(("view.sidebar", json!({"pane": pane.name(), "toggle": true})));
+                }
             }
             separator(ui);
             button(
@@ -1109,9 +1133,7 @@ pub fn word_count(text: &str) -> usize {
     count
 }
 
-fn outline(app: &mut TextApp, ui: &mut Ui) {
-    ui.label(RichText::new(tr(app, "大纲")).strong());
-    ui.add_space(6.0);
+pub(crate) fn outline(app: &mut TextApp, ui: &mut Ui) {
     let headings: Vec<_> = app
         .cache
         .parsed
@@ -1626,7 +1648,7 @@ fn slug(text: &str) -> String {
         .collect()
 }
 
-fn percent_decode(text: &str) -> String {
+pub(crate) fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
