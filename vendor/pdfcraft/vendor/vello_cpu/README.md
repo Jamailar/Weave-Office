@@ -29,8 +29,9 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 [RenderContext::glyph_run]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
 [RenderMode::OptimizeSpeed]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeSpeed
 [RenderMode::OptimizeQuality]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeQuality
-[`RenderContext::render_to_pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render_to_pixmap
+[`RenderContext::render`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render
 [`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
+[`Resources`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Resources.html
 
 <!-- cargo-rdme start -->
 
@@ -43,15 +44,15 @@ Vello CPU is being developed as part of work to address shortcomings in Vello.
 
 To use Vello CPU, you need to:
 
-- Create a [`RenderContext`][], a 2D drawing context for a fixed-size target area.
+- Create a [`RenderContext`][], a 2D drawing context for a fixed-size scene area.
 - For each object in your scene:
   - Set how the object will be painted, using [`set_paint`][RenderContext::set_paint].
   - Set the shape to be drawn for that object, using methods like [`fill_path`][RenderContext::fill_path],
     [`stroke_path`][RenderContext::stroke_path], or [`glyph_run`][RenderContext::glyph_run].
-- Render it to an image using [`RenderContext::render_to_pixmap`][].
+- Render it to an image using [`RenderContext::render`][].
 
 ```rust
-use vello_cpu::{RenderContext, Resources, Pixmap, RenderMode};
+use vello_cpu::{RenderContext, Resources, Pixmap};
 use vello_cpu::{color::{palette::css, PremulRgba8}, kurbo::Rect};
 let width = 10;
 let height = 5;
@@ -64,7 +65,7 @@ let mut target = Pixmap::new(width, height);
 // While calling `flush` is only strictly necessary if you are rendering using
 // multiple threads, it is recommended to always do this.
 context.flush();
-context.render_to_pixmap(&mut resources, &mut target);
+context.render(&mut target, &mut resources);
 
 let expected_render = b"\
     0000000000\
@@ -87,9 +88,9 @@ for pixel in target.data() {
 assert_eq!(&result, expected_render);
 ```
 
-Feel free to take a look at some further
+See the
 [examples](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
-to better understand how to interact with Vello CPU's API,
+for more complete demonstrations of Vello CPU's API.
 
 ## Features
 
@@ -112,20 +113,26 @@ At least one of `u8_pipeline` and `f32_pipeline` must be enabled.
 You might choose to disable one of these pipelines if your application
 won't use it, so as to reduce binary size.
 
-## Caveats
+## Current state
 
-Overall, Vello CPU is already very feature-rich and should be ready for
-production use cases. The main caveat at the moment is that the API is
-still likely to change and not stable yet. For example, we have
-known plans to change the API around how image resources are used.
+Vello CPU is a solid CPU-only 2D renderer with broad, reliable feature
+support. It provides excellent performance across a wide range of workloads,
+with optimized SIMD implementations for all major architectures. The
+renderer is still under active development, however, and a few limitations
+remain:
 
-Additionally, there are certain APIs that are still very much experimental,
-including for example support for filters. This will be reflected in the
-documentation of those APIs.
+- Complex filter graphs are currently not supported at all and will panic.
+  In multi-threaded mode, even simple filters are currently unsupported.
+- Parts of the API and its documentation are still suboptimal, for example
+  the [`Resources`][] lifecycle.
+- Some exposed features remain experimental and are not recommended for use,
+  including glyph caching. Experimental APIs are identified in their method
+  documentation.
+- There is still more room for performance improvements, in particular on
+  x86 systems and also for multi-threaded rendering.
 
-Another caveat is that multi-threading with large thread counts
-(more than 4) might give diminishing returns, especially when
-making heavy use of layers and clip paths.
+With that said, we are continuously improving Vello CPU and will address
+these and other limitations in future releases.
 
 ## Performance
 
@@ -150,7 +157,7 @@ overview nevertheless.
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello CPU has been verified to compile with **Rust 1.92** and later.
+This version of Vello CPU has been verified to compile with **Rust 1.88** and later.
 
 Future versions of Vello CPU might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.

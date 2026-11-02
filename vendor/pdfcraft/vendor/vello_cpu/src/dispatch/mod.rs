@@ -5,18 +5,18 @@
 pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
-use crate::RenderMode;
+use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
-use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
-use vello_common::filter_effects::Filter;
+use vello_common::filter::FilterData;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
+use vello_common::pixmap::PixmapMut;
 
-pub(crate) trait Dispatcher: Debug + Send + Sync {
-    fn wide(&self) -> &Wide;
+pub(crate) trait Dispatcher: Debug + Send {
+    fn has_layers(&self) -> bool;
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -26,7 +26,6 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
     );
     fn stroke_path(
         &mut self,
@@ -37,7 +36,6 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
     );
     /// Fill a pixel-aligned rectangle with the current paint.
     fn fill_rect_fast(
@@ -46,7 +44,6 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
     );
     fn push_clip_path(
         &mut self,
@@ -65,31 +62,19 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter: Option<Filter>,
+        filter_data: Option<FilterData>,
     );
     fn pop_layer(&mut self);
-    fn reset(&mut self);
-    fn flush(&mut self, encoded_paints: &[EncodedPaint]);
+    fn reset(&mut self, width: u16, height: u16);
+    fn flush(&mut self);
     fn rasterize(
         &self,
-        buffer: &mut [u8],
-        render_mode: RenderMode,
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     );
-    fn composite_at_offset(
-        &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
-        render_mode: RenderMode,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    );
+    fn is_multi_threaded(&self) -> bool;
 }

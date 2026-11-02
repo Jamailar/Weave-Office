@@ -12,6 +12,66 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.2.0][] - 2026-08-07
+
+This release has an [MSRV][] of 1.88.
+
+### Fixed
+
+- Wrong application of extend mode in the y-direction. ([#1803][] by [@LaurenzV][], [@ShiroKSH][])
+
+### Optimized
+
+- Multi-threaded render contexts now initialize task dispatch lazily on the first drawing operation, avoiding unnecessary setup for empty frames and after resets. ([#1787][] by [@LaurenzV][], [@yezhizhen][])
+
+## [0.1.0][] - 2026-07-29
+
+This release has an [MSRV][] of 1.88.
+
+### Added
+
+- `RenderContext::reset_and_resize`, allowing a render context to be reused after its target size changes. ([#1705][] by [@LaurenzV][])
+- `RenderContext::is_multi_threaded` for querying whether the context uses multi-threaded rendering. ([#1703][] by [@LaurenzV][])
+- Inverse blurred rounded rectangles through the new `invert` parameter on `RenderContext::fill_blurred_rounded_rect`, enabling inset box shadows. ([#1715][] by [@nicoburns][])
+- `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: The methods `render_to_pixmap` and `composite_to_pixmap_at_offset`
+  have been replaced with unified `render` and `render_with` methods, whose settings
+  control the target, pixel format, compositing, and rendering mode.
+  ([#1665][] by [@LaurenzV][])
+- The Vello CPU frontend and coarse rasterizer have been rewritten. As a result:
+    - Filter layers always render correctly, even at viewport boundaries.
+    - A number of issues with layer clipping have been fixed.
+    - Performance improves by up to 10% across a variety of rendering workloads. ([#1701][] by [@LaurenzV][])
+
+### Fixed
+
+- Opaque image rendering when blend modes or masks are active. ([#1697][] by [@LaurenzV][])
+- Gaussian blur strength changing abruptly at decimation thresholds. ([#1720][] by [@grebmeg][])
+- Panics when resetting or dropping a multi-threaded render context while worker tasks are still in flight. ([#1732][], [#1756][] by [@yezhizhen][])
+
+### Optimized
+
+- x86 rendering, including blending and high-quality image sampling, through improved SIMD code generation. ([#1688][] by [@LaurenzV][])
+- Clip-path intersection by skipping rows outside the paths' shared vertical extent and locating the first relevant strip with binary search. ([#1690][], [#1691][] by [@LaurenzV][])
+- Radial-gradient evaluation and gradient lookup-table generation. ([#1723][], [#1726][] by [@LaurenzV][])
+- Rendering opaque `peniko::ImageData` by computing and retaining its transparency hint during conversion. ([#1760][] by [@tronical][])
+
+## [0.0.9][] - 2026-05-30
+
+This release has an [MSRV][] of 1.88.
+
+### Fixed
+
+- Rendering of glyphs with complex paints. ([#1668][] by [@LaurenzV][])
+- Rendering of paths with high winding counts. ([#1673][] by [@b0nes164][])
+
+### Optimized
+
+- Optimized rendering of a number of blend modes. ([#1653][] by [@LaurenzV][])
+
 ## [0.0.8][] - 2026-05-15
 
 This release has an [MSRV][] of 1.88.
@@ -149,15 +209,19 @@ This is the initial release. No changelog was kept for this release.
 See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10) release.
 
 [@DJMcNab]: https://github.com/DJMcNab
+[@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
 [@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@oscargus]: https://github.com/oscargus
+[@ShiroKSH]: https://github.com/ShiroKSH
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
+[@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
+[@yezhizhen]: https://github.com/yezhizhen
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -191,8 +255,32 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1613]: https://github.com/linebender/vello/pull/1613
 [#1616]: https://github.com/linebender/vello/pull/1616
 [#1628]: https://github.com/linebender/vello/pull/1628
+[#1653]: https://github.com/linebender/vello/pull/1653
+[#1665]: https://github.com/linebender/vello/pull/1665
+[#1668]: https://github.com/linebender/vello/pull/1668
+[#1673]: https://github.com/linebender/vello/pull/1673
+[#1688]: https://github.com/linebender/vello/pull/1688
+[#1690]: https://github.com/linebender/vello/pull/1690
+[#1691]: https://github.com/linebender/vello/pull/1691
+[#1697]: https://github.com/linebender/vello/pull/1697
+[#1701]: https://github.com/linebender/vello/pull/1701
+[#1703]: https://github.com/linebender/vello/pull/1703
+[#1705]: https://github.com/linebender/vello/pull/1705
+[#1715]: https://github.com/linebender/vello/pull/1715
+[#1720]: https://github.com/linebender/vello/pull/1720
+[#1723]: https://github.com/linebender/vello/pull/1723
+[#1726]: https://github.com/linebender/vello/pull/1726
+[#1732]: https://github.com/linebender/vello/pull/1732
+[#1756]: https://github.com/linebender/vello/pull/1756
+[#1760]: https://github.com/linebender/vello/pull/1760
+[#1763]: https://github.com/linebender/vello/pull/1763
+[#1787]: https://github.com/linebender/vello/pull/1787
+[#1803]: https://github.com/linebender/vello/pull/1803
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
+[0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
+[0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6

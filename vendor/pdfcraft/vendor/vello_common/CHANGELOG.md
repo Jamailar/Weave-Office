@@ -12,6 +12,63 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.2.0][] - 2026-08-07
+
+This release has an [MSRV][] of 1.88.
+
+### Added
+
+- `ProbeResult::statistics`, `ProbeStatistics`, and `ProbeFeature` for diagnosing which renderer-probe features and pixels differ from the reference output. ([#1779][] by [@LaurenzV][])
+- `PROBE_ELEMENTS` for inspecting the active features used by the shared probe scene. ([#1801][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: `AtlasError` variants now report configured limits and allocation sizes, with the new `AtlasSpaceDiagnostics` and `AtlasLayerDiagnostics` types providing per-layer free-space, utilization, and fragmentation details. ([#1778][] by [@grebmeg][])
+
+## [0.1.0][] - 2026-07-29
+
+This release has an [MSRV][] of 1.88.
+
+### Added
+
+- `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
+- Support for inverse blurred rounded rectangles, enabling inset box shadows in the renderer crates. ([#1715][] by [@nicoburns][])
+
+### Changed
+
+- Breaking change: Filter bounds now distinguish the output expansion from the source expansion required to compute a filter. The `bounds_expansion` APIs have been replaced by `filter_expansion` and `source_expansion`. ([#1701][] by [@LaurenzV][])
+- Breaking change: Filter padding now uses the new `PaddingU16` type, `RectU16::intersect` no longer produces inverted rectangles, and `strip_bbox` now returns `Option<RectU16>`. ([#1751][] by [@LaurenzV][])
+
+### Removed
+
+- Breaking change: The old coarse rasterizer and render graph, including the public `coarse` and `render_graph` modules. The rewritten CPU and hybrid renderers no longer use them. ([#1762][] by [@LaurenzV][])
+
+### Fixed
+
+- Opaque image rendering when blend modes or masks are active. ([#1697][] by [@LaurenzV][])
+- Gaussian blur strength changing abruptly at decimation thresholds. ([#1720][] by [@grebmeg][])
+- Fast rectangle rendering at the maximum `u16` coordinates. ([#1666][] by [@dipeshbabu][])
+
+### Optimized
+
+- Clip-path intersection by skipping rows outside the paths' shared vertical extent and locating the first relevant strip with binary search. ([#1690][], [#1691][] by [@LaurenzV][])
+- Gradient lookup-table generation. ([#1726][] by [@LaurenzV][])
+- x86 rendering, including blending and high-quality image sampling, through improved SIMD code generation. ([#1688][] by [@LaurenzV][])
+- Rendering opaque `peniko::ImageData` by computing and retaining its transparency hint during conversion. ([#1760][] by [@tronical][])
+- Filter processing for drop shadows by tightening their source and output bounds. ([#1768][] by [@LaurenzV][])
+
+## [0.0.9][] - 2026-05-30
+
+This release has an [MSRV][] of 1.88.
+
+### Fixed
+
+- Rendering of paths with high winding counts. ([#1673][] by [@b0nes164][])
+
+### Optimized
+
+- Tiling of line segments fully contained in the viewport. ([#1635][] by [@LaurenzV][])
+
 ## [0.0.8][] - 2026-05-15
 
 This release has an [MSRV][] of 1.88.
@@ -169,11 +226,14 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
+[@dipeshbabu]: https://github.com/dipeshbabu
 [@DJMcNab]: https://github.com/waywardmonkeys
 [@grebmeg]: https://github.com/grebmeg
 [@LaurenzV]: https://github.com/LaurenzV
+[@nicoburns]: https://github.com/nicoburns
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
+[@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
 [@valadaptive]: https://github.com/valadaptive
 [@waywardmonkeys]: https://github.com/waywardmonkeys
@@ -232,8 +292,30 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1613]: https://github.com/linebender/vello/pull/1613
 [#1616]: https://github.com/linebender/vello/pull/1616
 [#1634]: https://github.com/linebender/vello/pull/1634
+[#1635]: https://github.com/linebender/vello/pull/1635
+[#1666]: https://github.com/linebender/vello/pull/1666
+[#1673]: https://github.com/linebender/vello/pull/1673
+[#1688]: https://github.com/linebender/vello/pull/1688
+[#1690]: https://github.com/linebender/vello/pull/1690
+[#1691]: https://github.com/linebender/vello/pull/1691
+[#1697]: https://github.com/linebender/vello/pull/1697
+[#1701]: https://github.com/linebender/vello/pull/1701
+[#1715]: https://github.com/linebender/vello/pull/1715
+[#1720]: https://github.com/linebender/vello/pull/1720
+[#1726]: https://github.com/linebender/vello/pull/1726
+[#1751]: https://github.com/linebender/vello/pull/1751
+[#1760]: https://github.com/linebender/vello/pull/1760
+[#1762]: https://github.com/linebender/vello/pull/1762
+[#1763]: https://github.com/linebender/vello/pull/1763
+[#1768]: https://github.com/linebender/vello/pull/1768
+[#1778]: https://github.com/linebender/vello/pull/1778
+[#1779]: https://github.com/linebender/vello/pull/1779
+[#1801]: https://github.com/linebender/vello/pull/1801
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
+[0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
+[0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6

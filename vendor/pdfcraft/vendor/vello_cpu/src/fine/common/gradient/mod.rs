@@ -53,17 +53,22 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        let lut = gradient.f32_lut(simd);
-        let scale_factor: f32x8<S> = f32x8::splat(simd, lut.scale_factor());
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let lut = gradient.f32_lut(simd);
+                let scale_factor: f32x8<S> = f32x8::splat(simd, lut.scale_factor());
 
-        Self {
-            gradient,
-            scale_factor,
-            lut,
-            t_vals: t_vals.chunks_exact(8),
-            has_undefined: gradient.has_undefined,
-            simd,
-        }
+                Self {
+                    gradient,
+                    scale_factor,
+                    lut,
+                    t_vals: t_vals.chunks_exact(8),
+                    has_undefined: gradient.has_undefined,
+                    simd,
+                }
+            },
+        )
     }
 }
 
@@ -91,7 +96,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
 }
 
 impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
-    fn paint_u8(&mut self, buf: &mut [u8]) {
+    fn paint_u8(mut self, buf: &mut [u8]) {
         let max_index = self.lut.width() as u32 - 1;
         let mut masked_iter = self.has_undefined.then_some(self.clone());
 
@@ -140,32 +145,26 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                             indices.simd_eq(u32x8::splat(self.simd, GRADIENT_INVALID_POS));
                         let (invalid_1, invalid_2) = self.simd.split_mask32x8(invalid);
 
-                        let loaded_1 = self
-                            .simd
-                            .reinterpret_u32_u8x16(u8x16::from_slice(self.simd, &chunk[..16]));
+                        let loaded_1: u32x4<S> =
+                            u8x16::from_slice(self.simd, &chunk[..16]).bitcast();
                         let masked_1 =
                             self.simd
                                 .select_u32x4(invalid_1, u32x4::splat(self.simd, 0), loaded_1);
-                        self.simd
-                            .reinterpret_u8_u32x4(masked_1)
-                            .store_slice(&mut chunk[..16]);
+                        masked_1.bitcast::<u8x16<S>>().store_slice(&mut chunk[..16]);
 
-                        let loaded_2 = self
-                            .simd
-                            .reinterpret_u32_u8x16(u8x16::from_slice(self.simd, &chunk[16..]));
+                        let loaded_2: u32x4<S> =
+                            u8x16::from_slice(self.simd, &chunk[16..]).bitcast();
                         let masked_2 =
                             self.simd
                                 .select_u32x4(invalid_2, u32x4::splat(self.simd, 0), loaded_2);
-                        self.simd
-                            .reinterpret_u8_u32x4(masked_2)
-                            .store_slice(&mut chunk[16..]);
+                        masked_2.bitcast::<u8x16<S>>().store_slice(&mut chunk[16..]);
                     }
                 },
             );
         }
     }
 
-    fn paint_f32(&mut self, buf: &mut [f32]) {
+    fn paint_f32(mut self, buf: &mut [f32]) {
         let mut masked_iter = self.has_undefined.then_some(self.clone());
 
         self.simd.vectorize(

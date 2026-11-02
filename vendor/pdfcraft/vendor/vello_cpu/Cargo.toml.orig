@@ -1,7 +1,6 @@
 [package]
 name = "vello_cpu"
-# When moving past 0.0.x, also update caveats in the README
-version = "0.0.8"
+version = "0.2.0"
 description = "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
@@ -35,7 +34,7 @@ std = ["vello_common/std", "glifo?/std"]
 # Use floating point implementations from libm.
 libm = ["vello_common/libm", "glifo?/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
-png = ["dep:png", "vello_common/png", "glifo?/png"]
+png = ["std", "dep:png", "vello_common/png", "glifo?/png"]
 # Enable multi-threaded rendering.
 multithreading = [
     "std",

@@ -75,7 +75,7 @@ features = [
 default-features = false
 
 [dependencies.vello_cpu]
-version = "0.0.8"
+version = "0.2"
 features = [
     "std",
     "png",

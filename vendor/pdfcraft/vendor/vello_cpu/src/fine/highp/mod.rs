@@ -13,10 +13,10 @@
 //! - Debugging and reference implementations
 //! - Platforms where SIMD f32 operations are well-optimized
 
+use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
 use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
-use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use vello_common::fearless_simd::*;
@@ -45,75 +45,20 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         color.as_premul_f32().components
     }
 
-    /// Copies rendered pixels from the scratch buffer to the output region.
-    ///
-    /// Converts f32 color values in [0.0, 1.0] range to u8 [0, 255] with rounding,
-    /// transforming from column-major scratch buffer to row-major region layout.
-    #[inline(always)]
-    fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for y in 0..Tile::HEIGHT {
-                    for (x, pixel) in region
-                        .row_mut(y)
-                        .chunks_exact_mut(COLOR_COMPONENTS)
-                        .enumerate()
-                    {
-                        let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-                        let start = &blend_buf[idx..];
-                        // Convert f32 [0.0, 1.0] to u8 [0, 255] with rounding.
-                        // TODO: Use explicit SIMD for better performance
-                        let converted = [
-                            (start[0] * 255.0 + 0.5) as u8,
-                            (start[1] * 255.0 + 0.5) as u8,
-                            (start[2] * 255.0 + 0.5) as u8,
-                            (start[3] * 255.0 + 0.5) as u8,
-                        ];
-                        pixel.copy_from_slice(&converted);
-                    }
-                }
-            },
-        );
-    }
-
-    /// Copies pixels from the output region to the scratch buffer.
-    ///
-    /// Converts u8 color values [0, 255] to normalized f32 [0.0, 1.0],
-    /// transforming from row-major region layout to column-major scratch buffer.
-    /// This is the inverse operation of `pack`.
-    #[inline(always)]
-    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for y in 0..Tile::HEIGHT {
-                    for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
-                        let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-                        let start = &mut blend_buf[idx..];
-                        // Convert u8 [0, 255] to normalized f32 [0.0, 1.0] (reverse of pack)
-                        start[0] = pixel[0] as f32 / 255.0;
-                        start[1] = pixel[1] as f32 / 255.0;
-                        start[2] = pixel[2] as f32 / 255.0;
-                        start[3] = pixel[3] as f32 / 255.0;
-                    }
-                }
-            },
-        );
-    }
-
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the f32-specific filter implementation.
+    #[expect(
+        private_interfaces,
+        reason = "`FineKernel` is public but this specific method is not needed."
+    )]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        layer_manager: &mut LayerManager,
+        filter_scratch: &mut ScratchBuffer,
         transform: Affine,
     ) {
-        filter_highp(filter, pixmap, layer_manager, transform);
+        filter_highp(filter, pixmap, filter_scratch, transform);
     }
 
     /// Fills a buffer with a solid color using SIMD operations.
@@ -158,32 +103,34 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     ///
     /// Delegates to the painter's f32-specific implementation.
     #[inline(always)]
-    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
+    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], painter: impl Painter + 'a) {
         painter.paint_f32(dest);
     }
 
-    #[inline(always)]
     fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint) {
         let premul = tint.color.premultiply();
         let [r, g, b, a] = premul.components;
-        let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
 
         simd.vectorize(
             #[inline(always)]
-            || match tint.mode {
-                TintMode::AlphaMask => {
-                    for chunk in dest.chunks_exact_mut(16) {
-                        let pixel = f32x16::from_slice(simd, chunk);
-                        let alphas = pixel.splat_4th();
-                        let tinted = tint_v * alphas;
-                        tinted.store_slice(chunk);
+            || {
+                let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
+
+                match tint.mode {
+                    TintMode::AlphaMask => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
+                            let alphas = pixel.splat_4th();
+                            let tinted = tint_v * alphas;
+                            tinted.store_slice(chunk);
+                        }
                     }
-                }
-                TintMode::Multiply => {
-                    for chunk in dest.chunks_exact_mut(16) {
-                        let pixel = f32x16::from_slice(simd, chunk);
-                        let tinted = pixel * tint_v;
-                        tinted.store_slice(chunk);
+                    TintMode::Multiply => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
+                            let tinted = pixel * tint_v;
+                            tinted.store_slice(chunk);
+                        }
                     }
                 }
             },
@@ -321,6 +268,35 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
             }
         }
     }
+
+    fn pack(_simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
+        for y in 0..region.height {
+            let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
+            // TODO: SIMDify
+            for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+                let src = &scratch[idx..idx + COLOR_COMPONENTS];
+                pixel[0] = (src[0] * 255.0 + 0.5) as u8;
+                pixel[1] = (src[1] * 255.0 + 0.5) as u8;
+                pixel[2] = (src[2] * 255.0 + 0.5) as u8;
+                pixel[3] = (src[3] * 255.0 + 0.5) as u8;
+            }
+        }
+    }
+
+    fn unpack(_simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
+        for y in 0..region.height {
+            let row = &region.row_mut(y)[..width * COLOR_COMPONENTS];
+            // TODO: SIMDify + multiply by 1.0/255.0 instead.
+            for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
+                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+                scratch[idx] = pixel[0] as f32 / 255.0;
+                scratch[idx + 1] = pixel[1] as f32 / 255.0;
+                scratch[idx + 2] = pixel[2] as f32 / 255.0;
+                scratch[idx + 3] = pixel[3] as f32 / 255.0;
+            }
+        }
+    }
 }
 
 mod fill {
@@ -385,12 +361,17 @@ mod fill {
         src: T,
         blend_mode: BlendMode,
     ) {
-        for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
-            let bg_v = f32x16::from_slice(simd, next_dest);
-            let src_c = blend::mix(next_src, bg_v, blend_mode);
-            let res = blend_mode.compose(simd, src_c, bg_v, None);
-            res.store_slice(next_dest);
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
+                    let bg_v = f32x16::from_slice(simd, next_dest);
+                    let src_c = blend::mix(next_src, bg_v, blend_mode);
+                    let res = blend_mode.compose(simd, src_c, bg_v, None);
+                    res.store_slice(next_dest);
+                }
+            },
+        );
     }
 
     /// Performs the core alpha compositing calculation.
