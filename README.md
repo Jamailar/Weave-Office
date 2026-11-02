@@ -39,7 +39,7 @@ python3 scripts/cargo.py run --locked --offline
 
 以上入口要求挂载 Jamba，并统一检查外置构建输出和开放字体输入。生成应用包见打包说明。
 
-正式工程使用 Rust 1.95.0，四个上游的固定版本位于 `vendor/`，来源和许可证见[上游记录](vendor/README.md)。相邻的 `wpscraft-references` 保留作参考，正式入口不依赖该目录。
+正式工程使用 Rust 1.95.0，四个上游的固定版本位于 `vendor/`，来源和许可证见[上游记录](vendor/README.md)。开发机上相邻的本地参考仓库目录仅供查阅，正式入口不依赖它。
 
 ## 本机 WPS 分析记录
 

@@ -32,7 +32,7 @@ WPS 是交互与视觉体验参考，不是上述开源代码的来源。本机 
 2. 正式启动入口是 `src/main.rs`；`src/app.rs` 管应用外壳，`src/host.rs` 管工作区和文件生命周期，`src/editor.rs` 负责四种编辑器适配。`crates/workspace/` 管共享工作区状态。
 3. 各编辑器的嵌入接口均在 `vendor/<项目>/crates/ui-egui/src/app/hosted.rs`。改动 vendor 前读对应 `AGENTS.md` / `CLAUDE.md`，同时遵守根项目的用户目标与架构边界。
 4. 公共服务优先查 `src/office_files.rs`（原生文件选择）、`src/clipboard.rs`、`src/printing.rs`、`src/output.rs`、`src/theme.rs`、`src/ui_fonts.rs` 和 `crates/font-assets/`。专业解析、排版、公式或 PDF 对象处理再进入对应引擎。
-5. `integration/` 是早期实验，不是正式桌面入口；`crates/pdf-backend/` 的存在也不代表桌面 PDF 已改走该封装。相邻 `wpscraft-references` 目录只用于参考，正式构建不依赖它。
+5. `integration/` 是早期实验，不是正式桌面入口；`crates/pdf-backend/` 的存在也不代表桌面 PDF 已改走该封装。开发机上相邻的本地参考仓库目录只用于参考，正式构建不依赖它。
 
 ### 修改与升级边界
 
