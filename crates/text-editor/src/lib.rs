@@ -11,6 +11,7 @@ pub mod file;
 mod i18n;
 pub mod layout;
 pub mod markdown;
+pub mod sidebar;
 pub mod syntax;
 mod ui;
 
@@ -68,7 +69,7 @@ pub struct TextApp {
     view: View,
     wrap: bool,
     line_numbers: bool,
-    outline: bool,
+    sidebar: sidebar::Sidebar,
     font_size: f32,
     ribbon_tab: Option<String>,
     find: Find,
@@ -113,7 +114,7 @@ impl TextApp {
             view: View::Live,
             wrap: kind == Kind::Markdown,
             line_numbers: kind == Kind::PlainText,
-            outline: false,
+            sidebar: Default::default(),
             font_size: if kind == Kind::Markdown { 15.0 } else { 13.0 },
             ribbon_tab: Some("home".into()),
             find: Find::default(),
@@ -192,6 +193,18 @@ impl TextApp {
     /// The name of the language the text is highlighted as.
     pub fn language_name(&self) -> &'static str {
         self.language.name
+    }
+
+    /// Put the caret at the start of zero-based `line` and scroll it into view.
+    pub fn jump_to_line(&mut self, line: usize) {
+        let at = edit::offset_of_line(&self.text, line + 1);
+        self.select(Selection::caret(at));
+        self.focus_text = true;
+    }
+
+    /// Which sidebar pane is showing, if any.
+    pub fn sidebar_pane(&self) -> Option<sidebar::Pane> {
+        self.sidebar.pane
     }
 
     /// Mark the document as changed since it was saved (a restored copy).
@@ -520,10 +533,49 @@ impl TextApp {
                     .unwrap_or(!self.line_numbers)
             }
             "view.outline" => {
-                self.outline = params
+                let show = params
                     .get("value")
                     .and_then(Value::as_bool)
-                    .unwrap_or(!self.outline)
+                    .unwrap_or(self.sidebar.pane != Some(sidebar::Pane::Outline));
+                let pane = if show {
+                    Some(sidebar::Pane::Outline)
+                } else {
+                    self.sidebar.pane.filter(|p| *p != sidebar::Pane::Outline)
+                };
+                sidebar::set_pane(self, pane);
+            }
+            "view.sidebar" => {
+                // `{"pane": "files"}` shows a pane, `{"pane": null}` closes the sidebar, and no
+                // pane toggles the last one.
+                let pane = match params.get("pane") {
+                    Some(Value::String(name)) => {
+                        Some(sidebar::Pane::from_name(name).ok_or(self.tr("未知侧栏"))?)
+                    }
+                    Some(Value::Null) => None,
+                    _ => match self.sidebar.pane {
+                        Some(_) => None,
+                        None => Some(sidebar::Pane::Files),
+                    },
+                };
+                if params.get("toggle").and_then(Value::as_bool) == Some(true)
+                    && pane.is_some()
+                    && pane == self.sidebar.pane
+                {
+                    sidebar::set_pane(self, None);
+                } else {
+                    sidebar::set_pane(self, pane);
+                }
+            }
+            "edit.searchFolder" => {
+                if let Some(query) = params.get("query").and_then(Value::as_str) {
+                    sidebar::set_query(self, query.to_owned());
+                } else if !selection.is_empty()
+                    && let Some(selected) =
+                        text.get(selection.range()).filter(|t| !t.contains('\n'))
+                {
+                    sidebar::set_query(self, selected.to_owned());
+                }
+                sidebar::set_pane(self, Some(sidebar::Pane::Search));
             }
             "view.zoomIn" => self.font_size = (self.font_size + 1.0).min(32.0),
             "view.zoomOut" => self.font_size = (self.font_size - 1.0).max(9.0),
