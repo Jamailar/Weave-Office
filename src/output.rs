@@ -1,4 +1,4 @@
-//! Read-only PDF snapshots for the four hosted editors.
+//! Read-only PDF snapshots for the hosted editors.
 //!
 //! The host owns destination selection and writing. Preparing bytes does not
 //! change the editor's path or acknowledge any unsaved changes.
@@ -16,6 +16,22 @@ pub fn pdf_bytes(editor: &mut Editor, purpose: PdfPurpose) -> Result<Vec<u8>, St
     // Flush transient edits first, including the PDF comment composer guard.
     editor.flush()?;
     match editor {
+        // Text files print through the document engine: its Markdown and plain-text
+        // import lays them out as pages.
+        Editor::TextFile(app) => {
+            let name = match app.kind {
+                weave_text_editor::Kind::Markdown => "document.md",
+                weave_text_editor::Kind::PlainText => "document.txt",
+            };
+            let document = wordcraft_engine::io::open_bytes(name, app.text().as_bytes())?;
+            let session = wordcraft_engine::Session::new(document);
+            let (bytes, _) = match purpose {
+                PdfPurpose::Export => session.print_pdf(&json!({})),
+                PdfPurpose::Print => session.print_job_pdf(&json!({})),
+            }
+            .map_err(|error| error.to_string())?;
+            Ok(bytes)
+        }
         Editor::Word(app) => {
             let (bytes, _) = match purpose {
                 PdfPurpose::Export => app.session.print_pdf(&json!({})),

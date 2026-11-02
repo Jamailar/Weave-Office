@@ -32,6 +32,7 @@ fn source_path(editor: &Editor) -> Option<String> {
             .active_ids()
             .and_then(|(_, id)| app.session.get(id))
             .and_then(|doc| doc.path.clone()),
+        Editor::TextFile(app) => app.path().map(|path| path.to_string_lossy().into_owned()),
     }
 }
 
@@ -42,6 +43,8 @@ fn snapshots_include_unsaved_content_without_acknowledging_it() {
         DocumentKind::Text,
         DocumentKind::Spreadsheet,
         DocumentKind::Presentation,
+        DocumentKind::Markdown,
+        DocumentKind::PlainText,
     ] {
         let mut editor = editor(kind);
         match &mut editor {
@@ -64,6 +67,11 @@ fn snapshots_include_unsaved_content_without_acknowledging_it() {
                 app.hosted_command("text.set", json!({"id":shape, "text":marker}))
                     .expect("edit slide");
             }
+            Editor::TextFile(app) => app.apply(weave_text_editor::edit::Edit {
+                range: 0..0,
+                text: format!("# {marker}\n"),
+                selection: weave_text_editor::edit::Selection::caret(0),
+            }),
             Editor::Pdf(_) => unreachable!(),
         }
         let dirty = editor.dirty();

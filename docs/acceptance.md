@@ -335,3 +335,11 @@ Linux x86_64 release 二进制为 258,079,952 字节，比上一节的 257,736,0
 - 文字中的 EMF/WMF 图片改由演示的解析器读取；测试用例上两者结果完全相同，但仓库里没有真实的 EMF/WMF 样例文件。
 
 尚未做 macOS GUI 复验，`.app` 体积也需本机重新打包后记录。
+
+## 2026-11-02：Markdown 与纯文本编辑器
+
+新增 `DocumentKind::Markdown` 和 `DocumentKind::PlainText`，由 `crates/text-editor`（weave-text-editor）编辑。`.md`/`.txt` 以前由文字编辑器打开并转成富文本，现在改为原样编辑；文字编辑器仍可通过“导出 PDF/打印”间接使用（文本交给 WordCraft 的 Markdown/TXT 导入后排版）。
+
+- 自动化：text-editor 单测覆盖编码往返（UTF-8/BOM、UTF-16、GBK、CRLF 字节一致）、二进制拒绝、各语言词法、Markdown 标记与装饰、编辑命令、查找替换、撤销；宿主 `host_integration`、`pdf_export` 与恢复测试把两种新类型加入原有六项流程（新建、编辑、保存、关闭、重开、撤销隔离、写入失败、PDF 快照）。
+- Linux Xvfb 实机截图确认：实时预览隐藏标记、光标行显示标记、代码块隐藏围栏并显示语言、任务复选框、引用竖线、分隔线、查找高亮、代码行号与高亮。
+- 待 Mac 验收：粗体（中文依赖 PingFang Medium，Linux 后备字体无中文粗体）、各级标题字号、深色模式配色、输入法下回车与 Tab、⌘ 点击链接与 `[[双链]]` 打开本地笔记。

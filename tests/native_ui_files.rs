@@ -60,6 +60,7 @@ fn fresh_host_reads_the_four_files_saved_through_the_native_ui() {
         );
         let editor = &mut host.documents.get_mut(&id).expect("fresh editor").editor;
         match editor {
+            Editor::TextFile(_) => unreachable!("no text files in this fixture"),
             Editor::Word(app) => {
                 let result = app
                     .hosted_command("document.text", json!({}))
@@ -310,6 +311,7 @@ fn fresh_host_reads_native_image_inserts_without_changing_evidence() {
             .unwrap_or_else(|error| panic!("Cannot reopen {}: {error}", path.display()));
         assert!(!host.dirty(id), "{} opened dirty", path.display());
         let (matches, total) = match &host.documents[&id].editor {
+            Editor::TextFile(_) => unreachable!("no text files in this fixture"),
             Editor::Word(app) => (
                 app.session
                     .doc

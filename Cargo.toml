@@ -6,7 +6,7 @@ rust-version = "1.95"
 description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
 
 [workspace]
-members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon"]
+members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon", "crates/text-editor"]
 exclude = ["integration", "vendor/wordcraft", "vendor/gridcraft", "vendor/deckcraft", "vendor/pdfcraft"]
 resolver = "2"
 
@@ -26,6 +26,8 @@ deckcraft-fonts = { path = "vendor/deckcraft/crates/fonts", features = ["shared-
 pdfcraft-fonts = { path = "vendor/pdfcraft/crates/fonts", features = ["shared-font-assets"] }
 # The host draws every editor's ribbon tab row (crates/ribbon); the editors draw the commands below.
 weave-ribbon = { path = "crates/ribbon" }
+# Markdown (live preview) and plain-text/code editing.
+weave-text-editor = { path = "crates/text-editor" }
 wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "host-ribbon"] }
 wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
 wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }

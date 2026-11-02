@@ -9,17 +9,66 @@ pub enum DocumentKind {
     Spreadsheet,
     Presentation,
     Pdf,
+    /// A Markdown note, edited as text with live preview.
+    Markdown,
+    /// Any other text file: plain text, source code, data and configuration files.
+    PlainText,
 }
+
+/// Extensions that are text without looking inside. Other files may still be text: the host
+/// reads the start of a file with an unknown extension before refusing it.
+#[rustfmt::skip]
+const TEXT_EXTENSIONS: &[&str] = &[
+    "txt", "text", "log", "json", "jsonc", "json5", "geojson", "ipynb", "yaml", "yml", "toml",
+    "ini", "cfg", "conf", "properties", "env", "xml", "svg", "html", "htm", "xhtml",
+    "css", "scss", "sass", "less", "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue",
+    "svelte", "py", "pyi", "rs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "cs",
+    "java", "kt", "kts", "swift", "m", "mm", "php", "rb", "lua", "sh", "bash", "zsh", "fish",
+    "ps1", "psm1", "bat", "cmd", "sql", "r", "pl", "dart", "scala", "groovy", "gradle", "tex",
+    "bib", "srt", "vtt", "tsv", "diff", "patch", "gitignore", "dockerfile", "mk", "lock",
+    "editorconfig", "csproj", "props", "targets",
+];
 
 impl DocumentKind {
     pub fn from_path(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
         match ext.as_str() {
-            "docx" | "docm" | "doc" | "odt" | "rtf" | "txt" | "md" => Some(Self::Text),
+            "docx" | "docm" | "doc" | "odt" | "rtf" => Some(Self::Text),
             "xlsx" | "xlsm" | "xls" | "ods" | "csv" => Some(Self::Spreadsheet),
             "pptx" | "pptm" | "ppt" | "odp" => Some(Self::Presentation),
             "pdf" => Some(Self::Pdf),
+            "md" | "markdown" | "mdown" | "mkd" | "mdx" => Some(Self::Markdown),
+            ext if TEXT_EXTENSIONS.contains(&ext) => Some(Self::PlainText),
             _ => None,
+        }
+    }
+
+    /// The extension a new document of this kind is saved with.
+    pub fn default_extension(self) -> &'static str {
+        match self {
+            Self::Text => "docx",
+            Self::Spreadsheet => "xlsx",
+            Self::Presentation => "pptx",
+            Self::Pdf => "pdf",
+            Self::Markdown => "md",
+            Self::PlainText => "txt",
+        }
+    }
+
+    /// Whether this kind of document can be saved to `path`. Office documents and PDFs keep
+    /// their own format; a text file can be saved under any name, Markdown as Markdown.
+    pub fn can_save_to(self, path: &Path) -> bool {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
+        match self {
+            Self::PlainText => true,
+            Self::Markdown => matches!(
+                ext.as_deref(),
+                Some("md" | "markdown" | "mdown" | "mkd" | "mdx" | "txt")
+            ),
+            _ => ext.as_deref() == Some(self.default_extension()),
         }
     }
 }
@@ -209,7 +258,7 @@ mod tests {
         assert!(!w.tabs()[0].is_dirty());
     }
     #[test]
-    fn recognizes_four_office_types_without_ambiguous_extensions() {
+    fn recognizes_document_types_without_ambiguous_extensions() {
         assert_eq!(
             DocumentKind::from_path(Path::new("a.DOCX")),
             Some(DocumentKind::Text)
@@ -227,5 +276,24 @@ mod tests {
             Some(DocumentKind::Pdf)
         );
         assert_eq!(DocumentKind::from_path(Path::new("e.zip")), None);
+        assert_eq!(
+            DocumentKind::from_path(Path::new("notes.MD")),
+            Some(DocumentKind::Markdown)
+        );
+        for name in ["a.txt", "b.json", "c.rs", "d.yaml"] {
+            assert_eq!(
+                DocumentKind::from_path(Path::new(name)),
+                Some(DocumentKind::PlainText)
+            );
+        }
+    }
+    #[test]
+    fn save_targets_follow_each_kind() {
+        assert!(DocumentKind::Text.can_save_to(Path::new("a.DOCX")));
+        assert!(!DocumentKind::Text.can_save_to(Path::new("a.md")));
+        assert!(DocumentKind::Markdown.can_save_to(Path::new("a.markdown")));
+        assert!(!DocumentKind::Markdown.can_save_to(Path::new("a.docx")));
+        assert!(DocumentKind::PlainText.can_save_to(Path::new("Makefile")));
+        assert!(DocumentKind::PlainText.can_save_to(Path::new("a.json")));
     }
 }

@@ -84,52 +84,74 @@ pub fn show(ctx: &egui::Context, anchor: Anchor, open: &mut bool) -> Option<Docu
         ui.set_width(312.0);
         ui.label(egui::RichText::new(tr("新建")).size(22.0).strong());
         ui.add_space(20.0);
-        ui.label(egui::RichText::new(tr("Office 文档")).size(13.0).strong());
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            for (kind, label) in [
-                (DocumentKind::Text, tr("文字")),
-                (DocumentKind::Presentation, tr("演示")),
-                (DocumentKind::Spreadsheet, tr("表格")),
-                (DocumentKind::Pdf, "PDF"),
-            ] {
-                let (rect, response) =
-                    ui.allocate_exact_size(vec2(73.5, 82.0), egui::Sense::click());
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
-                if response.hovered() || response.has_focus() {
-                    ui.painter()
-                        .rect_filled(rect, 6, ui.visuals().widgets.hovered.weak_bg_fill);
-                }
-                if response.has_focus() {
-                    ui.painter().rect_stroke(
-                        rect,
-                        6,
-                        Stroke::new(1.0, ui.visuals().selection.bg_fill),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-                icons::document(
-                    ui.painter(),
-                    Rect::from_center_size(
-                        Pos2::new(rect.center().x, rect.top() + 26.0),
-                        vec2(40.0, 40.0),
-                    ),
-                    kind,
-                );
-                ui.painter().text(
-                    Pos2::new(rect.center().x, rect.top() + 64.0),
-                    egui::Align2::CENTER_CENTER,
-                    label,
-                    egui::FontId::proportional(12.5),
-                    ui.visuals().text_color(),
-                );
-                if response.clicked() {
-                    selected = Some(kind);
-                    ui.close();
-                }
+        let groups: [(&str, &[(DocumentKind, &str)]); 2] = [
+            (
+                tr("Office 文档"),
+                &[
+                    (DocumentKind::Text, tr("文字")),
+                    (DocumentKind::Presentation, tr("演示")),
+                    (DocumentKind::Spreadsheet, tr("表格")),
+                    (DocumentKind::Pdf, "PDF"),
+                ],
+            ),
+            (
+                tr("文本"),
+                &[
+                    (DocumentKind::Markdown, "Markdown"),
+                    (DocumentKind::PlainText, tr("纯文本")),
+                ],
+            ),
+        ];
+        for (index, (title, kinds)) in groups.into_iter().enumerate() {
+            if index > 0 {
+                ui.add_space(14.0);
             }
-        });
+            ui.label(egui::RichText::new(title).size(13.0).strong());
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for &(kind, label) in kinds {
+                    let (rect, response) =
+                        ui.allocate_exact_size(vec2(73.5, 82.0), egui::Sense::click());
+                    response
+                        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+                    if response.hovered() || response.has_focus() {
+                        ui.painter().rect_filled(
+                            rect,
+                            6,
+                            ui.visuals().widgets.hovered.weak_bg_fill,
+                        );
+                    }
+                    if response.has_focus() {
+                        ui.painter().rect_stroke(
+                            rect,
+                            6,
+                            Stroke::new(1.0, ui.visuals().selection.bg_fill),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    icons::document(
+                        ui.painter(),
+                        Rect::from_center_size(
+                            Pos2::new(rect.center().x, rect.top() + 26.0),
+                            vec2(40.0, 40.0),
+                        ),
+                        kind,
+                    );
+                    ui.painter().text(
+                        Pos2::new(rect.center().x, rect.top() + 64.0),
+                        egui::Align2::CENTER_CENTER,
+                        label,
+                        egui::FontId::proportional(12.5),
+                        ui.visuals().text_color(),
+                    );
+                    if response.clicked() {
+                        selected = Some(kind);
+                        ui.close();
+                    }
+                }
+            });
+        }
     });
     selected
 }

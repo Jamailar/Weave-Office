@@ -277,7 +277,7 @@ impl OfficeFiles {
                     );
                 }));
             }
-            Editor::Pdf(_) => {}
+            Editor::Pdf(_) | Editor::TextFile(_) => {}
         }
     }
 
