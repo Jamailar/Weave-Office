@@ -14,6 +14,23 @@ use egui::text::{LayoutJob, LayoutSection, TextFormat, TextWrapping};
 use egui::{Color32, FontFamily, FontId, Galley, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use std::sync::Arc;
 
+/// What a stretch of a galley's characters shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// A text node. `bytes[i]` is the node's byte offset of the stretch's character `i`, and
+    /// the last entry is the offset after the stretch.
+    Text { node: NodeId, bytes: Vec<usize> },
+    /// A line break: the position before the `<br>` (its parent and index).
+    Break { parent: NodeId, index: usize },
+}
+
+/// A stretch of galley characters and where they come from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Seg {
+    pub chars: std::ops::Range<usize>,
+    pub target: Target,
+}
+
 #[derive(Clone)]
 pub enum Item {
     /// A box's background and borders.
@@ -29,6 +46,8 @@ pub enum Item {
         node: NodeId,
         pos: Pos2,
         galley: Arc<Galley>,
+        /// Where the galley's characters come from (empty for list markers).
+        map: Arc<[Seg]>,
     },
     Image {
         node: NodeId,
@@ -157,11 +176,62 @@ struct Laid {
 
 enum Piece {
     /// One text job's worth of inline content.
-    Text(LayoutJob),
+    Text(Run),
     /// A picture or inline block.
     Atom(NodeId),
-    /// An empty line held open by a `<br>`.
-    Blank(f32),
+}
+
+/// A text job being built, with where its characters come from.
+struct Run {
+    job: LayoutJob,
+    map: Vec<Seg>,
+    chars: usize,
+}
+
+impl Run {
+    fn push(&mut self, text: &str, format: TextFormat, leading_space: f32, target: Target) {
+        let start = self.job.text.len();
+        let count = text.chars().count();
+        self.job.text.push_str(text);
+        self.job.sections.push(LayoutSection {
+            leading_space,
+            byte_range: egui::text::ByteIndex(start)..egui::text::ByteIndex(self.job.text.len()),
+            format,
+        });
+        self.map.push(Seg {
+            chars: self.chars..self.chars + count,
+            target,
+        });
+        self.chars += count;
+    }
+
+    /// Cut the text to `bytes`, fixing the sections and the map.
+    fn truncate(&mut self, bytes: usize) {
+        if bytes >= self.job.text.len() {
+            return;
+        }
+        self.job.text.truncate(bytes);
+        self.chars = self.job.text.chars().count();
+        for section in &mut self.job.sections {
+            section.byte_range.end = egui::text::ByteIndex(section.byte_range.end.0.min(bytes));
+            section.byte_range.start = egui::text::ByteIndex(section.byte_range.start.0.min(bytes));
+        }
+        let chars = self.chars;
+        for seg in &mut self.map {
+            let start = seg.chars.start.min(chars);
+            let end = seg.chars.end.min(chars);
+            if let Target::Text { bytes, .. } = &mut seg.target {
+                bytes.truncate(end - start + 1);
+            }
+            seg.chars = start..end;
+        }
+    }
+
+    /// Drop spaces at the end (a line's end).
+    fn trim_trailing_spaces(&mut self) {
+        let trimmed = self.job.text.trim_end_matches(' ').len();
+        self.truncate(trimmed);
+    }
 }
 
 impl Cx<'_> {
@@ -373,7 +443,7 @@ impl Cx<'_> {
     fn inline(&mut self, block: NodeId, run: &[NodeId], x: f32, y: f32, width: f32) -> f32 {
         let block_style = self.style(block).clone();
         let mut pieces = Vec::new();
-        let mut job = self.new_job(&block_style, width);
+        let mut job = self.new_run(&block_style, width);
         let mut first_text = true;
         for &id in run {
             self.collect(
@@ -398,8 +468,7 @@ impl Cx<'_> {
                             self.atom_rows(block, &std::mem::take(&mut atoms), x, cursor, width);
                     }
                     match other {
-                        Piece::Text(job) => cursor += self.text(block, job, x, cursor, width),
-                        Piece::Blank(height) => cursor += height,
+                        Piece::Text(run) => cursor += self.text(block, run, x, cursor, width),
                         Piece::Atom(_) => {}
                     }
                 }
@@ -409,6 +478,14 @@ impl Cx<'_> {
             cursor += self.atom_rows(block, &atoms, x, cursor, width);
         }
         cursor - y
+    }
+
+    fn new_run(&self, block: &Style, width: f32) -> Run {
+        Run {
+            job: self.new_job(block, width),
+            map: Vec::new(),
+            chars: 0,
+        }
     }
 
     fn new_job(&self, block: &Style, width: f32) -> LayoutJob {
@@ -432,33 +509,31 @@ impl Cx<'_> {
         }
     }
 
-    fn finish_job(&self, mut job: LayoutJob, pieces: &mut Vec<Piece>, block: &Style) {
-        // A trailing space or line break adds nothing.
-        let had_text = !job.text.is_empty();
-        while job.text.ends_with(' ') || job.text.ends_with('\n') {
-            if job.text.ends_with('\n') && job.text.trim_end_matches(' ').len() == job.text.len() {
-                // Keep the break if the text is only breaks (an empty paragraph: `<p><br></p>`).
-                if job.text.trim_matches('\n').is_empty() {
-                    break;
-                }
-            }
-            job.text.pop();
+    fn finish_job(&self, mut run: Run, pieces: &mut Vec<Piece>, _block: &Style) {
+        // Spaces at the end show nothing, and neither does one final line break: a paragraph
+        // `ab<br>` is one line, `ab<br><br>` two, `<br>` alone one empty line.
+        run.trim_trailing_spaces();
+        if run.job.text.ends_with('\n') {
+            let len = run.job.text.len() - 1;
+            run.truncate(len);
         }
-        if let Some(last) = job.sections.last_mut() {
-            last.byte_range.end = egui::text::ByteIndex(last.byte_range.end.0.min(job.text.len()));
+        if run.map.is_empty() {
+            return;
         }
-        job.sections
+        let format = run.job.sections.first().map(|s| s.format.clone());
+        run.job
+            .sections
             .retain(|s| s.byte_range.start < s.byte_range.end);
-        if job.text.is_empty() || job.sections.is_empty() {
-            return;
+        if run.job.sections.is_empty() {
+            // Nothing but an empty line: one empty section keeps its height.
+            let Some(format) = format else { return };
+            run.job.sections.push(LayoutSection {
+                leading_space: 0.0,
+                byte_range: egui::text::ByteIndex(0)..egui::text::ByteIndex(0),
+                format,
+            });
         }
-        if job.text.chars().all(|c| c == '\n') {
-            let lines = job.text.len().max(1) as f32;
-            pieces.push(Piece::Blank(block.line_px() * lines));
-            return;
-        }
-        let _ = had_text;
-        pieces.push(Piece::Text(job));
+        pieces.push(Piece::Text(run));
     }
 
     /// Walk inline content, appending text to `job` and splitting it at atoms.
@@ -467,7 +542,7 @@ impl Cx<'_> {
         &mut self,
         id: NodeId,
         background: Option<Color32>,
-        job: &mut LayoutJob,
+        job: &mut Run,
         pieces: &mut Vec<Piece>,
         block: &Style,
         width: f32,
@@ -477,7 +552,7 @@ impl Cx<'_> {
             Display::None => return,
             Display::Inline => {}
             _ => {
-                let finished = std::mem::replace(job, self.new_job(block, width));
+                let finished = std::mem::replace(job, self.new_run(block, width));
                 self.finish_job(finished, pieces, block);
                 pieces.push(Piece::Atom(id));
                 return;
@@ -486,43 +561,35 @@ impl Cx<'_> {
         match &self.doc.node(id).kind {
             Kind::Text(text) => {
                 let style = self.style(id).clone();
-                let text = if style.pre {
-                    text.replace("\r\n", "\n").replace('\t', "    ")
+                let (text, bytes) = if style.pre {
+                    preformatted(text)
                 } else {
                     collapse_whitespace(
                         text,
-                        job.text.is_empty() || job.text.ends_with([' ', '\n']),
+                        job.job.text.is_empty() || job.job.text.ends_with([' ', '\n']),
                     )
                 };
                 if text.is_empty() {
                     return;
                 }
-                let start = job.text.len();
-                job.text.push_str(&text);
                 let indent = if *first_text {
                     *first_text = false;
                     block.text_indent.or_zero(width)
                 } else {
                     0.0
                 };
-                job.sections.push(LayoutSection {
-                    leading_space: indent,
-                    byte_range: egui::text::ByteIndex(start)..egui::text::ByteIndex(job.text.len()),
-                    format: self.format(&style, background),
-                });
+                let format = self.format(&style, background);
+                job.push(&text, format, indent, Target::Text { node: id, bytes });
             }
             Kind::Element { name, .. } => {
                 if name == "br" {
-                    trim_trailing_spaces(job);
+                    job.trim_trailing_spaces();
                     let style = self.style(id).clone();
-                    let start = job.text.len();
-                    job.text.push('\n');
-                    job.sections.push(LayoutSection {
-                        leading_space: 0.0,
-                        byte_range: egui::text::ByteIndex(start)
-                            ..egui::text::ByteIndex(job.text.len()),
-                        format: self.format(&style, None),
-                    });
+                    let target = Target::Break {
+                        parent: self.doc.node(id).parent.unwrap_or(0),
+                        index: self.doc.index_in_parent(id).unwrap_or(0),
+                    };
+                    job.push("\n", self.format(&style, None), 0.0, target);
                     return;
                 }
                 let background = self.style(id).background.or(background);
@@ -569,7 +636,8 @@ impl Cx<'_> {
         }
     }
 
-    fn text(&mut self, block: NodeId, job: LayoutJob, x: f32, y: f32, width: f32) -> f32 {
+    fn text(&mut self, block: NodeId, run: Run, x: f32, y: f32, width: f32) -> f32 {
+        let Run { job, map, .. } = run;
         let halign = job.halign;
         let galley = self.ctx.fonts_mut(|fonts| fonts.layout_job(job));
         let anchor = match halign {
@@ -582,6 +650,7 @@ impl Cx<'_> {
             node: block,
             pos: pos2(anchor, y),
             galley,
+            map: map.into(),
         });
         height
     }
@@ -737,6 +806,7 @@ impl Cx<'_> {
             node: item,
             pos,
             galley,
+            map: Arc::from(Vec::new()),
         });
     }
 
@@ -991,37 +1061,57 @@ impl Cx<'_> {
     }
 }
 
-/// Drop spaces at the end of the job's text (a line's end), fixing the sections.
-fn trim_trailing_spaces(job: &mut LayoutJob) {
-    let trimmed = job.text.trim_end_matches(' ').len();
-    if trimmed == job.text.len() {
-        return;
-    }
-    job.text.truncate(trimmed);
-    for section in &mut job.sections {
-        section.byte_range.end = egui::text::ByteIndex(section.byte_range.end.0.min(trimmed));
-        section.byte_range.start = egui::text::ByteIndex(section.byte_range.start.0.min(trimmed));
-    }
-    job.sections
-        .retain(|s| s.byte_range.start < s.byte_range.end);
-}
-
-/// Collapse runs of HTML whitespace to one space (non-breaking spaces stay).
-fn collapse_whitespace(text: &str, at_line_start: bool) -> String {
+/// Collapse runs of HTML whitespace to one space (non-breaking spaces stay). Returns the text
+/// and, for each character, its byte offset in `text`, then the offset after the last.
+fn collapse_whitespace(text: &str, at_line_start: bool) -> (String, Vec<usize>) {
     let mut out = String::with_capacity(text.len());
+    let mut bytes = Vec::with_capacity(text.len() + 1);
     let mut space = at_line_start;
-    for c in text.chars() {
+    for (i, c) in text.char_indices() {
         if matches!(c, ' ' | '\n' | '\t' | '\r' | '\u{c}') {
             if !space {
                 out.push(' ');
+                bytes.push(i);
                 space = true;
             }
         } else {
             out.push(c);
+            bytes.push(i);
             space = false;
         }
     }
-    out
+    bytes.push(text.len());
+    (out, bytes)
+}
+
+/// Preformatted text: line endings become `\n`, tabs four spaces.
+fn preformatted(text: &str) -> (String, Vec<usize>) {
+    let mut out = String::with_capacity(text.len());
+    let mut bytes = Vec::with_capacity(text.len() + 1);
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\r' => {
+                if chars.peek().is_some_and(|&(_, n)| n == '\n') {
+                    chars.next();
+                }
+                out.push('\n');
+                bytes.push(i);
+            }
+            '\t' => {
+                for _ in 0..4 {
+                    out.push(' ');
+                    bytes.push(i);
+                }
+            }
+            c => {
+                out.push(c);
+                bytes.push(i);
+            }
+        }
+    }
+    bytes.push(text.len());
+    (out, bytes)
 }
 
 fn alpha(mut n: i64, upper: bool) -> String {

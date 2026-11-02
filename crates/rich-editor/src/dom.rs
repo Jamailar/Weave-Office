@@ -154,6 +154,148 @@ impl Document {
         id
     }
 
+    /// Insert a new node as child `index` of `parent`.
+    pub fn insert(&mut self, parent: NodeId, index: usize, kind: Kind) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Node {
+            kind,
+            parent: Some(parent),
+            children: Vec::new(),
+        });
+        let index = index.min(self.nodes[parent].children.len());
+        self.nodes[parent].children.insert(index, id);
+        id
+    }
+
+    /// Take a node out of the tree (it stays in the arena, unreachable).
+    pub fn detach(&mut self, id: NodeId) {
+        if let Some(parent) = self.nodes[id].parent.take() {
+            self.nodes[parent].children.retain(|&c| c != id);
+        }
+    }
+
+    /// Put a detached node back as child `index` of `parent`.
+    pub fn attach(&mut self, id: NodeId, parent: NodeId, index: usize) {
+        self.detach(id);
+        let index = index.min(self.nodes[parent].children.len());
+        self.nodes[parent].children.insert(index, id);
+        self.nodes[id].parent = Some(parent);
+    }
+
+    pub fn index_in_parent(&self, id: NodeId) -> Option<usize> {
+        let parent = self.nodes[id].parent?;
+        self.nodes[parent].children.iter().position(|&c| c == id)
+    }
+
+    /// Child indices from the root to `id`.
+    pub fn path(&self, id: NodeId) -> Vec<usize> {
+        let mut path = Vec::new();
+        let mut at = id;
+        while let Some(index) = self.index_in_parent(at) {
+            path.push(index);
+            at = self.nodes[at].parent.unwrap_or(ROOT);
+        }
+        path.reverse();
+        path
+    }
+
+    pub fn at_path(&self, path: &[usize]) -> Option<NodeId> {
+        let mut at = ROOT;
+        for &index in path {
+            at = *self.nodes[at].children.get(index)?;
+        }
+        Some(at)
+    }
+
+    /// Whether `ancestor` contains `id` (or is it).
+    pub fn contains(&self, ancestor: NodeId, id: NodeId) -> bool {
+        let mut at = Some(id);
+        while let Some(node) = at {
+            if node == ancestor {
+                return true;
+            }
+            at = self.nodes[node].parent;
+        }
+        false
+    }
+
+    pub fn text(&self, id: NodeId) -> Option<&str> {
+        match &self.nodes[id].kind {
+            Kind::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub fn text_mut(&mut self, id: NodeId) -> Option<&mut String> {
+        match &mut self.nodes[id].kind {
+            Kind::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub fn set_attr(&mut self, id: NodeId, key: &str, value: Option<&str>) {
+        if let Kind::Element { attrs, .. } = &mut self.nodes[id].kind {
+            match value {
+                Some(value) => match attrs.iter_mut().find(|(k, _)| k == key) {
+                    Some(slot) => slot.1 = value.to_string(),
+                    None => attrs.push((key.to_string(), value.to_string())),
+                },
+                None => attrs.retain(|(k, _)| k != key),
+            }
+        }
+    }
+
+    pub fn rename(&mut self, id: NodeId, new_name: &str) {
+        if let Kind::Element { name, .. } = &mut self.nodes[id].kind {
+            *name = new_name.to_string();
+        }
+    }
+
+    /// A new, detached element with the same name and attributes as `id`.
+    pub fn clone_shallow(&mut self, id: NodeId) -> NodeId {
+        let kind = self.nodes[id].kind.clone();
+        let new = self.nodes.len();
+        self.nodes.push(Node {
+            kind,
+            parent: None,
+            children: Vec::new(),
+        });
+        new
+    }
+
+    /// A new, detached node.
+    pub fn create(&mut self, kind: Kind) -> NodeId {
+        let new = self.nodes.len();
+        self.nodes.push(Node {
+            kind,
+            parent: None,
+            children: Vec::new(),
+        });
+        new
+    }
+
+    /// Copy the subtree at `id` of `other` into this arena, detached.
+    pub fn import(&mut self, other: &Document, id: NodeId) -> NodeId {
+        let new = self.create(other.nodes[id].kind.clone());
+        for &child in &other.nodes[id].children {
+            let copy = self.import(other, child);
+            self.nodes[copy].parent = Some(new);
+            self.nodes[new].children.push(copy);
+        }
+        new
+    }
+
+    /// Nodes in document order (depth first) under `id`, `id` included.
+    pub fn descendants(&self, id: NodeId) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        let mut stack = vec![id];
+        while let Some(node) = stack.pop() {
+            out.push(node);
+            stack.extend(self.nodes[node].children.iter().rev());
+        }
+        out
+    }
+
     /// The first element named `name`, depth first.
     pub fn find(&self, name: &str) -> Option<NodeId> {
         let mut stack = vec![ROOT];

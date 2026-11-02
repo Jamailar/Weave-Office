@@ -15,9 +15,31 @@ pub fn tr(zh: bool, text: &str) -> &str {
             "This page uses scripts or style sheets; the design view shows inline styles only"
         }
         "网络图片不加载" => "Web pictures are not loaded",
-        "设计视图暂不能直接编辑,请切换到源码修改" => {
-            "Editing in the design view is coming; switch to Source to edit"
+        "开始" => "Home",
+        "正文" => "Body",
+        "标题 1" => "Heading 1",
+        "标题 2" => "Heading 2",
+        "标题 3" => "Heading 3",
+        "引用" => "Quote",
+        "字号" => "Size",
+        "加粗" => "Bold",
+        "斜体" => "Italic",
+        "下划线" => "Underline",
+        "删除线" => "Strikethrough",
+        "文字颜色" => "Text color",
+        "背景色" => "Highlight",
+        "默认颜色" => "Automatic",
+        "无背景" => "No highlight",
+        "清除格式" => "Clear formatting",
+        "去掉所选文字的字体、颜色和背景" => {
+            "Remove fonts, colors and highlights from the selection"
         }
+        "左对齐" => "Left",
+        "居中" => "Center",
+        "右对齐" => "Right",
+        "两端对齐" => "Justify",
+        "行距" => "Spacing",
+        "首行缩进" => "Indent",
         other => other,
     }
 }

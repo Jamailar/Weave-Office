@@ -209,6 +209,13 @@ impl Editor {
                     None => weave_rich_editor::RichApp::new(),
                 };
                 app.set_language_code(language::current().code());
+                let (read_html, read_text, write) =
+                    (clipboard.clone(), clipboard.clone(), clipboard.clone());
+                app.set_clipboard(weave_rich_editor::ClipboardHooks {
+                    read_html: Box::new(move || read_html.html()),
+                    read_text: Box::new(move || read_text.text()),
+                    write: Box::new(move |html, text| write.write_rich(html, text, "")),
+                });
                 Self::Rich(Box::new(app))
             }
         })
