@@ -37,10 +37,12 @@ sys-locale = { version = "0.3", features = ["js"] }
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
 
 [features]
-default = ["updater"]
+default = ["updater", "all-locales"]
 # The editor's own release check and update prompt. An embedding host that owns releases turns
 # default features off to leave out the updater and its network stack.
 updater = ["dep:craft-update"]
+# Every craft-i18n locale; without it only Simplified Chinese is embedded (English is built in).
+all-locales = []
 shared-font-assets = ["dep:weave-font-assets", "wordcraft-fonts/shared-font-assets"]
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
