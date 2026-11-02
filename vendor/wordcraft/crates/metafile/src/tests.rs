@@ -2,7 +2,16 @@
 
 use crate::canvas::Canvas;
 use crate::dib::Rgba;
-use crate::{Error, Item, MAX_BYTES, MAX_ITEMS, Seg, is_metafile, parse};
+use crate::{Error, Item, MAX_BYTES, MAX_ITEMS, Seg, is_metafile};
+
+/// Every parse in these tests also checks that the reader in use (the shared one, with
+/// `shared-metafile`) reads the file as this crate's own reader does.
+fn parse(bytes: &[u8]) -> Result<crate::Picture, Error> {
+    let picture = crate::parse(bytes);
+    assert_eq!(picture, crate::own_parse(bytes), "shared and own readers differ");
+    assert_eq!(is_metafile(bytes), crate::own_is_metafile(bytes));
+    picture
+}
 
 fn h16(v: i32) -> Vec<u8> {
     (v as i16).to_le_bytes().to_vec()
