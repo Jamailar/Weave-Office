@@ -14,6 +14,7 @@ pub mod markdown;
 pub mod palette;
 pub mod sidebar;
 pub mod syntax;
+pub mod tools;
 mod ui;
 
 use edit::{Edit, Selection};
@@ -74,6 +75,12 @@ pub struct TextApp {
     line_numbers: bool,
     sidebar: sidebar::Sidebar,
     palette: Option<palette::Palette>,
+    /// Hide everything but the text, as in Obsidian's and iA Writer's focus modes.
+    focus_mode: bool,
+    /// Keep the caret's line in the middle of the window.
+    typewriter: bool,
+    /// Where typewriter scrolling last centred: `(caret, generation)`.
+    typewriter_at: Option<(usize, u64)>,
     font_size: f32,
     ribbon_tab: Option<String>,
     find: Find,
@@ -120,6 +127,9 @@ impl TextApp {
             line_numbers: kind == Kind::PlainText,
             sidebar: Default::default(),
             palette: None,
+            focus_mode: false,
+            typewriter: false,
+            typewriter_at: None,
             font_size: if kind == Kind::Markdown { 15.0 } else { 13.0 },
             ribbon_tab: Some("home".into()),
             find: Find::default(),
@@ -304,6 +314,13 @@ impl TextApp {
     }
 
     /// Apply an edit as one undo step.
+    /// Apply `edit` if there is one; a command with nothing to change does nothing.
+    fn apply_some(&mut self, edit: Option<Edit>) {
+        if let Some(edit) = edit {
+            self.apply(edit);
+        }
+    }
+
     pub fn apply(&mut self, edit: Edit) {
         self.undoer.add_undo(&self.text);
         edit.apply(&mut self.text);
@@ -570,6 +587,94 @@ impl TextApp {
                 } else {
                     sidebar::set_pane(self, pane);
                 }
+            }
+            "edit.sortLines" => {
+                let descending = params.get("descending").and_then(Value::as_bool) == Some(true);
+                self.apply_some(tools::sort_lines(&text, selection, descending));
+            }
+            "edit.uniqueLines" => self.apply_some(tools::unique_lines(&text, selection)),
+            "edit.reverseLines" => self.apply_some(tools::reverse_lines(&text, selection)),
+            "edit.joinLines" => self.apply_some(tools::join_lines(&text, selection)),
+            "edit.upperCase" => {
+                self.apply_some(tools::change_case(&text, selection, tools::Case::Upper))
+            }
+            "edit.lowerCase" => {
+                self.apply_some(tools::change_case(&text, selection, tools::Case::Lower))
+            }
+            "edit.titleCase" => {
+                self.apply_some(tools::change_case(&text, selection, tools::Case::Title))
+            }
+            "edit.trimTrailing" => {
+                self.apply_some(tools::trim_trailing(&text, selection, markdown))
+            }
+            "edit.indentToSpaces" | "edit.indentToTabs" => {
+                let width = if self.indent == "\t" {
+                    4
+                } else {
+                    self.indent.len().max(1)
+                };
+                let to_tabs = id == "edit.indentToTabs";
+                self.apply_some(tools::convert_indent(&text, selection, to_tabs, width));
+                self.indent = if to_tabs {
+                    "\t".into()
+                } else {
+                    " ".repeat(width)
+                };
+            }
+            "insert.footnote" => self.apply(tools::insert_footnote(&text, selection)),
+            "insert.callout" => {
+                let kind = params.get("kind").and_then(Value::as_str).unwrap_or("note");
+                let title = params.get("title").and_then(Value::as_str).unwrap_or("");
+                self.apply(tools::insert_callout(&text, selection, kind, title));
+            }
+            "insert.math" => self.apply(edit::toggle_wrap(&text, selection, "$", "$")),
+            "insert.mathBlock" => self.apply(tools::insert_math_block(&text, selection)),
+            "insert.image" => {
+                let placeholder = self.tr("图片路径");
+                self.apply(tools::insert_image(&text, selection, placeholder));
+            }
+            "insert.date" | "insert.time" | "insert.dateTime" => {
+                let now = chrono::Local::now();
+                let format = match id {
+                    "insert.date" => "%Y-%m-%d",
+                    "insert.time" => "%H:%M",
+                    _ => "%Y-%m-%d %H:%M",
+                };
+                let stamp = now.format(format).to_string();
+                let range = selection.range();
+                let caret = range.start + stamp.len();
+                self.apply(Edit {
+                    range,
+                    text: stamp,
+                    selection: Selection::caret(caret),
+                });
+            }
+            "insert.properties" => {
+                let title = self
+                    .path
+                    .as_deref()
+                    .and_then(Path::file_stem)
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let edit = tools::properties(&text, &title, &date);
+                if edit.text.is_empty() {
+                    self.select(edit.selection);
+                } else {
+                    self.apply(edit);
+                }
+            }
+            "view.focus" => {
+                self.focus_mode = params
+                    .get("value")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(!self.focus_mode)
+            }
+            "view.typewriter" => {
+                self.typewriter = params
+                    .get("value")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(!self.typewriter)
             }
             "palette.commands" => palette::open(self, palette::Mode::Commands),
             "palette.files" => palette::open(self, palette::Mode::Files),

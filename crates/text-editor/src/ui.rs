@@ -183,6 +183,31 @@ pub fn show(app: &mut TextApp, ui: &mut Ui) {
                 .inner_margin(egui::Margin::symmetric(10, 2)),
         )
         .show(ui, |ui| status_bar(app, ui));
+    if !app.focus_mode {
+        side_panels(app, ui);
+    }
+    if app.find.open {
+        egui::Panel::top("weave-text-find")
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().faint_bg_color)
+                    .inner_margin(egui::Margin::symmetric(10, 6)),
+            )
+            .show(ui, |ui| find_bar(app, ui));
+    }
+    let background = if ui.visuals().dark_mode {
+        ui.visuals().extreme_bg_color
+    } else {
+        Color32::WHITE
+    };
+    egui::CentralPanel::no_frame()
+        .frame(egui::Frame::NONE.fill(background))
+        .show(ui, |ui| editor(app, ui));
+    crate::palette::show(app, &ui.ctx().clone());
+}
+
+/// The activity strip and the sidebar pane behind it.
+fn side_panels(app: &mut TextApp, ui: &mut Ui) {
     egui::Panel::left("weave-text-activity")
         .exact_size(38.0)
         .resizable(false)
@@ -205,24 +230,6 @@ pub fn show(app: &mut TextApp, ui: &mut Ui) {
             )
             .show(ui, |ui| crate::sidebar::pane(app, ui));
     }
-    if app.find.open {
-        egui::Panel::top("weave-text-find")
-            .frame(
-                egui::Frame::NONE
-                    .fill(ui.visuals().faint_bg_color)
-                    .inner_margin(egui::Margin::symmetric(10, 6)),
-            )
-            .show(ui, |ui| find_bar(app, ui));
-    }
-    let background = if ui.visuals().dark_mode {
-        ui.visuals().extreme_bg_color
-    } else {
-        Color32::WHITE
-    };
-    egui::CentralPanel::no_frame()
-        .frame(egui::Frame::NONE.fill(background))
-        .show(ui, |ui| editor(app, ui));
-    crate::palette::show(app, &ui.ctx().clone());
 }
 
 fn tr<'a>(app: &TextApp, text: &'a str) -> &'a str {
@@ -542,6 +549,61 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
             *clicked = Some((id, params));
         }
     }
+    /// A drop-down of commands: `(label, command, params)`, labels translated.
+    fn menu(
+        ui: &mut Ui,
+        clicked: &mut Option<(&'static str, Value)>,
+        zh: bool,
+        label: &str,
+        items: &[(&str, &'static str, Value)],
+    ) {
+        ui.scope(|ui| {
+            // Frameless like the other tools until hovered.
+            let idle = &mut ui.style_mut().visuals.widgets.inactive;
+            idle.weak_bg_fill = Color32::TRANSPARENT;
+            idle.bg_stroke = Stroke::NONE;
+            // Trailing room for a painted chevron; the UI font has no arrow glyph.
+            let response = ui
+                .menu_button(format!("{}    ", crate::i18n::tr(zh, label)), |ui| {
+                    for (name, id, params) in items {
+                        if ui.button(crate::i18n::tr(zh, name)).clicked() {
+                            *clicked = Some((id, params.clone()));
+                        }
+                    }
+                })
+                .response;
+            let c = pos2(response.rect.right() - 9.0, response.rect.center().y + 1.0);
+            ui.painter().add(Shape::convex_polygon(
+                vec![c + vec2(-3.5, -2.0), c + vec2(3.5, -2.0), c + vec2(0.0, 2.0)],
+                ui.visuals().weak_text_color(),
+                Stroke::NONE,
+            ));
+        });
+    }
+    let zh = app.zh;
+    let line_tools = || {
+        vec![
+            ("升序排列", "edit.sortLines", json!({})),
+            ("降序排列", "edit.sortLines", json!({"descending": true})),
+            ("删除重复行", "edit.uniqueLines", json!({})),
+            ("反转行序", "edit.reverseLines", json!({})),
+            ("合并行", "edit.joinLines", json!({})),
+        ]
+    };
+    let case_tools = || {
+        vec![
+            ("大写", "edit.upperCase", json!({})),
+            ("小写", "edit.lowerCase", json!({})),
+            ("首字母大写", "edit.titleCase", json!({})),
+        ]
+    };
+    let space_tools = || {
+        vec![
+            ("删除行尾空格", "edit.trimTrailing", json!({})),
+            ("缩进转为空格", "edit.indentToSpaces", json!({})),
+            ("缩进转为 Tab", "edit.indentToTabs", json!({})),
+        ]
+    };
     match (tab.as_str(), markdown) {
         ("home", true) => {
             let level = current_heading(app);
@@ -752,6 +814,10 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
                 "edit.goToLine",
                 json!({}),
             );
+            separator(ui);
+            menu(ui, &mut clicked, zh, "行", &line_tools());
+            menu(ui, &mut clicked, zh, "大小写", &case_tools());
+            menu(ui, &mut clicked, zh, "空白", &space_tools());
             if app.language.name == "JSON" {
                 separator(ui);
                 button(
@@ -822,6 +888,66 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
                 "format.task",
                 json!({}),
             );
+            separator(ui);
+            button(
+                ui,
+                &mut clicked,
+                tr(app, "图片"),
+                "![]()",
+                "insert.image",
+                json!({}),
+            );
+            button(
+                ui,
+                &mut clicked,
+                tr(app, "脚注"),
+                "[^1]",
+                "insert.footnote",
+                json!({}),
+            );
+            menu(
+                ui,
+                &mut clicked,
+                zh,
+                "标注块",
+                &[
+                    ("备注", "insert.callout", json!({"kind": "note"})),
+                    ("提示", "insert.callout", json!({"kind": "tip"})),
+                    ("重要", "insert.callout", json!({"kind": "important"})),
+                    ("警告", "insert.callout", json!({"kind": "warning"})),
+                    ("危险", "insert.callout", json!({"kind": "danger"})),
+                    ("引文", "insert.callout", json!({"kind": "quote"})),
+                ],
+            );
+            menu(
+                ui,
+                &mut clicked,
+                zh,
+                "公式",
+                &[
+                    ("行内公式", "insert.math", json!({})),
+                    ("公式块", "insert.mathBlock", json!({})),
+                ],
+            );
+            menu(
+                ui,
+                &mut clicked,
+                zh,
+                "日期时间",
+                &[
+                    ("日期", "insert.date", json!({})),
+                    ("时间", "insert.time", json!({})),
+                    ("日期和时间", "insert.dateTime", json!({})),
+                ],
+            );
+            button(
+                ui,
+                &mut clicked,
+                tr(app, "属性"),
+                "---",
+                "insert.properties",
+                json!({}),
+            );
         }
         _ => {
             if markdown {
@@ -845,6 +971,18 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
             }
             if ui.selectable_label(app.wrap, tr(app, "自动换行")).clicked() {
                 clicked = Some(("view.wrap", json!({})));
+            }
+            if ui
+                .selectable_label(app.focus_mode, tr(app, "专注模式"))
+                .clicked()
+            {
+                clicked = Some(("view.focus", json!({})));
+            }
+            if ui
+                .selectable_label(app.typewriter, tr(app, "打字机滚动"))
+                .clicked()
+            {
+                clicked = Some(("view.typewriter", json!({})));
             }
             separator(ui);
             for pane in crate::sidebar::Pane::ALL {
@@ -1327,6 +1465,10 @@ fn editor(app: &mut TextApp, ui: &mut Ui) {
                 edit.show(ui)
             })
             .inner;
+        if app.typewriter {
+            // Room below the last line so it, too, can sit in the middle.
+            ui.add_space(height * 0.5);
+        }
         if output.response.changed() {
             app.changed();
         }
@@ -1572,6 +1714,16 @@ fn editor(app: &mut TextApp, ui: &mut Ui) {
         if let Some(at) = scroll_to {
             let target = rect_of(at.min(app.text.len()));
             ui.scroll_to_rect(target.expand2(vec2(40.0, 60.0)), None);
+        }
+        // Typewriter scrolling: when the caret moves or the text changes, bring its line to the
+        // middle; scrolling with the wheel in between is left alone.
+        if app.typewriter && output.response.has_focus() {
+            let head = app.selection().head.min(app.text.len());
+            let key = (head, app.generation);
+            if app.typewriter_at != Some(key) {
+                app.typewriter_at = Some(key);
+                ui.scroll_to_rect(rect_of(head), Some(egui::Align::Center));
+            }
         }
     });
     if let Some(marker) = clicked_task {
