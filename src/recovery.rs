@@ -402,7 +402,7 @@ fn previous_runs(root: &Path) -> (Vec<Found>, Vec<PathBuf>) {
     (found, stale)
 }
 
-fn kinds() -> [DocumentKind; 6] {
+fn kinds() -> [DocumentKind; 7] {
     [
         DocumentKind::Text,
         DocumentKind::Spreadsheet,
@@ -410,6 +410,7 @@ fn kinds() -> [DocumentKind; 6] {
         DocumentKind::Pdf,
         DocumentKind::Markdown,
         DocumentKind::PlainText,
+        DocumentKind::RichText,
     ]
 }
 
@@ -421,6 +422,7 @@ fn kind_key(kind: DocumentKind) -> &'static str {
         DocumentKind::Pdf => "pdf",
         DocumentKind::Markdown => "markdown",
         DocumentKind::PlainText => "plain-text",
+        DocumentKind::RichText => "rich-text",
     }
 }
 

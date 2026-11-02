@@ -145,6 +145,7 @@ pub fn tr(text: &str) -> &str {
         "文本" => "Text",
         "文本与代码" => "Text & code",
         "纯文本" => "Plain Text",
+        "富文本" => "Rich Text",
         _ => text,
     }
 }

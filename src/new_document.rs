@@ -99,6 +99,7 @@ pub fn groups() -> Vec<(&'static str, Vec<Choice>)> {
                 code("SQL", "sql"),
             ],
         ),
+        (tr("富文本"), vec![office(DocumentKind::RichText, "富文本")]),
     ]
 }
 

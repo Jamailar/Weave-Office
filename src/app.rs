@@ -1996,7 +1996,7 @@ fn settings_path() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
         .join("Library/Application Support/Weave Office/settings.json")
 }
-fn kinds() -> [DocumentKind; 6] {
+fn kinds() -> [DocumentKind; 7] {
     [
         DocumentKind::Text,
         DocumentKind::Spreadsheet,
@@ -2004,6 +2004,7 @@ fn kinds() -> [DocumentKind; 6] {
         DocumentKind::Pdf,
         DocumentKind::Markdown,
         DocumentKind::PlainText,
+        DocumentKind::RichText,
     ]
 }
 fn kind_name(k: DocumentKind) -> &'static str {
@@ -2014,6 +2015,7 @@ fn kind_name(k: DocumentKind) -> &'static str {
         DocumentKind::Pdf => "PDF",
         DocumentKind::Markdown => "Markdown",
         DocumentKind::PlainText => tr("纯文本"),
+        DocumentKind::RichText => tr("富文本"),
     }
 }
 
@@ -2111,7 +2113,9 @@ mod tests {
             }
             crate::editor::Editor::Slides(_) => ("view.zoomDialog", json!({})),
             crate::editor::Editor::Pdf(_) => ("file.properties", json!({})),
-            crate::editor::Editor::TextFile(_) => unreachable!("the text editor has no modal"),
+            crate::editor::Editor::TextFile(_) | crate::editor::Editor::Rich(_) => {
+                unreachable!("the text editors have no modal")
+            }
         };
         editor.command(command, params).unwrap();
         assert!(editor.blocks_host_navigation());
@@ -2733,6 +2737,9 @@ mod tests {
                     Editor::TextFile(text) => {
                         assert_eq!(text.interface_zh(), language == UiLanguage::ZhHans)
                     }
+                    Editor::Rich(rich) => {
+                        assert_eq!(rich.interface_zh(), language == UiLanguage::ZhHans)
+                    }
                     Editor::Slides(_) => {
                         // Deck stores its hosted projection in the active egui context.
                         assert_eq!(
@@ -2776,6 +2783,7 @@ mod tests {
                 }
                 Editor::Pdf(pdf) => assert_eq!(pdf.language, "en"),
                 Editor::TextFile(text) => assert!(!text.interface_zh()),
+                Editor::Rich(rich) => assert!(!rich.interface_zh()),
                 Editor::Slides(_) => {}
             }
         }
@@ -3388,7 +3396,7 @@ mod tests {
                     page.min - view.viewport_rect().min,
                 )
             }
-            Editor::TextFile(_) => unreachable!("not part of the view fixture"),
+            Editor::TextFile(_) | Editor::Rich(_) => unreachable!("not part of the view fixture"),
         }
     }
 
@@ -3532,7 +3540,9 @@ mod tests {
                     assert_eq!(view.current, 2);
                     assert_eq!(view.selected.iter().copied().collect::<Vec<_>>(), [1, 2]);
                 }
-                Editor::TextFile(_) => unreachable!("not part of the view fixture"),
+                Editor::TextFile(_) | Editor::Rich(_) => {
+                    unreachable!("not part of the view fixture")
+                }
             }
             expected.push((id, snapshot));
         }

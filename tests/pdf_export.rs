@@ -33,6 +33,7 @@ fn source_path(editor: &Editor) -> Option<String> {
             .and_then(|(_, id)| app.session.get(id))
             .and_then(|doc| doc.path.clone()),
         Editor::TextFile(app) => app.path().map(|path| path.to_string_lossy().into_owned()),
+        Editor::Rich(app) => app.path().map(|path| path.to_string_lossy().into_owned()),
     }
 }
 
@@ -45,6 +46,7 @@ fn snapshots_include_unsaved_content_without_acknowledging_it() {
         DocumentKind::Presentation,
         DocumentKind::Markdown,
         DocumentKind::PlainText,
+        DocumentKind::RichText,
     ] {
         let mut editor = editor(kind);
         match &mut editor {
@@ -72,6 +74,17 @@ fn snapshots_include_unsaved_content_without_acknowledging_it() {
                 text: format!("# {marker}\n"),
                 selection: weave_text_editor::edit::Selection::caret(0),
             }),
+            Editor::Rich(app) => {
+                let at = app
+                    .text()
+                    .find("在这里输入正文。")
+                    .expect("new document body");
+                app.apply(weave_text_editor::edit::Edit {
+                    range: at..at + "在这里输入正文。".len(),
+                    text: marker.into(),
+                    selection: weave_text_editor::edit::Selection::caret(at),
+                })
+            }
             Editor::Pdf(_) => unreachable!(),
         }
         let dirty = editor.dirty();

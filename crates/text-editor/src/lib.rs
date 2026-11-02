@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 
 pub use file::Format;
 pub use syntax::Language;
+/// Installs the bold and monospace families other editors (the rich-text editor) share.
+pub use ui::ensure_fonts;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
