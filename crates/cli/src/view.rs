@@ -298,9 +298,11 @@ fn slides_get(doc: &mut Doc, path: &str, steps: &[Step]) -> Result<Value, CliErr
         }
     };
     let id = summary.get("id").cloned().unwrap_or_default();
-    let mut full = doc
-        .execute("shape.inspect", json!({"id": id}))
-        .unwrap_or(summary);
+    // The slide's summary (id, kind, name, text, box) first, the engine's full shape after.
+    let mut full = summary.clone();
+    if let Ok(detail) = doc.execute("shape.inspect", json!({"id": id})) {
+        full["detail"] = detail.get("shape").cloned().unwrap_or(detail);
+    }
     full["path"] = json!(format!("/slide[{n}]/shape[{m}]"));
     Ok(full)
 }

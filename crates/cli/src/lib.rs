@@ -5,6 +5,7 @@
 //! works on the same engines as the editors; `--json` wraps every answer in one envelope:
 //! `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","suggestion"}}`.
 
+pub mod edit;
 pub mod engines;
 pub mod error;
 pub mod save;
@@ -22,7 +23,8 @@ use error::CliError;
 
 /// The verbs the CLI answers. `weave-office <verb>` runs the CLI instead of the app.
 pub const VERBS: &[&str] = &[
-    "help", "create", "info", "view", "get", "commands", "run", "batch", "export",
+    "help", "create", "info", "view", "get", "set", "add", "remove", "commands", "run", "batch",
+    "export",
 ];
 
 /// The guide for AI agents (`weave-office help agent`).
@@ -39,6 +41,10 @@ Reading
 
 Changing
   create   <file> [--template NAME] [--force]   New blank document; the extension picks the kind
+  set      <file> <path> key=value ...  Change a node: text, style, bold, value, layout … (help props)
+  add      <file> <parent> --type T [key=value ...] [--after PATH|--before PATH|--index N]
+                                        Add a paragraph, heading, table, sheet, slide, textbox, page …
+  remove   <file> <path>                Remove a node (paragraph, table, sheet, cells, slide, shape, page)
   run      <file> <command> [key=value ...] [--params JSON]
                                         Run one editor command, then save the file
   batch    <file> [--input FILE | --commands JSON]
@@ -48,12 +54,13 @@ Changing
 
 Discovering
   commands <kind|file> [keyword]        Every command with its parameters (kinds: word, sheet, slides, pdf)
-  help [command|agent|paths]            This text, help on one command, the AI agent guide, or path syntax
+  help [command|agent|paths|props]      This text, help on one command, the AI agent guide, path
+                                        syntax, or the properties set/add take
 
 Options
   --json          Answer in JSON: {\"ok\":true,\"data\":…} or {\"ok\":false,\"error\":{code,message,suggestion}}
-  --out FILE      run/batch: save to FILE instead of changing the original
-  --dry-run       run/batch: run the commands but write nothing
+  --out FILE      set/add/remove/run/batch: save to FILE instead of changing the original
+  --dry-run       set/add/remove/run/batch: run the commands but write nothing
   --keep-going    batch: run every command even after one fails (still writes nothing on failure)
   --save          run/batch: write the file even when the commands changed nothing
   --password PW   Open a password-protected file
@@ -224,6 +231,9 @@ struct Opts {
     params_json: Option<String>,
     input: Option<PathBuf>,
     commands: Option<String>,
+    /// `add --type`.
+    node_type: Option<String>,
+    position: edit::Position,
 }
 
 /// Keys whose values stay text even when they look like numbers.
@@ -261,6 +271,11 @@ const TEXT_KEYS: &[&str] = &[
     "note",
     "notes",
     "language",
+    "value",
+    "format",
+    "code",
+    "body",
+    "type",
 ];
 
 impl Opts {
@@ -286,6 +301,16 @@ impl Opts {
                 "--params" => o.params_json = Some(value(&mut it, a)?),
                 "--input" | "-i" => o.input = Some(value(&mut it, a)?.into()),
                 "--commands" => o.commands = Some(value(&mut it, a)?),
+                "--type" | "-t" => o.node_type = Some(value(&mut it, a)?.to_ascii_lowercase()),
+                "--after" => o.position = edit::Position::After(value(&mut it, a)?),
+                "--before" => o.position = edit::Position::Before(value(&mut it, a)?),
+                "--index" => {
+                    let v = value(&mut it, a)?;
+                    let n = v.parse().ok().filter(|n| *n >= 1).ok_or_else(|| {
+                        CliError::usage(format!("--index: `{v}` is not a position (1, 2, …)"))
+                    })?;
+                    o.position = edit::Position::Index(n);
+                }
                 "--page" | "--slide" => {
                     let v = value(&mut it, a)?;
                     o.page = Some(v.parse().ok().filter(|n| *n >= 1).ok_or_else(|| {
@@ -306,9 +331,13 @@ impl Opts {
         Ok(o)
     }
 
-    /// `run <file> <id>` has its id: what follows may be parameters.
+    /// `run <file> <id>`, `set <file> <path>` and `add <file> <parent>` have their target:
+    /// what follows may be parameters.
     fn takes_params(&self) -> bool {
-        self.positional.first().map(String::as_str) == Some("run") && self.positional.len() >= 3
+        matches!(
+            self.positional.first().map(String::as_str),
+            Some("run" | "set" | "add")
+        ) && self.positional.len() >= 3
     }
 
     fn arg(&self, i: usize, what: &str) -> Result<&str, CliError> {
@@ -392,6 +421,7 @@ fn dispatch(o: &Opts, input: &mut dyn Read) -> Result<Reply, CliError> {
             o.no_more(3)?;
             Ok(Reply::data(view::get(&mut doc, path)?))
         }
+        "set" | "add" | "remove" => edit_cmd(o),
         "commands" => commands_cmd(o),
         "run" => run_cmd(o),
         "batch" => batch_cmd(o, input),
@@ -434,6 +464,7 @@ fn help(o: &Opts) -> Result<Reply, CliError> {
         None => USAGE.to_string(),
         Some("agent" | "ai" | "skill") => AGENT_GUIDE.to_string(),
         Some("paths" | "path") => PATHS_HELP.to_string(),
+        Some("props" | "properties" | "set" | "add") => edit::PROPS_HELP.to_string(),
         Some(verb) if VERBS.contains(&verb) => {
             let lines: Vec<&str> = USAGE
                 .lines()
@@ -661,23 +692,19 @@ fn batch_cmd(o: &Opts, input: &mut dyn Read) -> Result<Reply, CliError> {
     let mut doc = Doc::open(&file, o.password.as_deref())?;
     let mut results = Vec::new();
     let mut failed = 0usize;
-    for (n, (id, params)) in items.iter().enumerate() {
+    for (n, item) in items.iter().enumerate() {
+        let label = item.label();
         if failed > 0 && !o.keep_going {
-            results.push(json!({"index": n + 1, "command": id, "status": "skipped"}));
+            results.push(json!({"index": n + 1, "command": label, "status": "skipped"}));
             continue;
         }
-        let r = if let Some(path) = id.strip_prefix("get ") {
-            view::get(&mut doc, path)
-        } else {
-            doc.execute(id, params.clone())
-        };
-        match r {
+        match item.apply(&mut doc) {
             Ok(v) => {
-                results.push(json!({"index": n + 1, "command": id, "status": "ok", "result": v}))
+                results.push(json!({"index": n + 1, "command": label, "status": "ok", "result": v}))
             }
             Err(e) => {
                 failed += 1;
-                results.push(json!({"index": n + 1, "command": id, "status": "failed", "error": e.to_json()}));
+                results.push(json!({"index": n + 1, "command": label, "status": "failed", "error": e.to_json()}));
             }
         }
     }
@@ -738,10 +765,51 @@ fn short_result(v: &Value) -> String {
     }
 }
 
-/// A batch: a JSON array of `{"command": id, "params": {...}}` (`op` for `command` and
-/// `args` for `params` also accepted), or `{"get": "/path"}` to read along the way; or an
-/// object with such an array under `commands`.
-fn parse_batch(text: &str) -> Result<Vec<(String, Value)>, CliError> {
+/// One step of a batch.
+enum Item {
+    Command(String, Value),
+    Get(String),
+    Set(String, Map<String, Value>),
+    Add {
+        parent: String,
+        kind: String,
+        at: edit::Position,
+        props: Map<String, Value>,
+    },
+    Remove(String),
+}
+
+impl Item {
+    fn label(&self) -> String {
+        match self {
+            Item::Command(id, _) => id.clone(),
+            Item::Get(p) => format!("get {p}"),
+            Item::Set(p, _) => format!("set {p}"),
+            Item::Add { parent, kind, .. } => format!("add {kind} to {parent}"),
+            Item::Remove(p) => format!("remove {p}"),
+        }
+    }
+    fn apply(&self, doc: &mut Doc) -> Result<Value, CliError> {
+        match self {
+            Item::Command(id, params) => doc.execute(id, params.clone()),
+            Item::Get(p) => view::get(doc, p),
+            Item::Set(p, props) => edit::set(doc, p, props),
+            Item::Add {
+                parent,
+                kind,
+                at,
+                props,
+            } => edit::add(doc, parent, kind, at, props),
+            Item::Remove(p) => edit::remove(doc, p),
+        }
+    }
+}
+
+/// A batch: a JSON list (or `{"commands": [...]}`) of steps, each one of
+/// `{"command": id, "params": {...}}` (`op`/`args` also accepted), `{"get": path}`,
+/// `{"set": path, "props": {...}}`, `{"add": parent, "type": T, "props": {...}, "after"|"before"|"index": …}`
+/// or `{"remove": path}`.
+fn parse_batch(text: &str) -> Result<Vec<Item>, CliError> {
     let v: Value = serde_json::from_str(text).map_err(|e| {
         CliError::new("invalid_params", format!("the batch is not JSON: {e}"))
             .suggest(r#"give a list like [{"command":"text.insert","params":{"text":"Hi"}}]"#)
@@ -770,27 +838,110 @@ fn parse_batch(text: &str) -> Result<Vec<(String, Value)>, CliError> {
     list.into_iter()
         .enumerate()
         .map(|(n, item)| {
-            if let Some(path) = item.get("get").and_then(Value::as_str) {
-                return Ok((format!("get {path}"), Value::Null));
+            let bad = |what: &str| {
+                CliError::new("invalid_params", format!("batch item {}: {what}", n + 1))
+            };
+            let props = || -> Result<Map<String, Value>, CliError> {
+                match item.get("props") {
+                    None => Ok(Map::new()),
+                    Some(Value::Object(m)) => Ok(m.clone()),
+                    Some(_) => Err(bad("`props` must be an object")),
+                }
+            };
+            if let Some(p) = item.get("get").and_then(Value::as_str) {
+                return Ok(Item::Get(p.into()));
+            }
+            if let Some(p) = item.get("set").and_then(Value::as_str) {
+                return Ok(Item::Set(p.into(), props()?));
+            }
+            if let Some(p) = item.get("remove").and_then(Value::as_str) {
+                return Ok(Item::Remove(p.into()));
+            }
+            if let Some(p) = item.get("add").and_then(Value::as_str) {
+                let kind = item
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| bad("`add` needs a `type`"))?
+                    .to_ascii_lowercase();
+                let at = if let Some(a) = item.get("after").and_then(Value::as_str) {
+                    edit::Position::After(a.into())
+                } else if let Some(b) = item.get("before").and_then(Value::as_str) {
+                    edit::Position::Before(b.into())
+                } else if let Some(i) = item
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .filter(|i| *i >= 1)
+                {
+                    edit::Position::Index(i as usize)
+                } else {
+                    edit::Position::End
+                };
+                return Ok(Item::Add {
+                    parent: p.into(),
+                    kind,
+                    at,
+                    props: props()?,
+                });
             }
             let id = item
                 .get("command")
                 .or_else(|| item.get("op"))
                 .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    CliError::new(
-                        "invalid_params",
-                        format!("batch item {}: missing `command`", n + 1),
-                    )
-                })?;
+                .ok_or_else(|| bad("give `command`, `get`, `set`, `add` or `remove`"))?;
             let params = item
                 .get("params")
                 .or_else(|| item.get("args"))
                 .cloned()
                 .unwrap_or(json!({}));
-            Ok((id.to_string(), params))
+            Ok(Item::Command(id.to_string(), params))
         })
         .collect()
+}
+
+/// `set`, `add` and `remove`: change one node, then save like `run`.
+fn edit_cmd(o: &Opts) -> Result<Reply, CliError> {
+    let verb = o.positional[0].as_str();
+    let file = PathBuf::from(o.arg(1, "file")?);
+    let path = o
+        .arg(
+            2,
+            if verb == "add" {
+                "parent path (/body, /, /slide[1] …)"
+            } else {
+                "path (see `weave-office view <file> outline`)"
+            },
+        )?
+        .to_string();
+    o.no_more(3)?;
+    let props = match params_of(o)? {
+        Value::Object(m) => m,
+        _ => Map::new(),
+    };
+    let mut doc = Doc::open(&file, o.password.as_deref())?;
+    let result = match verb {
+        "set" => edit::set(&mut doc, &path, &props)?,
+        "add" => {
+            let kind = o.node_type.as_deref().ok_or_else(|| CliError::usage("add needs --type (paragraph, heading, table, sheet, slide, textbox, page, text …)"))?;
+            edit::add(&mut doc, &path, kind, &o.position, &props)?
+        }
+        _ => {
+            if !props.is_empty() {
+                return Err(CliError::usage("remove takes no properties"));
+            }
+            edit::remove(&mut doc, &path)?
+        }
+    };
+    let saved = finish(o, &mut doc, &file)?;
+    let mut data = result;
+    data["saved"] = json!(saved);
+    let text = format!("{} {}", verb, data["path"].as_str().unwrap_or(&path));
+    let mut reply = Reply::text(data, text);
+    if let Some(p) = &saved {
+        reply = reply.note(format!("saved {}", p.display()));
+    } else if o.dry_run {
+        reply = reply.note("dry run: nothing written");
+    }
+    Ok(reply)
 }
 
 #[cfg(test)]
