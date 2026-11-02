@@ -6,7 +6,7 @@ rust-version = "1.95"
 description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
 
 [workspace]
-members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon", "crates/text-editor"]
+members = ["crates/workspace", "crates/cli", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon", "crates/text-editor"]
 exclude = ["integration", "vendor/wordcraft", "vendor/gridcraft", "vendor/deckcraft", "vendor/pdfcraft"]
 resolver = "2"
 
@@ -19,6 +19,8 @@ tempfile = "3"
 arboard = "3.7"
 rfd = "0.17.2"
 weave-workspace = { path = "crates/workspace" }
+# `weave-office <verb> …`: the command line over the same engines (create, view, run, batch …).
+weave-cli = { path = "crates/cli" }
 weave-font-assets = { path = "crates/font-assets" }
 weave-system-fonts = { path = "crates/system-fonts" }
 wordcraft-fonts = { path = "vendor/wordcraft/crates/fonts", features = ["shared-font-assets", "shared-system-fonts"] }

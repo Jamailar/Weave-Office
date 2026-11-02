@@ -1,0 +1,18 @@
+[package]
+name = "weave-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Weave Office command line: create, read and change documents, spreadsheets, presentations and PDFs from scripts and AI agents"
+publish = false
+
+[dependencies]
+serde_json = "1"
+wordcraft-engine = { path = "../../vendor/wordcraft/crates/engine" }
+wordcraft-doc = { path = "../../vendor/wordcraft/crates/doc" }
+wordcraft-render = { path = "../../vendor/wordcraft/crates/render" }
+gridcraft-engine = { path = "../../vendor/gridcraft/crates/engine" }
+deckcraft-engine = { path = "../../vendor/deckcraft/crates/engine" }
+pdfcraft-automation = { path = "../../vendor/pdfcraft/crates/automation", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
