@@ -196,7 +196,7 @@ Recipient label generation (#4880) now includes all selected recipients across a
 | 2026-10-21 | trivial | Pin the font input of four geometric layout controls; assertions and renderer font policy unchanged. |
 | 2026-10-21 | trivial | #20 narrowed: a document with many content controls saves in the time the controls take (#13) |
 | 2026-10-20 | trivial | Russian sorting keeps ё with е and recognises decomposed ё/й; synthetic ordering, case and index-heading regressions; broader parity estimates unchanged |
-| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
+| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WordprocessingShape (`wps:spPr`) picture fills keep their existing image fallback. |
 | 2026-10-20 | trivial | Corrected Cuban and Peruvian Spanish table-number parsing and formula results to use decimal points; broader localization estimates unchanged |
 | 2026-10-20 | trivial | Set As Default persists the proofing language across restarts; command and dialog regressions cover new documents, interface changes, existing document languages and rejection rollback (#2882); readiness estimates unchanged |
 | 2026-10-20 | trivial | Restrict Editing, three more gaps closed: the protection of a protected document only changes through the explicit stop, the session author can't change through `file.setAuthor` under protection, and the post-check compares the settings and the metadata. No gap row (enforcement fix); estimates unchanged |
