@@ -2,6 +2,8 @@
 
 产品目标、统一架构边界、实施顺序与验收标准见 [产品目标与实施规划](PLAN.md)。
 
+**后续 AI 接手入口：[Craft 参考项目、固定版本与接手说明](vendor/README.md#给后续-ai-的参考项目与接手说明)。** 文字基于 [WordCraft](https://github.com/storytold/wordcraft)，表格基于 [GridCraft](https://github.com/storytold/gridcraft)，演示基于 [DeckCraft](https://github.com/storytold/deckcraft)，PDF 基于 [PdfCraft](https://github.com/storytold/pdfcraft)。
+
 目标是在一个桌面应用中，通过统一的文件标签管理文字、表格、演示和 PDF，交互参考 WPS。项目仍处于集成开发中，**尚不是可日常使用的四合一办公套件**。新版 UI 字体、紧凑尺寸、顶部新建浮层和公共语言偏好已打包并完成指定 GUI 复验。WPS DOCX 样张的宋体替代、网格度量、表格边框位置与 macOS 100% 显示已修复并独立对照；替代字形和复杂格式保真仍有限制，输入法和原生拖动待持续体验。
 
 2026-11-02 的体积与架构审计确认：宿主已经统一窗口、标签和应用操作，但公共基础设施尚未全部收拢。字体字节现已单份共享，安装包从 407.5 MB 缩减到 242.4 MB（十进制，减少 40.5%）；核查的 58 个字库均只出现一次。78 项相关检查及四类文件的独立运行复验通过。字体发现/缓存、统一原子落盘、宿主自动保存与异常恢复仍是明确欠账，详见 [规划](PLAN.md) 与 [验收记录](docs/acceptance.md)。
@@ -24,7 +26,7 @@
 
 界面边界：保留真实 macOS 红黄绿系统窗控及原生圆角、阴影；Weave 自建窗口内容、文件标签和工具栏。顶部标签行可混排四种文件；下一行整合 File、打开/保存/打印/撤销/重做、专业导航标签与统一矢量图标。打开、保存、另存为、文件夹及其他文件路径选择使用操作系统原生弹窗，由统一宿主调度，包括三种 Office 编辑器的图片选择与 PDF 高级工具的选择请求；原生面板中的覆盖确认也使用系统界面。其他应用弹窗由 Weave 自建。已实测系统文件选择及新式保存确认、文件载入错误和打印窗口；各类专业编辑器弹窗的 GUI 覆盖范围见验收记录。
 
-macOS 应用与 Word、Grid、Deck、PDF 文档图标使用项目原创矢量图，经 `scripts/generate_macos_icons.py` 生成并纳入应用包。图标源稿不依赖外部视觉资源，生成缓存位于外置盘；详情见[打包说明](packaging/README.md)。
+macOS 应用图标使用用户选定的 imagegen D 版源稿，保存在 [应用图标资源](assets/app-icon/README.md)；Word、Grid、Deck、PDF 文档图标继续使用项目原创矢量绘制。`scripts/generate_macos_icons.py` 生成各尺寸并纳入应用包，生成缓存位于外置盘；详情见[打包说明](packaging/README.md)。
 
 本机开发入口：
 
