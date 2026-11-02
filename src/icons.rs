@@ -265,6 +265,14 @@ pub fn document(painter: &Painter, rect: Rect, kind: DocumentKind) {
             Color32::from_rgb(191, 65, 69),
             Color32::from_rgb(238, 155, 156),
         ),
+        DocumentKind::Markdown => (
+            Color32::from_rgb(112, 84, 200),
+            Color32::from_rgb(186, 170, 240),
+        ),
+        DocumentKind::PlainText => (
+            Color32::from_rgb(92, 104, 120),
+            Color32::from_rgb(170, 180, 194),
+        ),
     };
     let c = Canvas {
         painter,
@@ -310,6 +318,23 @@ pub fn document(painter: &Painter, rect: Rect, kind: DocumentKind) {
             c.path(&[(8.5, 8.0), (9.6, 10.2), (8.3, 14.8)]);
             c.path(&[(9.6, 10.2), (12.8, 14.0), (13.5, 14.1)]);
             c.path(&[(8.3, 14.8), (10.7, 13.5), (13.3, 13.2)]);
+        }
+        DocumentKind::Markdown => {
+            // An "M" with a down arrow beside it.
+            c.path(&[
+                (6.6, 14.6),
+                (6.6, 9.0),
+                (8.4, 11.4),
+                (10.2, 9.0),
+                (10.2, 14.6),
+            ]);
+            c.line((12.6, 9.0), (12.6, 14.4));
+            c.path(&[(11.4, 13.0), (12.6, 14.4), (13.8, 13.0)]);
+        }
+        DocumentKind::PlainText => {
+            // Angle brackets: code and text files.
+            c.path(&[(9.0, 9.0), (6.8, 11.8), (9.0, 14.6)]);
+            c.path(&[(11.6, 9.0), (13.8, 11.8), (11.6, 14.6)]);
         }
     }
 }

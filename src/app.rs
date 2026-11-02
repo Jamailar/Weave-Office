@@ -593,13 +593,19 @@ impl WeaveApp {
             return Err(self.error.clone().unwrap_or_default());
         }
         let tab = self.host.workspace.tab(id).ok_or("标签不存在")?;
-        let ext = extension(tab.kind);
+        // A text file keeps its own extension; other kinds save in their own format.
+        let own_extension = Path::new(&tab.title)
+            .extension()
+            .and_then(|e| e.to_str())
+            .filter(|_| tab.kind == DocumentKind::PlainText)
+            .map(str::to_owned);
+        let ext = own_extension
+            .as_deref()
+            .unwrap_or(extension(tab.kind))
+            .to_owned();
+        let ext = ext.as_str();
         let path = if !save_as {
-            tab.path.clone().filter(|p| {
-                p.extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case(ext))
-            })
+            tab.path.clone().filter(|p| tab.kind.can_save_to(p))
         } else {
             None
         };
@@ -619,7 +625,11 @@ impl WeaveApp {
                     .as_deref()
                     .or(self.host.origin(id))
                     .and_then(|path| path.parent().map(Path::to_path_buf)),
-                filters: vec![(ext.to_uppercase(), vec![ext.into()])],
+                filters: if tab.kind == DocumentKind::PlainText {
+                    Vec::new()
+                } else {
+                    vec![(ext.to_uppercase(), vec![ext.into()])]
+                },
             };
             self.choose_file(FileDialogMode::Save, options, FilePurpose::Save(id));
             return Ok(false);
@@ -679,15 +689,9 @@ impl WeaveApp {
                         FileDialogMode::Open { multiple: true },
                         FileDialogOptions {
                             title: tr("打开文件").into(),
-                            filters: vec![(
-                                tr("办公文件").into(),
-                                [
-                                    "docx", "xlsx", "pptx", "pdf", "txt", "md", "rtf", "odt", "csv",
-                                ]
-                                .into_iter()
-                                .map(str::to_owned)
-                                .collect(),
-                            )],
+                            // Every file: text and code files of any extension open in the
+                            // text editor (macOS merges filter groups, so none are sent).
+                            filters: Vec::new(),
                             ..Default::default()
                         },
                         FilePurpose::Open,
@@ -1986,12 +1990,14 @@ fn settings_path() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
         .join("Library/Application Support/Weave Office/settings.json")
 }
-fn kinds() -> [DocumentKind; 4] {
+fn kinds() -> [DocumentKind; 6] {
     [
         DocumentKind::Text,
         DocumentKind::Spreadsheet,
         DocumentKind::Presentation,
         DocumentKind::Pdf,
+        DocumentKind::Markdown,
+        DocumentKind::PlainText,
     ]
 }
 fn kind_name(k: DocumentKind) -> &'static str {
@@ -2000,6 +2006,8 @@ fn kind_name(k: DocumentKind) -> &'static str {
         DocumentKind::Spreadsheet => tr("电子表格"),
         DocumentKind::Presentation => tr("演示文稿"),
         DocumentKind::Pdf => "PDF",
+        DocumentKind::Markdown => "Markdown",
+        DocumentKind::PlainText => tr("纯文本"),
     }
 }
 
@@ -2094,6 +2102,7 @@ mod tests {
             }
             crate::editor::Editor::Slides(_) => ("view.zoomDialog", json!({})),
             crate::editor::Editor::Pdf(_) => ("file.properties", json!({})),
+            crate::editor::Editor::TextFile(_) => unreachable!("the text editor has no modal"),
         };
         editor.command(command, params).unwrap();
         assert!(editor.blocks_host_navigation());
@@ -2712,6 +2721,9 @@ mod tests {
                             )
                         });
                     }
+                    Editor::TextFile(text) => {
+                        assert_eq!(text.interface_zh(), language == UiLanguage::ZhHans)
+                    }
                     Editor::Slides(_) => {
                         // Deck stores its hosted projection in the active egui context.
                         assert_eq!(
@@ -2754,6 +2766,7 @@ mod tests {
                     assert_eq!(sheet.ui.language, gridcraft_ui_egui::i18n::Language::En)
                 }
                 Editor::Pdf(pdf) => assert_eq!(pdf.language, "en"),
+                Editor::TextFile(text) => assert!(!text.interface_zh()),
                 Editor::Slides(_) => {}
             }
         }
@@ -3366,6 +3379,7 @@ mod tests {
                     page.min - view.viewport_rect().min,
                 )
             }
+            Editor::TextFile(_) => unreachable!("not part of the view fixture"),
         }
     }
 
@@ -3509,6 +3523,7 @@ mod tests {
                     assert_eq!(view.current, 2);
                     assert_eq!(view.selected.iter().copied().collect::<Vec<_>>(), [1, 2]);
                 }
+                Editor::TextFile(_) => unreachable!("not part of the view fixture"),
             }
             expected.push((id, snapshot));
         }

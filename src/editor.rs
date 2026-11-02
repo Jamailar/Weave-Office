@@ -11,6 +11,16 @@ pub enum Editor {
     Sheet(Box<gridcraft_ui_egui::SheetApp>),
     Slides(Box<deckcraft_ui_egui::SlideApp>),
     Pdf(Box<pdfcraft_ui_egui::PdfCraftApp>),
+    /// Markdown notes and plain-text/code files.
+    TextFile(Box<weave_text_editor::TextApp>),
+}
+
+fn text_kind(kind: DocumentKind) -> weave_text_editor::Kind {
+    if kind == DocumentKind::Markdown {
+        weave_text_editor::Kind::Markdown
+    } else {
+        weave_text_editor::Kind::PlainText
+    }
 }
 
 impl Editor {
@@ -183,6 +193,14 @@ impl Editor {
                 }
                 Self::Pdf(Box::new(app))
             }
+            DocumentKind::Markdown | DocumentKind::PlainText => {
+                let mut app = match path {
+                    Some(path) => weave_text_editor::TextApp::open(text_kind(kind), path)?,
+                    None => weave_text_editor::TextApp::new(text_kind(kind)),
+                };
+                app.set_language_code(language::current().code());
+                Self::TextFile(Box::new(app))
+            }
         })
     }
     /// Apply the host preference without running logic or changing document/proofing state.
@@ -197,6 +215,7 @@ impl Editor {
             }
             Self::Slides(app) => app.set_hosted_language(language.code()),
             Self::Pdf(app) => app.language = language.code().into(),
+            Self::TextFile(app) => app.set_language_code(language.code()),
         }
     }
     pub fn proofing_status(&self) -> Option<String> {
@@ -213,6 +232,7 @@ impl Editor {
             Self::Sheet(app) => app.hosted_blocks_host_navigation(),
             Self::Slides(app) => app.hosted_blocks_host_navigation(),
             Self::Pdf(app) => app.hosted_blocks_host_navigation(),
+            Self::TextFile(app) => app.hosted_blocks_host_navigation(),
         }
     }
     pub fn logic(&mut self, ctx: &egui::Context) {
@@ -221,6 +241,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_logic(ctx),
             Self::Slides(a) => a.hosted_logic(ctx),
             Self::Pdf(a) => a.hosted_logic(ctx),
+            Self::TextFile(a) => a.hosted_logic(ctx),
         }
     }
     /// Only task completions may run for an inactive document. Full editor logic consumes
@@ -247,6 +268,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_ui(ui),
             Self::Slides(a) => a.hosted_ui(ui),
             Self::Pdf(a) => a.hosted_ui(ui),
+            Self::TextFile(a) => a.hosted_ui(ui),
         }
         commands
     }
@@ -264,6 +286,7 @@ impl Editor {
             Self::Sheet(a) => a.as_mut(),
             Self::Slides(a) => a.as_mut(),
             Self::Pdf(a) => a.as_mut(),
+            Self::TextFile(a) => a.as_mut(),
         }
     }
     /// One tab row for every editor: the host's file controls, the editor's tabs, and the
@@ -312,6 +335,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_flush(),
             Self::Slides(a) => a.hosted_flush(),
             Self::Pdf(a) => a.hosted_flush(),
+            Self::TextFile(a) => a.hosted_flush(),
         }
     }
     pub fn deactivate(&mut self, ctx: &egui::Context) -> Result<(), String> {
@@ -320,6 +344,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_deactivate(ctx),
             Self::Slides(a) => a.hosted_deactivate(ctx),
             Self::Pdf(a) => a.hosted_deactivate(ctx),
+            Self::TextFile(a) => a.hosted_deactivate(ctx),
         }
     }
     pub fn dirty(&self) -> bool {
@@ -328,6 +353,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_dirty(),
             Self::Slides(a) => a.hosted_dirty(),
             Self::Pdf(a) => a.hosted_dirty(),
+            Self::TextFile(a) => a.hosted_dirty(),
         }
     }
     pub fn history_available(&self) -> (bool, bool) {
@@ -345,6 +371,7 @@ impl Editor {
                 .map_or((false, false), |doc| {
                     (doc.can_undo().is_some(), doc.can_redo().is_some())
                 }),
+            Self::TextFile(app) => weave_ribbon::HostedRibbon::undo_redo(app.as_ref()),
         }
     }
     /// The document's current contents for automatic recovery, in the editor's own format,
@@ -377,6 +404,11 @@ impl Editor {
                     .save_bytes(id)
                     .map_err(|error| error.to_string())?;
                 Box::new(move || Ok(std::sync::Arc::unwrap_or_clone(bytes)))
+            }
+            // The copy keeps the file's own encoding and line endings.
+            Self::TextFile(app) => {
+                let bytes = app.bytes()?;
+                Box::new(move || Ok(bytes))
             }
         })
     }
@@ -411,6 +443,10 @@ impl Editor {
                 }
             }
             Self::Pdf(_) => {}
+            Self::TextFile(app) => {
+                app.set_path(origin.map(Path::to_path_buf));
+                app.mark_unsaved();
+            }
         }
         Ok(editor)
     }
@@ -420,6 +456,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_save(path),
             Self::Slides(a) => a.hosted_save(path),
             Self::Pdf(a) => a.hosted_save(path),
+            Self::TextFile(a) => a.hosted_save(path),
         }
     }
     pub fn command(&mut self, id: &str, params: Value) -> Result<Value, String> {
@@ -428,6 +465,7 @@ impl Editor {
             Self::Sheet(a) => a.hosted_command(id, params),
             Self::Slides(a) => a.hosted_command(id, params),
             Self::Pdf(a) => a.hosted_command(id, params),
+            Self::TextFile(a) => a.hosted_command(id, params),
         }
     }
     pub fn host_commands(&mut self) -> Vec<(String, Value)> {
@@ -436,6 +474,7 @@ impl Editor {
             Self::Sheet(a) => a.take_host_commands(),
             Self::Slides(a) => a.take_host_commands(),
             Self::Pdf(a) => a.take_host_commands(),
+            Self::TextFile(a) => a.take_host_commands(),
         }
     }
 }

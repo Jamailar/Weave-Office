@@ -219,6 +219,8 @@ impl Host {
             DocumentKind::Spreadsheet => "表格",
             DocumentKind::Presentation => "演示",
             DocumentKind::Pdf => "PDF",
+            DocumentKind::Markdown => "笔记",
+            DocumentKind::PlainText => "文本",
         });
         let id = self
             .workspace
@@ -260,7 +262,13 @@ impl Host {
             self.workspace.activate(id);
             return Ok(id);
         }
-        let kind = DocumentKind::from_path(&path).ok_or("不支持此文件类型")?;
+        let kind = match DocumentKind::from_path(&path) {
+            Some(kind) => kind,
+            // An unknown extension may still be text (a dotfile, a script without an
+            // extension): look at the start of the file before refusing it.
+            None if looks_like_text_file(&path) => DocumentKind::PlainText,
+            None => return Err("不支持此文件类型".into()),
+        };
         let mut editor = Editor::create(kind, Some(&path), &self.clipboard)?;
         let file_services = self.install_services(&mut editor);
         let title = path
@@ -339,13 +347,8 @@ impl Host {
         let registry = self.output_paths.clone();
         let mut protected = registry.write().unwrap_or_else(PoisonError::into_inner);
         let kind = self.workspace.tab(id).ok_or("标签不存在")?.kind;
-        let ext = extension(kind);
-        if !path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| s.eq_ignore_ascii_case(ext))
-        {
-            return Err(format!("请使用 .{ext} 格式保存"));
+        if !kind.can_save_to(path) {
+            return Err(format!("请使用 .{} 格式保存", extension(kind)));
         }
         let path = canonical_destination(path)?;
         if self
@@ -476,12 +479,18 @@ fn atomic_export(path: &Path, bytes: &[u8]) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 pub fn extension(kind: DocumentKind) -> &'static str {
-    match kind {
-        DocumentKind::Text => "docx",
-        DocumentKind::Spreadsheet => "xlsx",
-        DocumentKind::Presentation => "pptx",
-        DocumentKind::Pdf => "pdf",
-    }
+    kind.default_extension()
+}
+
+/// Whether a file with an extension the host does not know is text.
+fn looks_like_text_file(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(8192);
+    std::fs::File::open(path)
+        .and_then(|file| file.take(8192).read_to_end(&mut head))
+        .is_ok()
+        && path.is_file()
+        && weave_text_editor::file::looks_like_text(&head)
 }
 fn canonical_destination(path: &Path) -> Result<PathBuf, String> {
     if path.exists() {

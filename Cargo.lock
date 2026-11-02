@@ -7866,6 +7866,7 @@ dependencies = [
  "weave-font-assets",
  "weave-ribbon",
  "weave-system-fonts",
+ "weave-text-editor",
  "weave-workspace",
  "winit",
  "wordcraft-doc",
@@ -7894,6 +7895,18 @@ name = "weave-system-fonts"
 version = "0.1.0"
 dependencies = [
  "skrifa 0.44.0",
+]
+
+[[package]]
+name = "weave-text-editor"
+version = "0.1.0"
+dependencies = [
+ "chardetng",
+ "egui",
+ "encoding_rs",
+ "serde_json",
+ "tempfile",
+ "weave-ribbon",
 ]
 
 [[package]]
