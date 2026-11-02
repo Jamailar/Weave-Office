@@ -330,6 +330,15 @@ impl TextApp {
         self.changed();
     }
 
+    /// Apply an edit made by typing: a burst of these is one undo step, like typing in the
+    /// text view.
+    pub fn apply_typing(&mut self, edit: Edit, time: f64) {
+        edit.apply(&mut self.text);
+        self.typed(time);
+        self.set_cursor(edit.selection);
+        self.changed();
+    }
+
     fn changed(&mut self) {
         self.generation = self.generation.wrapping_add(1);
     }

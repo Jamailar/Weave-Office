@@ -6,13 +6,17 @@
 //! design view parses and lays it out, so both views always agree, and a file nobody edited
 //! is saved byte for byte as it was read.
 
+pub mod caret;
 pub mod dom;
+pub mod edit;
+mod editing;
 mod i18n;
 pub mod images;
 pub mod layout;
 pub mod style;
 mod view;
 
+pub use editing::{ClipboardHooks, Selection, Toggle};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use weave_text_editor::{Kind as TextKind, TextApp};
@@ -61,6 +65,7 @@ pub struct RichApp {
     host_commands: Vec<(String, Value)>,
     pub(crate) cache: view::Cache,
     pub(crate) images: images::Images,
+    pub(crate) clipboard: Option<ClipboardHooks>,
 }
 
 impl RichApp {
@@ -81,10 +86,11 @@ impl RichApp {
             view: View::Design,
             canvas: Canvas::Phone,
             zh: true,
-            ribbon_tab: Some("view".into()),
+            ribbon_tab: Some("home".into()),
             host_commands: Vec::new(),
             cache: view::Cache::default(),
             images: images::Images::default(),
+            clipboard: None,
         };
         app.update_base();
         app
@@ -114,6 +120,11 @@ impl RichApp {
             .and_then(Path::parent)
             .map(Path::to_path_buf);
         self.images.set_base(base);
+    }
+
+    /// Reach the host's clipboard for rich copy and paste.
+    pub fn set_clipboard(&mut self, hooks: ClipboardHooks) {
+        self.clipboard = Some(hooks);
     }
 
     pub fn text(&self) -> &str {
@@ -186,10 +197,7 @@ impl RichApp {
                         View::Source => View::Design,
                     },
                 };
-                self.ribbon_tab = Some(match self.view {
-                    View::Design => "view".into(),
-                    View::Source => "home".into(),
-                });
+                self.ribbon_tab = Some("home".into());
             }
             "view.canvas" => {
                 self.canvas = match params.get("value").and_then(Value::as_str) {
@@ -201,7 +209,14 @@ impl RichApp {
                     },
                 };
             }
-            _ => return self.source.command(id, params),
+            _ => {
+                if self.view == View::Design
+                    && let Some(result) = self.design_command(id, &params)
+                {
+                    return result;
+                }
+                return self.source.command(id, params);
+            }
         }
         Ok(json!({}))
     }
@@ -241,19 +256,189 @@ impl RichApp {
         self.view == View::Source && self.source.hosted_blocks_host_navigation()
     }
 
-    /// The design view's ribbon: the view switch and canvas width.
+    /// The design view's ribbon: text and paragraph formatting, and the page width.
     pub(crate) fn design_ribbon(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_centered(|ui| {
-            let phone = self.canvas == Canvas::Phone;
-            if ui.selectable_label(phone, self.tr("手机宽度")).clicked() {
-                self.canvas = Canvas::Phone;
+            if self.ribbon_tab.as_deref() == Some("view") {
+                let phone = self.canvas == Canvas::Phone;
+                if ui.selectable_label(phone, self.tr("手机宽度")).clicked() {
+                    self.canvas = Canvas::Phone;
+                }
+                if ui.selectable_label(!phone, self.tr("桌面宽度")).clicked() {
+                    self.canvas = Canvas::Desktop;
+                }
+                return;
             }
-            if ui.selectable_label(!phone, self.tr("桌面宽度")).clicked() {
-                self.canvas = Canvas::Desktop;
-            }
+            self.home_ribbon(ui);
         });
     }
+
+    fn home_ribbon(&mut self, ui: &mut egui::Ui) {
+        let mut run: Option<(&str, Value)> = None;
+        let kind = self.paragraph_kind().unwrap_or_else(|| "p".into());
+        let kinds = [
+            ("p", "正文"),
+            ("h1", "标题 1"),
+            ("h2", "标题 2"),
+            ("h3", "标题 3"),
+            ("blockquote", "引用"),
+        ];
+        let current = kinds
+            .iter()
+            .find(|(tag, _)| *tag == kind)
+            .map_or("正文", |(_, label)| label);
+        egui::ComboBox::from_id_salt("weave-rich-paragraph")
+            .width(72.0)
+            .selected_text(self.tr(current))
+            .show_ui(ui, |ui| {
+                for (tag, label) in kinds {
+                    if ui.selectable_label(tag == kind, self.tr(label)).clicked() {
+                        run = Some(("paragraph.style", json!({ "value": tag })));
+                    }
+                }
+            });
+        egui::ComboBox::from_id_salt("weave-rich-size")
+            .width(52.0)
+            .selected_text(self.tr("字号"))
+            .show_ui(ui, |ui| {
+                for size in [12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 28, 32, 36] {
+                    if ui.selectable_label(false, format!("{size}px")).clicked() {
+                        run = Some(("format.fontSize", json!({ "value": size })));
+                    }
+                }
+            });
+        ui.separator();
+        for (toggle, label, id, tip) in [
+            (
+                Toggle::Bold,
+                egui::RichText::new("B").strong(),
+                "format.bold",
+                "加粗",
+            ),
+            (
+                Toggle::Italic,
+                egui::RichText::new("I").italics(),
+                "format.italic",
+                "斜体",
+            ),
+            (
+                Toggle::Underline,
+                egui::RichText::new("U").underline(),
+                "format.underline",
+                "下划线",
+            ),
+            (
+                Toggle::Strike,
+                egui::RichText::new("S").strikethrough(),
+                "format.strikethrough",
+                "删除线",
+            ),
+        ] {
+            let on = self.is_on(toggle);
+            if ui
+                .selectable_label(on, label)
+                .on_hover_text(self.tr(tip))
+                .clicked()
+            {
+                run = Some((id, json!({})));
+            }
+        }
+        for (label, id, none) in [
+            ("文字颜色", "format.color", "默认颜色"),
+            ("背景色", "format.highlight", "无背景"),
+        ] {
+            ui.menu_button(self.tr(label), |ui| {
+                if ui.button(self.tr(none)).clicked() {
+                    run = Some((id, json!({ "value": null })));
+                    ui.close();
+                }
+                egui::Grid::new(("weave-rich-palette", id))
+                    .spacing([4.0, 4.0])
+                    .show(ui, |ui| {
+                        for (i, hex) in PALETTE.iter().enumerate() {
+                            let color = crate::style::color(hex).unwrap_or(egui::Color32::BLACK);
+                            let (rect, response) = ui
+                                .allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
+                            ui.painter().rect_filled(rect, 3.0, color);
+                            ui.painter().rect_stroke(
+                                rect,
+                                3.0,
+                                egui::Stroke::new(1.0, egui::Color32::from_gray(180)),
+                                egui::StrokeKind::Inside,
+                            );
+                            if response.on_hover_text(*hex).clicked() {
+                                run = Some((id, json!({ "value": hex })));
+                                ui.close();
+                            }
+                            if i % 8 == 7 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+        }
+        if ui
+            .button(self.tr("清除格式"))
+            .on_hover_text(self.tr("去掉所选文字的字体、颜色和背景"))
+            .clicked()
+        {
+            run = Some(("format.clear", json!({})));
+        }
+        ui.separator();
+        let align = self.paragraph_style(|s| s.text_align);
+        for (value, label, which) in [
+            ("left", "左对齐", crate::style::Align::Left),
+            ("center", "居中", crate::style::Align::Center),
+            ("right", "右对齐", crate::style::Align::Right),
+            ("justify", "两端对齐", crate::style::Align::Justify),
+        ] {
+            if ui
+                .selectable_label(align == Some(which), self.tr(label))
+                .clicked()
+            {
+                run = Some(("paragraph.align", json!({ "value": value })));
+            }
+        }
+        egui::ComboBox::from_id_salt("weave-rich-line-height")
+            .width(52.0)
+            .selected_text(self.tr("行距"))
+            .show_ui(ui, |ui| {
+                for height in ["1.5", "1.75", "2", "2.5"] {
+                    if ui.selectable_label(false, height).clicked() {
+                        run = Some(("paragraph.lineHeight", json!({ "value": height })));
+                    }
+                }
+            });
+        let indented = self
+            .paragraph_style(|s| {
+                s.text_indent != crate::style::Length::Px(0.0)
+                    && s.text_indent != crate::style::Length::Auto
+            })
+            .unwrap_or(false);
+        if ui.selectable_label(indented, self.tr("首行缩进")).clicked() {
+            run = Some(("paragraph.indent", json!({ "value": !indented })));
+        }
+        if let Some((id, params)) = run {
+            let _ = self.command(id, params);
+            self.cache.refocus = true;
+        }
+    }
+
+    /// A computed style property of the paragraph at the caret.
+    fn paragraph_style<T>(&mut self, get: impl Fn(&crate::style::Style) -> T) -> Option<T> {
+        let sel = self.selection()?;
+        self.styles();
+        let doc = self.cache.doc.as_ref()?;
+        let block = edit::block_of(doc, sel.focus);
+        self.cache.styles.as_ref()?.get(block).map(get)
+    }
 }
+
+/// Colors offered for text and backgrounds: greys, a rainbow, and WeChat's green and link blue.
+const PALETTE: [&str; 16] = [
+    "#333333", "#000000", "#888888", "#ffffff", "#e53935", "#fb8c00", "#fdd835", "#43a047",
+    "#00897b", "#1e88e5", "#3949ab", "#8e24aa", "#d81b60", "#6d4c41", "#07c160", "#576b95",
+];
 
 impl Default for RichApp {
     fn default() -> Self {
@@ -266,7 +451,10 @@ impl weave_ribbon::HostedRibbon for RichApp {
         match self.view {
             View::Source => weave_ribbon::HostedRibbon::ribbon_tabs(&self.source, ctx),
             View::Design => weave_ribbon::Tabs {
-                tabs: vec![weave_ribbon::Tab::new("view", self.tr("视图"))],
+                tabs: vec![
+                    weave_ribbon::Tab::new("home", self.tr("开始")),
+                    weave_ribbon::Tab::new("view", self.tr("视图")),
+                ],
                 active: self.ribbon_tab.clone(),
             },
         }
