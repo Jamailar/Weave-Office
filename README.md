@@ -1,49 +1,159 @@
-# Weave Office
+<p align="center">
+  <img src="assets/social/social-preview.png" alt="Weave Office:一个窗口，所有文档" width="100%">
+</p>
 
-产品目标、统一架构边界、实施顺序与验收标准见 [产品目标与实施规划](PLAN.md)。
+<h1 align="center">Weave Office</h1>
 
-**后续 AI 接手入口：[Craft 参考项目、固定版本与接手说明](vendor/README.md#给后续-ai-的参考项目与接手说明)。** 文字基于 [WordCraft](https://github.com/storytold/wordcraft)，表格基于 [GridCraft](https://github.com/storytold/gridcraft)，演示基于 [DeckCraft](https://github.com/storytold/deckcraft)，PDF 基于 [PdfCraft](https://github.com/storytold/pdfcraft)。
+<p align="center">
+  <b>一个窗口，所有文档。</b><br>
+  用 Rust 写的开源桌面办公应用：文字、表格、演示、PDF、Markdown、代码与富文本，<br>
+  在同一条文件标签栏里打开、编辑、保存；还有一套给 AI 和脚本用的命令行。
+</p>
 
-目标是在一个桌面应用中，通过统一的文件标签管理文字、表格、演示和 PDF，交互参考主流办公套件的多文件标签体验。项目仍处于集成开发中，**尚不是可日常使用的四合一办公套件**。新版 UI 字体、紧凑尺寸、顶部新建浮层和公共语言偏好已打包并完成指定 GUI 复验。外部来源 DOCX 样张的宋体替代、网格度量、表格边框位置与 macOS 100% 显示已修复并独立对照；替代字形和复杂格式保真仍有限制，输入法和原生拖动待持续体验。
+<p align="center">
+  <a href="#功能">功能</a> ·
+  <a href="#命令行给-ai-和脚本用">命令行</a> ·
+  <a href="#从源码构建">构建</a> ·
+  <a href="#项目结构">项目结构</a> ·
+  <a href="#文档">文档</a>
+</p>
 
-2026-11-02 的体积与架构审计确认：宿主已经统一窗口、标签和应用操作，但公共基础设施尚未全部收拢。字体字节现已单份共享，安装包从 407.5 MB 缩减到 242.4 MB（十进制，减少 40.5%）；核查的 58 个字库均只出现一次。78 项相关检查及四类文件的独立运行复验通过。随后的依赖融合把 craft-libs 统一到一个 revision，四个编辑器共用同一套字体解析/整形库和同一个 CPU 光栅化器（vello_cpu 0.2），宿主构建不再带四份上游自动更新器，也只嵌入简体中文界面翻译；Linux release 二进制因此从 273.3 MB 降到 257.7 MB（−5.7%），macOS 安装包待重新打包测量。之后的代码层融合（#8–#13）让系统字体只扫描一次，接上宿主自动保存与崩溃恢复；表格 PDF 导出改用共享引擎，文字改用演示的 EMF/WMF 解析器；四个编辑器共用一套界面字体，功能区标签行由宿主统一绘制。Linux 二进制为 258.1 MB。仍待统一的是序列化后的原子落盘。详见 [规划](PLAN.md) 与 [验收记录](docs/acceptance.md)。
+> [!NOTE]
+> 项目仍在积极开发中，还不是可以日常替代成熟办公套件的版本。复杂文档的格式保真、输入法和部分高级流程仍在打磨，当前进度和已知问题见[验收记录](docs/acceptance.md)。
 
-除四种办公文档外，宿主还内置一个轻量文本编辑器（[crates/text-editor](crates/text-editor/src/lib.rs)，只依赖 egui，不引入新的第三方库）：Markdown 采用接近 Obsidian 的实时预览（格式就地呈现，光标所在行才显示 `#`、`**`、`[]()` 等标记，另有源码和阅读视图、大纲、任务复选框、`[[双链]]`），纯文本/代码文件有 20 多种语言的语法高亮、行号、查找替换、转到行、行操作和 JSON 格式化。文件按原编码（含 GBK、UTF-16、BOM）和原换行符写回，未改动时保存不改变任何字节；扩展名不认识但内容是文本的文件也按纯文本打开。导出 PDF 和打印借用文字引擎的 Markdown/TXT 导入。
+## 为什么做 Weave Office
 
-- [统一工作区状态](crates/workspace/src/lib.rs)：文件类型、标签、未保存状态及保存完成顺序。
-- [统一引擎宿主](src/host.rs)与[编辑器适配](src/editor.rs)：管理四类文档的新建、打开、保存与关闭，并使用各上游的 hosted 编辑界面。
-- [统一应用外壳](src/app.rs)：统一文件标签、通用命令、最近文件和关闭协调，已实测五个混合文件标签和四类型编辑保存流程。
-- [PDF 引擎适配](crates/pdf-backend/src/lib.rs)：底层编辑与保存快照验证；图形界面通过 PdfCraft 的 hosted 接口接入。
-- [早期三编辑器实验](integration/README.md)：保留作集成参考，不是正式产品入口。
-- [macOS 打包说明](packaging/README.md)：优化 release `.app` 已安装，四格式保存重开及中文系统文件面板已复验；正式发行验证仍待完成。
-- [本机验收记录](docs/acceptance.md)：自动测试、GUI 实际操作、范围及剩余工作。
-- [命令行](docs/cli.md)：`weave-office create/view/get/run/batch/export …` 不开窗口操作四类文档，面向 AI 代理和脚本；`weave-office help agent` 打印给 AI 的使用说明。
+我们每天在 Word、Excel、PowerPoint、PDF 阅读器、Markdown 笔记和代码编辑器之间来回切换，每个应用都有自己的窗口、菜单、设置和保存逻辑。Weave Office 想把它们收进**一个真正的应用**：
 
-界面语言只控制公共 UI。Word Language Preferences pane 保留并只读显示校对状态；切换语言不会更改文档校对语言、dirty 状态或 undo 历史。第三方办公软件生成的 DOCX/XLSX/PPTX 小样本互操作、PDF 字体优先级修复及原生 AppMenu/快捷键回归见验收记录；这些样本不代表复杂文件的完整格式保真。
+- **一条文件标签栏**：合同、报价表、路演稿、发票 PDF、笔记和配置文件可以混排在同一行，同类文件也能开多个；切走再切回，光标、选区、滚动、缩放、撤销历史和未保存内容都还在。
+- **一套公共系统**：新建、打开、保存、另存为、关闭、退出、最近文件、自动保存、打印和弹窗都由同一个宿主管理，而不是四个 App 各管各的。
+- **共用底层**：字体、整形、光栅化、PDF 输出、图元文件解析等底层能力只保留一份，安装包更小，各编辑器表现也更一致。
 
-专业弹窗与公共文件操作共用门禁，避免在确认或取消前误切换、误关标签；弹窗自己的输入和已确认保存继续工作，外部打开文件会排队。退出仍走统一保存流程，普通查找窗格和 PDF 合并页面继续支持标签操作。
+## 功能
 
-设置、关于、错误和打印窗口打开时，Finder 或拖入的文件也会等待。批量打开中的坏文件会显示具体路径，关闭错误提示后继续后续文件，保留已打开的文件。最新安装包已重新通过禁止读取源码、参考仓库、其他办公软件和整个外置盘的五文件独立运行检查。
+### 文档格式一览
 
-顶部“+”下方的新建浮层使用原创图标，按文字、演示、表格、PDF 排列；已通过分帧指针回放与四类新建的实际 GUI 操作。UI 使用 macOS 界面字体及内嵌后备字体，统一常用控件尺寸并压缩功能区留白。PDF 页面内容采用独立字体族，表单、填充签名与逐帧验证通过。安装包默认位于用户 `~/Applications/Weave Office.app`，完整范围及剩余问题见[本机验收记录](docs/acceptance.md)。
+| 类型 | 打开 | 新建时保存为 | 编辑器 |
+|---|---|---|---|
+| 文字 | `.docx` `.docm` `.doc` `.odt` `.rtf` | `.docx` | 基于 WordCraft 引擎 |
+| 表格 | `.xlsx` `.xlsm` `.xls` `.ods` `.csv` | `.xlsx` | 基于 GridCraft 引擎 |
+| 演示 | `.pptx` `.pptm` `.ppt` `.odp` | `.pptx` | 基于 DeckCraft 引擎 |
+| PDF | `.pdf` | `.pdf` | 基于 PdfCraft 引擎 |
+| Markdown | `.md` `.markdown` `.mdx` 等 | `.md` | 自研（`crates/text-editor`） |
+| 纯文本与代码 | 20 多种语言，以及内容是文本的未知扩展名 | `.txt` `.json` `.yaml` `.py` `.js` `.sh` `.sql` … | 自研（`crates/text-editor`） |
+| 富文本（HTML） | `.html` `.htm` `.xhtml` | `.html` | 自研（`crates/rich-editor`），开发中 |
 
-界面边界：保留真实 macOS 红黄绿系统窗控及原生圆角、阴影；Weave 自建窗口内容、文件标签和工具栏。顶部标签行可混排四种文件；下一行整合 File、打开/保存/打印/撤销/重做、专业导航标签与统一矢量图标。打开、保存、另存为、文件夹及其他文件路径选择使用操作系统原生弹窗，由统一宿主调度，包括三种 Office 编辑器的图片选择与 PDF 高级工具的选择请求；原生面板中的覆盖确认也使用系统界面。其他应用弹窗由 Weave 自建。已实测系统文件选择及新式保存确认、文件载入错误和打印窗口；各类专业编辑器弹窗的 GUI 覆盖范围见验收记录。
+点击标签栏的 **＋** 打开新建面板，按「Office 文档」「文本与代码」「富文本」三组列出所有可新建的格式。
 
-macOS 应用图标使用用户选定的 imagegen D 版源稿，保存在 [应用图标资源](assets/app-icon/README.md)；Word、Grid、Deck、PDF 文档图标继续使用项目原创矢量绘制。`scripts/generate_macos_icons.py` 生成各尺寸并纳入应用包，生成缓存位于外置盘；详情见[打包说明](packaging/README.md)。
+### 四合一办公：文字、表格、演示、PDF
 
-本机开发入口：
+- **文字**：段落与字符格式、样式、表格、图片、页眉页脚、分页；读取文档里的 WMF/EMF 图片；导出 PDF 与打印。
+- **表格**：多工作表、公式、单元格格式、边框与合并；中英文混排按基线对齐；导出 PDF（中文字体会嵌入）与 CSV。
+- **演示**：幻灯片、形状、文本框、图片、版式；放映与导出。
+- **PDF**：不只是阅读器。可以直接改已有正文和图片、添加文字与图片、批注（便笺、文本框、标记、形状和回复）、填写文字，以及插入、删除、重排、旋转、裁切、提取和拆分页面。能力边界见 [PDF 编辑能力](docs/pdf-capabilities.md)。
+
+四个编辑器整合在同一个进程里：
+
+- **统一功能区**：功能区标签行由宿主统一绘制，各编辑器只负责下方的命令，切换文件类型时操作逻辑一致。
+- **统一字体**：开放字体只打包一份，系统字体只扫描一次；四个编辑器共用一套界面字体，切换标签页不再重新装载字体。
+- **自动保存与崩溃恢复**：宿主定时把未保存的修改写入恢复目录，意外退出后重新启动即可找回。
+- **统一文件与弹窗**：打开、保存、文件夹选择等使用操作系统原生面板；确认、错误、设置、打印等由 Weave 自建，并且弹窗打开期间不会误切换或误关标签，外部打开的文件会排队等待。
+- **macOS 原生体验**：保留系统的红黄绿窗口按钮、圆角和阴影，标题栏里直接放文件标签；接入应用菜单、快捷键、Finder 打开文件和系统退出流程。
+
+### Markdown：接近 Obsidian 的实时预览
+
+- **实时预览**：标题、粗体、链接等格式就地呈现，只有光标所在行才显示 `#`、`**`、`[]()` 这类标记；另有源码视图和阅读视图。
+- **笔记功能**：任务复选框、`[[双链]]`、反向链接、标签、大纲。
+- **左侧栏**：文件树、全文搜索、大纲、标签、反向链接。
+- **命令面板**（⇧⌘P）和**快速打开**（⌥⌘O）。
+- **插入工具**：图片、脚注、标注块（callout）、公式、属性（front matter）。
+- **专注模式**和**打字机滚动**。
+- 导出 PDF 和打印借用文字引擎的 Markdown 导入。
+
+### 代码与纯文本编辑器
+
+- **语法高亮**：Rust、JavaScript、TypeScript、Python、Go、C/C++、C#、Java、Kotlin、Swift、PHP、Ruby、Lua、Shell、PowerShell、SQL、Dockerfile、Makefile、JSON、YAML、TOML、INI、HTML、CSS 等。
+- **编辑工具**：行号、查找替换、在文件夹中搜索、转到行、行操作（移动、复制、删除、合并），排序、去重、大小写转换、清理行尾空格、缩进转换，以及 **JSON 格式化**。
+- **保留编码**：按原来的编码（包括 GBK、UTF-16、带 BOM 的文件）和换行符写回；没有改动的文件保存后一个字节都不变。扩展名不认识但内容是文本的文件，也会按纯文本打开。
+
+### 富文本编辑器（开发中）
+
+面向公众号排版这类场景的所见即所得 HTML 编辑器，体验对标 135 编辑器：
+
+- **打开任意 HTML 文件**，在**设计视图**（排好版的页面）和**源码视图**（HTML 源码，带高亮）之间切换，两边始终一致。
+- **保真**：不认识的标签、注释、`<head>`、`<script>`、`<style>` 原样保留；没改动的文件原样写回。
+- 自研 HTML 解析和 CSS 子集排版，不引入新的第三方依赖。
+- 路线图：设计视图直接编辑 → 样式库组件、一键换色、图片 → 复制到公众号 → 打磨。目前设计视图只读，编辑在源码视图里进行。
+
+### 命令行：给 AI 和脚本用
+
+同一个可执行文件也是命令行工具：第一个参数是动词时不开窗口，直接在四个编辑器的引擎上读写文档。设计目标是让 AI 代理能可靠地操作办公文档。
 
 ```sh
+weave-office create 报价.xlsx
+weave-office set 报价.xlsx /Sheet1/B2 value=1280
+weave-office add 合同.docx /body --type paragraph text="甲乙双方……"
+weave-office view 路演.pptx outline
+weave-office export 合同.docx 合同.pdf
+weave-office help agent      # 打印给 AI 读的完整使用说明
+```
+
+- 动词：`create` `info` `view` `get` `set` `add` `remove` `commands` `run` `batch` `export` `help`。
+- 按路径定位：`/body/p[3]`、`/Sheet1/A1:C10`、`/slide[2]/shape[1]`、`/page[4]`。
+- `--json` 输出统一的 `{"ok":…,"data"|"error":…}` 信封，错误带错误码、修改建议和最相近的候选命令。
+- `batch` 全部成功才写盘；保存先写临时文件再改名覆盖，文件要么是完整新版本，要么保持原样。
+
+完整说明见 [docs/cli.md](docs/cli.md)。
+
+## 从源码构建
+
+需要 Rust 1.95.0（`rust-toolchain.toml` 已固定）和 Python 3。字体与翻译等大型构建输入放在外置盘上，用环境变量 `WEAVE_DEV_VOLUME` 指向它的挂载点：
+
+```sh
+export WEAVE_DEV_VOLUME=/Volumes/MyDrive
+
 python3 scripts/prepare-fonts.py
 python3 scripts/prepare-document-fonts.py
 python3 scripts/prepare-i18n.py
 python3 scripts/cargo.py run --locked --offline
 ```
 
-以上入口要求先设置环境变量 `WEAVE_DEV_VOLUME`（外置盘挂载点，如 `/Volumes/MyDrive`）并挂载该盘，并统一检查外置构建输出和开放字体输入。生成应用包见打包说明。
+构建输出写到 `$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/target`。只想试命令行，不需要准备字体：
 
-正式工程使用 Rust 1.95.0，四个上游的固定版本位于 `vendor/`，来源和许可证见[上游记录](vendor/README.md)。开发机上相邻的本地参考仓库目录仅供查阅，正式入口不依赖它。
+```sh
+cargo run -p weave-cli --example weave -- help
+cargo test -p weave-cli
+```
 
-## 本机构建缓存
+打包 macOS `.app` 见[打包说明](packaging/README.md)，字体输入见[字体说明](docs/fonts.md)。
 
-本机 Cargo 构建输出统一写入 `$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/target`，由未提交的 `.cargo/config.toml` 配置。原有 `target` 目录已迁到同一外置盘并保留符号链接；构建时需挂载该外置盘。
+## 项目结构
+
+```
+src/                  宿主：窗口、文件标签、功能区、弹窗、自动保存与恢复、编辑器适配
+crates/
+  workspace/          文件类型、标签、未保存状态与保存顺序
+  ribbon/             宿主绘制的统一功能区
+  font-assets/        共享的开放字体
+  system-fonts/       系统字体只扫描一次
+  pdf-backend/        PDF 引擎适配
+  text-editor/        Markdown 与代码编辑器
+  rich-editor/        富文本（HTML）编辑器
+  cli/                命令行 weave-office <动词>
+vendor/               四个上游编辑器的固定快照（文字、表格、演示、PDF）
+integration/          早期集成实验，仅作参考
+packaging/ scripts/   打包与构建脚本
+tests/                宿主回归测试
+```
+
+## 文档
+
+- [产品目标与实施规划](PLAN.md)
+- [验收记录](docs/acceptance.md)：自动测试、实际操作验证与剩余工作
+- [命令行](docs/cli.md) · [PDF 编辑能力](docs/pdf-capabilities.md) · [字体](docs/fonts.md) · [界面语言](docs/i18n.md)
+- [上游项目、固定版本与接手说明](vendor/README.md)
+- [应用图标](assets/app-icon/README.md) · [打包说明](packaging/README.md)
+
+## 致谢与许可
+
+四种办公文档的编辑能力来自 [WordCraft](https://github.com/storytold/wordcraft)、[GridCraft](https://github.com/storytold/gridcraft)、[DeckCraft](https://github.com/storytold/deckcraft) 和 [PdfCraft](https://github.com/storytold/pdfcraft)，以固定快照形式放在 `vendor/` 下。上游源码以 MIT OR Apache-2.0 授权，各自的 LICENSE、NOTICE 和素材署名保留在对应目录中；Weave Office 使用自己的应用名称和图标。命令行的设计思路参考了 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)，不包含其代码。
