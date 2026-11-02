@@ -1,0 +1,11 @@
+[package]
+name = "weave-system-fonts"
+version = "0.1.0"
+edition = "2024"
+description = "One scan of the installed fonts, shared by every Weave Office editor"
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+skrifa = "0.44"

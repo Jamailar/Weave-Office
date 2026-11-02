@@ -6,7 +6,7 @@ rust-version = "1.95"
 description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
 
 [workspace]
-members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets"]
+members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts"]
 exclude = ["integration", "vendor/wordcraft", "vendor/gridcraft", "vendor/deckcraft", "vendor/pdfcraft"]
 resolver = "2"
 
@@ -20,13 +20,14 @@ arboard = "3.7"
 rfd = "0.17.2"
 weave-workspace = { path = "crates/workspace" }
 weave-font-assets = { path = "crates/font-assets" }
-wordcraft-fonts = { path = "vendor/wordcraft/crates/fonts", features = ["shared-font-assets"] }
-deckcraft-fonts = { path = "vendor/deckcraft/crates/fonts", features = ["shared-font-assets"] }
+weave-system-fonts = { path = "crates/system-fonts" }
+wordcraft-fonts = { path = "vendor/wordcraft/crates/fonts", features = ["shared-font-assets", "shared-system-fonts"] }
+deckcraft-fonts = { path = "vendor/deckcraft/crates/fonts", features = ["shared-font-assets", "shared-system-fonts"] }
 pdfcraft-fonts = { path = "vendor/pdfcraft/crates/fonts", features = ["shared-font-assets"] }
 wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
 wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
 wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }
-gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
+gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "shared-system-fonts"] }
 gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
 deckcraft-ui-egui = { path = "vendor/deckcraft/crates/ui-egui", default-features = false }
 deckcraft-engine = { path = "vendor/deckcraft/crates/engine" }

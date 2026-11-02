@@ -159,7 +159,7 @@ impl FontDb {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn ensure_catalog(&self) {
         self.cataloged.get_or_init(|| {
-            self.scan_font_dirs();
+            self.scan_font_dirs(false);
         });
     }
 
@@ -181,12 +181,38 @@ impl FontDb {
     pub fn load_system_fonts(&self) -> usize {
         // The first scan, or a rescan once it is done (never both at once).
         let mut first = None;
-        self.cataloged.get_or_init(|| first = Some(self.scan_font_dirs()));
-        first.unwrap_or_else(|| self.scan_font_dirs())
+        self.cataloged.get_or_init(|| first = Some(self.scan_font_dirs(false)));
+        first.unwrap_or_else(|| self.scan_font_dirs(true))
     }
 
+    /// Catalog the faces under the font folders; `fresh` reads the folders again rather than
+    /// reusing a scan the application already made.
     #[cfg(not(target_arch = "wasm32"))]
-    fn scan_font_dirs(&self) -> usize {
+    fn scan_font_dirs(&self, fresh: bool) -> usize {
+        // The platform's folders: the application's one shared scan read them already.
+        #[cfg(feature = "shared-system-fonts")]
+        if self.font_dirs == weave_system_fonts::font_dirs() {
+            let catalog = if fresh { weave_system_fonts::rescan() } else { weave_system_fonts::catalog() };
+            let found = catalog
+                .faces
+                .iter()
+                .filter(|face| face.has_outlines() || face.has_color_bitmaps())
+                .filter_map(|face| Some((face, skrifa::FontRef::new(&face.tables).ok()?)))
+                .flat_map(|(face, font)| super::names::font_faces(&font, 0).into_iter().map(move |f| (face, f)))
+                .map(|(face, f)| CatalogEntry {
+                    family: f.family,
+                    style: f.style,
+                    legacy: f.legacy,
+                    full_name: f.full_name,
+                    postscript: f.postscript,
+                    local: f.local,
+                    east_asian: f.east_asian,
+                    path: face.path.clone(),
+                })
+                .collect();
+            return self.store_catalog(found);
+        }
+        let _ = fresh;
         let mut found = Vec::new();
         let mut stack = self.font_dirs.clone();
         // Each folder once, however links lead back to it.
@@ -220,6 +246,11 @@ impl FontDb {
                 }
             }
         }
+        self.store_catalog(found)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn store_catalog(&self, found: Vec<CatalogEntry>) -> usize {
         let n = found.len();
         log::debug!("cataloged {n} system font faces");
         *self.catalog.write().unwrap_or_else(std::sync::PoisonError::into_inner) = found;

@@ -6022,6 +6022,10 @@ name = "weave-font-assets"
 version = "0.1.0"
 
 [[package]]
+name = "weave-system-fonts"
+version = "0.1.0"
+
+[[package]]
 name = "web-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6756,6 +6760,7 @@ dependencies = [
  "unicode-bidi",
  "unicode-script",
  "weave-font-assets",
+ "weave-system-fonts",
  "wuff",
 ]
 

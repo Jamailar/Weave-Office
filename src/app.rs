@@ -116,6 +116,8 @@ impl WeaveApp {
             .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
             .unwrap_or_default();
         language::set_current(settings.language);
+        // One scan of the installed fonts serves every editor's font lists and lookups.
+        weave_system_fonts::start_scan();
         cc.egui_ctx.set_theme(theme_preference(&settings.theme));
         cc.egui_ctx.set_zoom_factor(settings.scale.clamp(0.75, 2.0));
         let mut shell_fonts = pdfcraft_ui_egui::theme::font_definitions_for(true);

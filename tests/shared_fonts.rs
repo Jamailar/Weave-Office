@@ -74,3 +74,23 @@ fn shell_and_document_fallbacks_share_storage_without_changing_faces() {
             .any(|font| std::ptr::eq(*font, latin))
     );
 }
+
+#[test]
+fn the_editors_read_the_installed_fonts_through_one_shared_scan() {
+    let dirs = weave_system_fonts::font_dirs();
+    // Word and Presentation catalog the shared scan's folders, which their databases then take
+    // from that scan instead of walking the folders again.
+    assert_eq!(wordcraft_fonts::system_font_dirs(), dirs);
+    assert_eq!(deckcraft_fonts::system_font_dirs(), dirs);
+    let catalog = weave_system_fonts::catalog();
+    assert!(std::sync::Arc::ptr_eq(&catalog, &weave_system_fonts::catalog()));
+    // Spreadsheet's catalog is built from the same scan: every face it lists is one it found.
+    for face in gridcraft_ui_egui::fonts::catalog() {
+        assert!(
+            catalog.faces.iter().any(|f| f.path == face.path && f.index == face.index),
+            "{} #{} is not in the shared scan",
+            face.path.display(),
+            face.index
+        );
+    }
+}

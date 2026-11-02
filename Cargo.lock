@@ -1521,6 +1521,7 @@ dependencies = [
  "skrifa 0.44.0",
  "unicode-bidi",
  "weave-font-assets",
+ "weave-system-fonts",
 ]
 
 [[package]]
@@ -2858,6 +2859,7 @@ dependencies = [
  "sys-locale",
  "toml",
  "weave-font-assets",
+ "weave-system-fonts",
  "web-sys",
  "web-time",
  "zbus",
@@ -7853,6 +7855,7 @@ dependencies = [
  "skrifa 0.44.0",
  "tempfile",
  "weave-font-assets",
+ "weave-system-fonts",
  "weave-workspace",
  "winit",
  "wordcraft-doc",
@@ -7866,6 +7869,13 @@ name = "weave-pdf-backend"
 version = "0.1.0"
 dependencies = [
  "pdfcraft-engine",
+]
+
+[[package]]
+name = "weave-system-fonts"
+version = "0.1.0"
+dependencies = [
+ "skrifa 0.44.0",
 ]
 
 [[package]]
@@ -8398,6 +8408,7 @@ dependencies = [
  "unicode-bidi",
  "unicode-script",
  "weave-font-assets",
+ "weave-system-fonts",
  "wuff",
 ]
 
