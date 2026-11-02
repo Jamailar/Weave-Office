@@ -14,6 +14,8 @@
 #![forbid(unsafe_code)]
 
 mod metrics;
+#[cfg(feature = "shared-pdf")]
+mod shared;
 
 use std::fmt::Write as _;
 
@@ -319,6 +321,11 @@ fn dash_values(dash: &[f32]) -> String {
     d.iter().map(|v| n(*v)).collect::<Vec<_>>().join(" ")
 }
 
+/// The dash array [`dash_values`] writes, as numbers (empty = solid).
+fn valid_dash(dash: &[f32]) -> Vec<f32> {
+    if dash_values(dash).is_empty() { Vec::new() } else { dash.iter().take(8).map(|v| v.max(0.0)).collect() }
+}
+
 fn rgb_op(c: Rgb, stroke: bool) -> String {
     let f = |v: u8| n(v as f32 / 255.0);
     format!("{} {} {} {}", f(c[0]), f(c[1]), f(c[2]), if stroke { "RG" } else { "rg" })
@@ -329,6 +336,21 @@ struct ImageData {
     height: u32,
     rgb: Vec<u8>,
     alpha: Option<Vec<u8>>,
+}
+
+/// What was drawn, in page coordinates (top-left origin), for the shared engine to draw again.
+#[cfg_attr(not(feature = "shared-pdf"), allow(dead_code))]
+enum Op {
+    Save,
+    Restore,
+    Clip(f32, f32, f32, f32),
+    FillRect(f32, f32, f32, f32, Rgb),
+    StrokeRect(f32, f32, f32, f32, f32, Rgb),
+    Line { points: Vec<[f32; 2]>, width: f32, color: Rgb, dash: Vec<f32>, round: bool },
+    Polygon { points: Vec<[f32; 2]>, fill: Option<Rgb>, stroke: Option<(Rgb, f32)> },
+    Circle { cx: f32, cy: f32, r: f32, fill: Option<Rgb>, stroke: Option<(Rgb, f32)> },
+    Text { x: f32, y: f32, size: f32, font: Font, color: Rgb, text: String, angle: f32 },
+    Image { x: f32, y: f32, w: f32, h: f32, image: usize },
 }
 
 enum LinkTarget {
@@ -351,6 +373,8 @@ pub struct Page {
     images: Vec<ImageData>,
     links: Vec<LinkAnnotation>,
     depth: u32,
+    /// The drawing again, for the shared engine (only kept when it is in use).
+    ops: Vec<Op>,
 }
 
 /// Most bytes of content per page before further drawing is dropped (keeps hostile inputs from
@@ -378,6 +402,12 @@ impl Page {
         if !self.full() {
             self.content.push_str(s);
             self.content.push('\n');
+        }
+    }
+    /// Keep `op` for the shared engine, under the same size cap as the content stream.
+    fn record(&mut self, op: Op) {
+        if cfg!(feature = "shared-pdf") && !self.full() {
+            self.ops.push(op);
         }
     }
 
@@ -422,18 +452,23 @@ impl Page {
     pub fn save(&mut self) {
         self.depth = self.depth.saturating_add(1);
         self.content.push_str("q\n");
+        self.record(Op::Save);
     }
     /// Restores the graphics state saved by [`Page::save`]; extra calls are ignored.
     pub fn restore(&mut self) {
         if self.depth > 0 {
             self.depth -= 1;
             self.content.push_str("Q\n");
+            self.record(Op::Restore);
         }
     }
     /// Intersects the clip with a rectangle (until the next [`Page::restore`]).
     pub fn clip_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
         let s = format!("{} {} {} {} re W n", n(x), n(self.y(y + h)), n(w.max(0.0)), n(h.max(0.0)));
         self.op(&s);
+        if finite(&[x, y, w, h]) {
+            self.record(Op::Clip(x, y, w, h));
+        }
     }
 
     pub fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgb) {
@@ -442,6 +477,7 @@ impl Page {
         }
         let s = format!("{}\n{} {} {} {} re f", rgb_op(color, false), n(x), n(self.y(y + h)), n(w), n(h));
         self.op(&s);
+        self.record(Op::FillRect(x, y, w, h, color));
     }
 
     pub fn rect_stroke(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Rgb) {
@@ -450,6 +486,7 @@ impl Page {
         }
         let s = format!("{}\n{} w [] 0 d\n{} {} {} {} re S", rgb_op(color, true), n(stroke_width(width)), n(x), n(self.y(y + h)), n(w), n(h));
         self.op(&s);
+        self.record(Op::StrokeRect(x, y, w, h, width, color));
     }
 
     pub fn stroke_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, width: f32, color: Rgb) {
@@ -472,6 +509,7 @@ impl Page {
             n(self.y(end.y))
         );
         self.op(&s);
+        self.record(Op::Line { points: vec![[start.x, start.y], [end.x, end.y]], width, color, dash: valid_dash(dash), round: false });
     }
 
     /// An open polyline.
@@ -483,6 +521,7 @@ impl Page {
         self.path(&mut s, pts, false);
         s.push_str(" S");
         self.op(&s);
+        self.record(Op::Line { points: pts.to_vec(), width, color, dash: valid_dash(dash), round: true });
     }
 
     fn path(&self, s: &mut String, pts: &[[f32; 2]], close: bool) {
@@ -514,6 +553,7 @@ impl Page {
             _ => " S",
         });
         self.op(&s);
+        self.record(Op::Polygon { points: pts.to_vec(), fill, stroke });
     }
 
     /// A circle approximated by four cubic Béziers.
@@ -568,6 +608,7 @@ impl Page {
             _ => " S",
         });
         self.op(&s);
+        self.record(Op::Circle { cx, cy, r, fill, stroke });
     }
 
     /// Text with its baseline starting at `(x, y)`.
@@ -582,7 +623,8 @@ impl Page {
             return;
         }
         let fi = font.index();
-        let size = n(size.min(10_000.0));
+        let points = size.min(10_000.0);
+        let size = n(points);
         let (sn, cs) = if angle.is_finite() { angle.sin_cos() } else { (0.0, 1.0) };
         // Clockwise in y-down = counter-clockwise negated in PDF's y-up space.
         let mut s = format!("BT\n{}\n{} {} {} {} {} {} Tm\n", rgb_op(color, false), n(cs), n(-sn), n(sn), n(cs), n(origin.x), n(self.y(origin.y)));
@@ -602,6 +644,15 @@ impl Page {
         }
         s.push_str("ET");
         self.op(&s);
+        self.record(Op::Text {
+            x: origin.x,
+            y: origin.y,
+            size: points,
+            font,
+            color,
+            text: text.to_string(),
+            angle: if angle.is_finite() { angle } else { 0.0 },
+        });
     }
 
     /// Draws an RGBA image (`pw`×`ph` pixels, row-major, straight alpha) into the box
@@ -625,6 +676,7 @@ impl Page {
         self.images.push(ImageData { width: pw, height: ph, rgb, alpha });
         let s = format!("q {} 0 0 {} {} {} cm /Im{} Do Q", n(w), n(h), n(x), n(self.y(y + h)), idx + 1);
         self.op(&s);
+        self.record(Op::Image { x, y, w, h, image: idx });
     }
 }
 
@@ -708,7 +760,16 @@ impl PdfDoc {
     pub fn add_page(&mut self, width_pt: f32, height_pt: f32) -> &mut Page {
         let width = if width_pt.is_finite() { width_pt.clamp(3.0, 14_400.0) } else { 612.0 };
         let height = if height_pt.is_finite() { height_pt.clamp(3.0, 14_400.0) } else { 792.0 };
-        self.pages.push(Page { width, height, content: String::new(), fonts: [false; FONT_SLOTS], images: Vec::new(), links: Vec::new(), depth: 0 });
+        self.pages.push(Page {
+            width,
+            height,
+            content: String::new(),
+            fonts: [false; FONT_SLOTS],
+            images: Vec::new(),
+            links: Vec::new(),
+            depth: 0,
+            ops: Vec::new(),
+        });
         let i = self.pages.len() - 1;
         &mut self.pages[i]
     }
@@ -724,6 +785,18 @@ impl PdfDoc {
 
     /// Serializes the document. A document without pages gets one blank Letter page.
     pub fn finish(mut self) -> Vec<u8> {
+        if self.pages.is_empty() {
+            self.add_page(612.0, 792.0);
+        }
+        #[cfg(feature = "shared-pdf")]
+        if let Some(bytes) = shared::finish(&self) {
+            return bytes;
+        }
+        self.finish_self_contained()
+    }
+
+    /// The standard-14, dependency-free serialization.
+    fn finish_self_contained(mut self) -> Vec<u8> {
         if self.pages.is_empty() {
             self.add_page(612.0, 792.0);
         }

@@ -40,7 +40,7 @@ fn check_xref(pdf: &[u8]) -> Result<usize, Box<dyn Error>> {
 
 #[test]
 fn minimal_document() -> Result<(), Box<dyn Error>> {
-    let pdf = PdfDoc::new().finish();
+    let pdf = PdfDoc::new().finish_self_contained();
     assert!(pdf.starts_with(b"%PDF-1.7"));
     assert!(pdf.ends_with(b"%%EOF\n"));
     assert!(check_xref(&pdf)? >= 5);
@@ -66,7 +66,7 @@ fn drawing_and_text() -> Result<(), Box<dyn Error>> {
     let p2 = d.add_page(842.0, 595.0);
     p2.text(10.0, 20.0, 10.0, Font::CourierBold, [0, 0, 0], "Second");
     assert_eq!(d.page_count(), 2);
-    let pdf = d.finish();
+    let pdf = d.finish_self_contained();
     check_xref(&pdf)?;
     assert!(find(&pdf, b"(Hello \\(world\\) \\\\ caf\\351 \\2005) Tj").is_some());
     assert!(find(&pdf, b"(Second) Tj").is_some());
@@ -92,7 +92,7 @@ fn uri_and_page_links_are_real_pdf_annotations() -> Result<(), Box<dyn Error>> {
     first.link_uri(0.0, 0.0, 10.0, 10.0, "javascript:alert(1)");
     let second = d.add_page(100.0, 200.0);
     second.link_page(Rect::new(0.0, 0.0, 10.0, 10.0), 99, Point::new(0.0, 0.0));
-    let pdf = d.finish();
+    let pdf = d.finish_self_contained();
     check_xref(&pdf)?;
     let s = String::from_utf8_lossy(&pdf);
     assert_eq!(s.matches("/Subtype /Link").count(), 3);
@@ -116,7 +116,7 @@ fn images_with_alpha() -> Result<(), Box<dyn Error>> {
     p.image_rgba(Rect::new(10.0, 10.0, 40.0, 40.0), &px, [4, 4]);
     p.image_rgba(Rect::new(10.0, 10.0, 40.0, 40.0), &[255; 16], [2, 2]); // opaque: no mask
     p.image_rgba(Rect::new(0.0, 0.0, 1.0, 1.0), &[1, 2, 3], [4, 4]); // too short: ignored
-    let pdf = d.finish();
+    let pdf = d.finish_self_contained();
     check_xref(&pdf)?;
     assert!(find(&pdf, b"/SMask").is_some());
     assert!(find(&pdf, b"/Im1 Do").is_some());
@@ -184,7 +184,7 @@ fn hostile_inputs_never_panic() -> Result<(), Box<dyn Error>> {
     p.restore();
     p.save();
     p.image_rgba(Rect::new(0.0, 0.0, 10.0, 10.0), &[], [u32::MAX, u32::MAX]);
-    let pdf = d.finish();
+    let pdf = d.finish_self_contained();
     check_xref(&pdf)?;
     Ok(())
 }
@@ -265,7 +265,7 @@ fn every_draw_method_survives_hostile_numbers() -> Result<(), Box<dyn Error>> {
     p.stroke_line_dashed(Point::new(0.0, 0.0), Point::new(1.0, 1.0), 1.0, [0, 0, 0], &[0.0; 100]);
     let c = page_content(&d);
     assert!(!c.contains("NaN") && !c.contains("inf"));
-    let pdf = d.finish();
+    let pdf = d.finish_self_contained();
     check_xref(&pdf)?;
     Ok(())
 }
@@ -288,7 +288,7 @@ fn info_strings_with_non_ascii_are_utf16be() -> Result<(), Box<dyn Error>> {
     doc.add_page(200.0, 200.0);
     doc.info.title = "Übersicht €5 – “Q1” 日本 😀".into();
     doc.info.author = "Müller & Søn".into();
-    let pdf = doc.finish();
+    let pdf = doc.finish_self_contained();
     assert_eq!(utf16_entry(&pdf, "/Title")?, "Übersicht €5 – “Q1” 日本 😀");
     assert_eq!(utf16_entry(&pdf, "/Author")?, "Müller & Søn");
     Ok(())
@@ -299,7 +299,7 @@ fn ascii_info_strings_stay_literal_and_escaped() {
     let mut doc = PdfDoc::new();
     doc.add_page(200.0, 200.0);
     doc.info.title = r"Q1 (draft) a\b".into();
-    let pdf = doc.finish();
+    let pdf = doc.finish_self_contained();
     assert!(find(&pdf, br"/Title (Q1 \(draft\) a\\b)").is_some());
     assert!(find(&pdf, b"/Producer (GridCraft PDF)").is_some());
 }
@@ -309,7 +309,7 @@ fn info_strings_are_capped() -> Result<(), Box<dyn Error>> {
     let mut doc = PdfDoc::new();
     doc.add_page(200.0, 200.0);
     doc.info.title = "日".repeat(100_000);
-    let pdf = doc.finish();
+    let pdf = doc.finish_self_contained();
     assert_eq!(utf16_entry(&pdf, "/Title")?.chars().count(), MAX_INFO_CHARS);
     Ok(())
 }
@@ -320,7 +320,7 @@ fn cjk_text_is_not_replaced_by_question_marks() -> Result<(), Box<dyn Error>> {
     let p = doc.add_page(612.0, 792.0);
     p.text(10.0, 20.0, 10.0, Font::Helvetica, [0, 0, 0], "签字清单");
     p.text(10.0, 40.0, 10.0, Font::Helvetica, [0, 0, 0], "No. 编号 2");
-    let pdf = doc.finish();
+    let pdf = doc.finish_self_contained();
     check_xref(&pdf)?;
     assert!(find(&pdf, b"(????) Tj").is_none(), "CJK text written as question marks");
     assert!(find(&pdf, b"<7B7E5B576E055355> Tj").is_some());
@@ -331,4 +331,70 @@ fn cjk_text_is_not_replaced_by_question_marks() -> Result<(), Box<dyn Error>> {
     // Measured as full-width glyphs, matching the CID font's default width.
     assert_eq!(text_width(Font::Helvetica, 10.0, "签字"), 20.0);
     Ok(())
+}
+
+#[cfg(feature = "shared-pdf")]
+mod shared {
+    use super::*;
+
+    fn count(hay: &[u8], needle: &[u8]) -> usize {
+        hay.windows(needle.len()).filter(|w| *w == needle).count()
+    }
+
+    #[test]
+    fn the_shared_engine_embeds_the_fonts_and_keeps_pages_links_and_images() {
+        let mut doc = PdfDoc::new();
+        doc.info.title = "季度报表".into();
+        let page = doc.add_page(595.0, 842.0);
+        page.save();
+        page.clip_rect(10.0, 10.0, 500.0, 700.0);
+        page.fill_rect(20.0, 20.0, 100.0, 40.0, [240, 240, 240]);
+        page.rect_stroke(20.0, 20.0, 100.0, 40.0, 0.5, [0, 0, 0]);
+        page.stroke_line_dashed(Point::new(0.0, 80.0), Point::new(200.0, 80.0), 1.0, [255, 0, 0], &[3.0, 2.0]);
+        page.polygon(&[[0.0, 0.0], [10.0, 0.0], [5.0, 8.0]], Some([0, 128, 0]), Some(([0, 0, 0], 1.0)));
+        page.circle(300.0, 300.0, 20.0, Some([0, 0, 255]), None);
+        page.text(30.0, 45.0, 11.0, Font::HelveticaBold, [0, 0, 0], "Total 合计 €12");
+        page.text_rotated(Point::new(100.0, 400.0), 9.0, Font::TimesItalic, [0, 0, 0], "rotated", 0.5);
+        page.image_rgba(Rect::new(50.0, 500.0, 20.0, 20.0), &[255, 0, 0, 128, 0, 255, 0, 255, 0, 0, 255, 255, 9, 9, 9, 0], [2, 2]);
+        page.link_uri(30.0, 30.0, 50.0, 12.0, "https://example.com");
+        page.restore();
+        let second = doc.add_page(595.0, 842.0);
+        second.link_page(Rect::new(10.0, 10.0, 40.0, 10.0), 0, Point::new(0.0, 0.0));
+        let pdf = doc.finish();
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(rfind(&pdf, b"%%EOF").is_some());
+        // Liberation Sans Bold and Times Italic's stand-in as TrueType, Noto Sans CJK as CFF.
+        assert!(count(&pdf, b"/FontFile2") >= 2, "embedded TrueType fonts");
+        assert!(find(&pdf, b"/FontFile3").is_some(), "embedded CJK font");
+        assert!(find(&pdf, b"/ToUnicode").is_some(), "text stays extractable");
+        assert!(find(&pdf, b"STSong-Light").is_none(), "no unembedded CJK font");
+        assert_eq!(count(&pdf, b"/Subtype/Link"), 2);
+        // The URI link keeps its place: 30 pt from the left, 30–42 pt from the top of 842.
+        assert!(find(&pdf, b"/Rect[30 800 80 812]").is_some());
+        assert_eq!(count(&pdf, b"/Type/Page/"), 2);
+        assert!(find(&pdf, b"/Subtype/Image").is_some());
+        assert!(find(&pdf, b"/SMask").is_some(), "alpha is kept");
+    }
+
+    #[test]
+    fn an_empty_document_is_one_blank_page() {
+        let pdf = PdfDoc::new().finish();
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert_eq!(count(&pdf, b"/Type/Page/"), 1);
+    }
+
+    #[test]
+    fn hostile_numbers_still_make_a_pdf() {
+        let mut doc = PdfDoc::new();
+        let page = doc.add_page(f32::NAN, 1.0e30);
+        page.restore();
+        page.clip_rect(f32::INFINITY, 0.0, -5.0, f32::NAN);
+        page.text(f32::NAN, 0.0, 12.0, Font::Courier, [0, 0, 0], "x");
+        page.text(0.0, 0.0, 1.0e20, Font::Courier, [0, 0, 0], "\u{0}\u{10FFFF}");
+        page.polyline(&[[0.0, 0.0], [1.0, f32::NAN]], 1.0, [0, 0, 0], &[f32::NAN]);
+        page.save();
+        page.save();
+        let pdf = doc.finish();
+        assert!(pdf.starts_with(b"%PDF-"));
+    }
 }
