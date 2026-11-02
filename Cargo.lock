@@ -7943,6 +7943,7 @@ name = "weave-text-editor"
 version = "0.1.0"
 dependencies = [
  "chardetng",
+ "chrono",
  "egui",
  "encoding_rs",
  "serde_json",
