@@ -25,6 +25,7 @@ image = { workspace = true }
 skrifa = { workspace = true }
 web-time = { workspace = true }
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
+weave-system-fonts = { path = "../../../../crates/system-fonts", optional = true }
 
 [features]
 default = ["updater"]
@@ -32,6 +33,8 @@ default = ["updater"]
 # default features off to leave out the updater and its network stack.
 updater = ["dep:craft-update"]
 shared-font-assets = ["dep:weave-font-assets"]
+# An embedding host's one scan of the installed fonts, instead of this crate's own.
+shared-system-fonts = ["dep:weave-system-fonts"]
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
 # `desktop_theme.rs`). Already in the tree, with these features, through egui's own

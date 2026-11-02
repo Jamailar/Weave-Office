@@ -465,14 +465,19 @@ fn file_face_names(path: &std::path::Path) -> Vec<(String, String)> {
                 font.extend_from_slice(&u32::to_be_bytes(v));
             }
             font.extend_from_slice(&table);
-            let f = skrifa::FontRef::new(&font).ok()?;
-            let (family, style) = face_names(&f)?;
-            // Cataloged under its Windows family too, so "Segoe UI Semibold" finds the file.
-            let legacy = legacy_names(&f, &family);
-            Some(std::iter::once((family, style)).chain(legacy))
+            Some(catalog_names(&skrifa::FontRef::new(&font).ok()?))
         })
         .flatten()
         .collect()
+}
+
+/// The catalog names of a face: its family and style, and the same under its Windows family, so
+/// "Segoe UI Semibold" finds the file.
+#[cfg(not(target_arch = "wasm32"))]
+fn catalog_names(f: &skrifa::FontRef<'_>) -> Vec<(String, String)> {
+    let Some((family, style)) = face_names(f) else { return Vec::new() };
+    let legacy = legacy_names(f, &family);
+    std::iter::once((family, style)).chain(legacy).collect()
 }
 
 /// Folder depth below a font folder that the system scan descends.
@@ -494,6 +499,22 @@ fn font_file_ok(meta: &std::fs::Metadata) -> bool {
 /// The platform's font folders (the system's and the user's), scanned by [`FontDb::global`].
 /// Empty on wasm.
 pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
+    if cfg!(feature = "shared-system-fonts") { shared_font_dirs() } else { own_font_dirs() }
+}
+
+/// With `shared-system-fonts`: the folders of the embedding application's one shared scan.
+#[cfg(feature = "shared-system-fonts")]
+fn shared_font_dirs() -> Vec<std::path::PathBuf> {
+    weave_system_fonts::font_dirs()
+}
+
+#[cfg(not(feature = "shared-system-fonts"))]
+fn shared_font_dirs() -> Vec<std::path::PathBuf> {
+    own_font_dirs()
+}
+
+/// This crate's own list of the platform's font folders.
+fn own_font_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if cfg!(target_arch = "wasm32") {
         return dirs;
@@ -952,7 +973,7 @@ impl FontDb {
     #[cfg(not(target_arch = "wasm32"))]
     fn ensure_catalog(&self) {
         self.cataloged.get_or_init(|| {
-            self.scan_font_dirs();
+            self.scan_font_dirs(false);
         });
     }
 
@@ -976,12 +997,31 @@ impl FontDb {
         self.loaded_families.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         // The first scan, or a rescan once it is done (never both at once).
         let mut first = None;
-        self.cataloged.get_or_init(|| first = Some(self.scan_font_dirs()));
-        first.unwrap_or_else(|| self.scan_font_dirs())
+        self.cataloged.get_or_init(|| first = Some(self.scan_font_dirs(false)));
+        first.unwrap_or_else(|| self.scan_font_dirs(true))
     }
 
+    /// Catalog the faces under the font folders; `fresh` reads the folders again rather than
+    /// reusing a scan the application already made.
     #[cfg(not(target_arch = "wasm32"))]
-    fn scan_font_dirs(&self) -> usize {
+    fn scan_font_dirs(&self, fresh: bool) -> usize {
+        // The platform's folders: the application's one shared scan read them already.
+        #[cfg(feature = "shared-system-fonts")]
+        if self.font_dirs == weave_system_fonts::font_dirs() {
+            let catalog = if fresh { weave_system_fonts::rescan() } else { weave_system_fonts::catalog() };
+            let found: Vec<CatalogEntry> = catalog
+                .faces
+                .iter()
+                .filter(|face| face.has_outlines())
+                .filter_map(|face| Some((face, skrifa::FontRef::new(&face.tables).ok()?)))
+                .flat_map(|(face, font)| catalog_names(&font).into_iter().map(|(family, style)| CatalogEntry { family, style, path: face.path.clone() }))
+                .collect();
+            let n = found.len();
+            log::debug!("cataloged {n} system font faces");
+            *self.catalog.write().unwrap_or_else(std::sync::PoisonError::into_inner) = found;
+            return n;
+        }
+        let _ = fresh;
         let mut found = Vec::new();
         let mut stack: Vec<(std::path::PathBuf, usize)> = self.font_dirs.iter().map(|d| (d.clone(), 0)).collect();
         // Each folder once, however links lead back to it.
@@ -1544,5 +1584,26 @@ mod font_dir_tests {
         u.sort();
         u.dedup();
         assert_eq!(u.len(), d.len());
+    }
+
+    #[test]
+    #[cfg(feature = "shared-system-fonts")]
+    fn the_shared_scan_catalogs_what_this_crate_s_own_scan_does() {
+        // One more folder that doesn't exist makes the database walk the folders itself.
+        let mut own_dirs = system_font_dirs();
+        own_dirs.push(std::env::temp_dir().join("weave-no-such-font-folder"));
+        let own = FontDb::with_font_dirs(own_dirs);
+        let shared = FontDb::with_font_dirs(system_font_dirs());
+        for db in [&own, &shared] {
+            db.set_system_fallback(false);
+            db.load_system_fonts();
+        }
+        assert_eq!(shared.families(), own.families());
+        let catalog = |db: &FontDb| {
+            let mut v: Vec<String> = db.read_catalog().iter().map(|c| format!("{c:?}")).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(catalog(&shared), catalog(&own));
     }
 }

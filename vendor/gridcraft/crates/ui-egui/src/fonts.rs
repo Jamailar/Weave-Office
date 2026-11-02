@@ -116,34 +116,35 @@ fn style_italic(style: &str) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn file_faces(data: &[u8]) -> Vec<(u32, String, Vec<String>, String)> {
     use skrifa::raw::FileRef;
-    use skrifa::{MetadataProvider, string::StringId};
     let count = match FileRef::new(data) {
         Ok(FileRef::Font(_)) => 1,
         Ok(FileRef::Collection(c)) => c.len(),
         Err(_) => return Vec::new(),
     };
+    (0..count).filter_map(|i| face_names(&skrifa::FontRef::from_index(data, i).ok()?).map(|(family, names, style)| (i, family, names, style))).collect()
+}
+
+/// A face's family, every family name it goes by (see [`Face::names`]) and its style name.
+#[cfg(not(target_arch = "wasm32"))]
+fn face_names(f: &skrifa::FontRef<'_>) -> Option<(String, Vec<String>, String)> {
+    use skrifa::{MetadataProvider, string::StringId};
     let name = |f: &skrifa::FontRef<'_>, ids: &[StringId]| -> Option<String> {
         ids.iter().find_map(|id| f.localized_strings(*id).english_or_first().map(|s| s.to_string()).filter(|s| !s.is_empty()))
     };
     let family_ids = [StringId::TYPOGRAPHIC_FAMILY_NAME, StringId::FAMILY_NAME];
-    (0..count)
-        .filter_map(|i| {
-            let f = skrifa::FontRef::from_index(data, i).ok()?;
-            let family = name(&f, &family_ids)?;
-            let mut names = vec![family.clone()];
-            for s in family_ids.iter().flat_map(|id| f.localized_strings(*id)) {
-                if names.len() >= MAX_FAMILY_NAMES {
-                    break;
-                }
-                let s = s.to_string();
-                if !s.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(&s)) {
-                    names.push(s);
-                }
-            }
-            let style = name(&f, &[StringId::TYPOGRAPHIC_SUBFAMILY_NAME, StringId::SUBFAMILY_NAME]).unwrap_or_else(|| "Regular".into());
-            Some((i, family, names, style))
-        })
-        .collect()
+    let family = name(f, &family_ids)?;
+    let mut names = vec![family.clone()];
+    for s in family_ids.iter().flat_map(|id| f.localized_strings(*id)) {
+        if names.len() >= MAX_FAMILY_NAMES {
+            break;
+        }
+        let s = s.to_string();
+        if !s.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(&s)) {
+            names.push(s);
+        }
+    }
+    let style = name(f, &[StringId::TYPOGRAPHIC_SUBFAMILY_NAME, StringId::SUBFAMILY_NAME]).unwrap_or_else(|| "Regular".into());
+    Some((family, names, style))
 }
 
 /// Catalog every face under `dirs`, recursing into subfolders. A folder reached twice (through a
@@ -190,7 +191,33 @@ static CATALOG: OnceLock<Vec<Face>> = OnceLock::new();
 
 /// The catalog of installed faces, scanned on first use. Blocks until the scan finishes.
 pub fn catalog() -> &'static [Face] {
-    CATALOG.get_or_init(|| scan_dirs(&system_font_dirs()))
+    CATALOG.get_or_init(scan_system)
+}
+
+#[cfg(any(not(feature = "shared-system-fonts"), target_arch = "wasm32"))]
+fn scan_system() -> Vec<Face> {
+    scan_dirs(&system_font_dirs())
+}
+
+/// The installed faces from the embedding application's one shared scan, which reads only each
+/// file's name tables (and also looks in the folders the other editors know, such as macOS's
+/// downloadable fonts).
+#[cfg(all(feature = "shared-system-fonts", not(target_arch = "wasm32")))]
+fn scan_system() -> Vec<Face> {
+    shared_faces(&weave_system_fonts::catalog())
+}
+
+#[cfg(all(feature = "shared-system-fonts", not(target_arch = "wasm32")))]
+fn shared_faces(catalog: &weave_system_fonts::Catalog) -> Vec<Face> {
+    catalog
+        .faces
+        .iter()
+        .filter(|face| face.file_len <= MAX_FONT_FILE)
+        .filter_map(|face| {
+            let (family, names, style) = face_names(&skrifa::FontRef::new(&face.tables).ok()?)?;
+            Some(Face { family, names, path: face.path.clone(), index: face.index, weight: style_weight(&style), italic: style_italic(&style) })
+        })
+        .collect()
 }
 
 /// The catalog if the scan has finished, else `None` — never blocks, for use while painting.
@@ -619,5 +646,18 @@ mod tests {
         let Ok(data) = std::fs::read(root.join("Fonts").join("malgun.ttf")) else { return };
         let faces = file_faces(&data);
         assert!(faces.iter().any(|(_, family, names, _)| family == "Malgun Gothic" && names.iter().any(|n| n == "맑은 고딕")), "{faces:?}");
+    }
+
+    #[test]
+    #[cfg(all(feature = "shared-system-fonts", not(target_arch = "wasm32")))]
+    fn the_shared_scan_catalogs_what_this_module_s_own_scan_does() {
+        let dirs = weave_system_fonts::font_dirs();
+        let shared = weave_system_fonts::Catalog { dirs: dirs.clone(), faces: weave_system_fonts::scan_dirs(&dirs), generation: 0 };
+        let listed = |faces: Vec<Face>| {
+            let mut v: Vec<String> = faces.iter().map(|f| format!("{f:?}")).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(listed(super::shared_faces(&shared)), listed(scan_dirs(&dirs)));
     }
 }

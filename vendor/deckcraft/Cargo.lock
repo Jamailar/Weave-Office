@@ -1083,6 +1083,7 @@ dependencies = [
  "skrifa 0.44.0",
  "unicode-bidi",
  "weave-font-assets",
+ "weave-system-fonts",
 ]
 
 [[package]]
@@ -5377,6 +5378,10 @@ dependencies = [
 
 [[package]]
 name = "weave-font-assets"
+version = "0.1.0"
+
+[[package]]
+name = "weave-system-fonts"
 version = "0.1.0"
 
 [[package]]

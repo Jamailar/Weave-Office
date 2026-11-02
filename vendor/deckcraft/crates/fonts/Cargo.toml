@@ -17,6 +17,9 @@ log = { workspace = true }
 # Last-resort face only (Ubuntu Light); no UI code.
 epaint_default_fonts = "0.37"
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
+weave-system-fonts = { path = "../../../../crates/system-fonts", optional = true }
 
 [features]
 shared-font-assets = ["dep:weave-font-assets"]
+# An embedding host's one scan of the installed fonts, instead of this crate's own.
+shared-system-fonts = ["dep:weave-system-fonts"]

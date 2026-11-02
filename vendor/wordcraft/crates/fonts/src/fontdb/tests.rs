@@ -378,3 +378,26 @@ fn named_instances_and_collection_members_are_capped() {
     // (under 0.1 s on a loaded machine) only backs up "read once", with room for a busy CI.
     assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
 }
+
+#[test]
+#[cfg(all(feature = "shared-system-fonts", not(target_arch = "wasm32")))]
+fn the_shared_scan_catalogs_what_this_crate_s_own_scan_does() {
+    // One more folder that doesn't exist makes the database walk the folders itself.
+    let mut own_dirs = system_font_dirs();
+    own_dirs.push(std::env::temp_dir().join("weave-no-such-font-folder"));
+    let own = FontDb::with_font_dirs(own_dirs);
+    let shared = FontDb::with_font_dirs(system_font_dirs());
+    for db in [&own, &shared] {
+        db.set_system_fallback(false);
+        db.load_system_fonts();
+    }
+    assert_eq!(shared.families(), own.families());
+    assert_eq!(shared.east_asian_families(), own.east_asian_families());
+    let catalog = |db: &FontDb| {
+        let mut v: Vec<String> = db.read_catalog().iter().map(|c| format!("{c:?}")).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(catalog(&shared), catalog(&own));
+    assert!(!catalog(&shared).is_empty() || weave_system_fonts::catalog().faces.is_empty());
+}

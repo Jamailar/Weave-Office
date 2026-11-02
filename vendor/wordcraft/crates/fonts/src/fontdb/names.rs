@@ -198,9 +198,24 @@ pub(super) fn mini_font(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
     font
 }
 
-/// The platform's font folders (the system's and the user's), scanned by [`FontDb::global`].
-/// Empty on wasm.
+/// The platform's font folders (the system's and the user's), scanned by [`FontDb::global`]:
+/// with `shared-system-fonts`, the folders of the application's one shared scan. Empty on wasm.
 pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
+    if cfg!(feature = "shared-system-fonts") { shared_font_dirs() } else { own_font_dirs() }
+}
+
+#[cfg(feature = "shared-system-fonts")]
+fn shared_font_dirs() -> Vec<std::path::PathBuf> {
+    weave_system_fonts::font_dirs()
+}
+
+#[cfg(not(feature = "shared-system-fonts"))]
+fn shared_font_dirs() -> Vec<std::path::PathBuf> {
+    own_font_dirs()
+}
+
+/// This crate's own list of the platform's font folders.
+fn own_font_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if cfg!(target_arch = "wasm32") {
         return dirs;
