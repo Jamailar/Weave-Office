@@ -242,6 +242,7 @@ impl Host {
             DocumentKind::Pdf => "PDF",
             DocumentKind::Markdown => "笔记",
             DocumentKind::PlainText => "文本",
+            DocumentKind::RichText => "富文本",
         });
         let id = self
             .workspace

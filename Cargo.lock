@@ -7894,6 +7894,7 @@ dependencies = [
  "weave-cli",
  "weave-font-assets",
  "weave-ribbon",
+ "weave-rich-editor",
  "weave-system-fonts",
  "weave-text-editor",
  "weave-workspace",
@@ -7917,6 +7918,17 @@ name = "weave-ribbon"
 version = "0.1.0"
 dependencies = [
  "egui",
+]
+
+[[package]]
+name = "weave-rich-editor"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "image",
+ "serde_json",
+ "weave-ribbon",
+ "weave-text-editor",
 ]
 
 [[package]]

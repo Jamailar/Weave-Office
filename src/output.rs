@@ -32,6 +32,18 @@ pub fn pdf_bytes(editor: &mut Editor, purpose: PdfPurpose) -> Result<Vec<u8>, St
             .map_err(|error| error.to_string())?;
             Ok(bytes)
         }
+        // Rich text prints through the document engine's HTML import.
+        Editor::Rich(app) => {
+            let document =
+                wordcraft_engine::io::open_bytes("document.html", app.text().as_bytes())?;
+            let session = wordcraft_engine::Session::new(document);
+            let (bytes, _) = match purpose {
+                PdfPurpose::Export => session.print_pdf(&json!({})),
+                PdfPurpose::Print => session.print_job_pdf(&json!({})),
+            }
+            .map_err(|error| error.to_string())?;
+            Ok(bytes)
+        }
         Editor::Word(app) => {
             let (bytes, _) = match purpose {
                 PdfPurpose::Export => app.session.print_pdf(&json!({})),

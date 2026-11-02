@@ -1,0 +1,17 @@
+[package]
+name = "weave-rich-editor"
+version = "0.1.0"
+edition = "2024"
+description = "Rich-text (HTML) editor hosted by Weave Office: design and source views, WeChat-style layout"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+egui = { version = "0.37", default-features = false }
+weave-ribbon = { path = "../ribbon" }
+# The source view is the text editor's HTML mode.
+weave-text-editor = { path = "../text-editor" }
+serde_json = "1"
+# Pictures in documents; the app already links these decoders.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }

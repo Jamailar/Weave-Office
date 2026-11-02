@@ -311,6 +311,10 @@ pub fn document(painter: &Painter, rect: Rect, kind: DocumentKind) {
             Color32::from_rgb(92, 104, 120),
             Color32::from_rgb(170, 180, 194),
         ),
+        DocumentKind::RichText => (
+            Color32::from_rgb(0, 141, 150),
+            Color32::from_rgb(128, 210, 214),
+        ),
     };
     let c = Canvas {
         painter,
@@ -373,6 +377,13 @@ pub fn document(painter: &Painter, rect: Rect, kind: DocumentKind) {
             // Angle brackets: code and text files.
             c.path(&[(9.0, 9.0), (6.8, 11.8), (9.0, 14.6)]);
             c.path(&[(11.6, 9.0), (13.8, 11.8), (11.6, 14.6)]);
+        }
+        DocumentKind::RichText => {
+            // A picture over two lines of text: a laid-out article.
+            c.box_outline(7.0, 7.8, 13.5, 11.6);
+            c.path(&[(7.6, 11.0), (9.4, 9.4), (10.6, 10.4), (12.9, 8.6)]);
+            c.line((7.0, 13.6), (13.5, 13.6));
+            c.line((7.0, 15.8), (11.2, 15.8));
         }
     }
 }

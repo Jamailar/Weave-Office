@@ -13,6 +13,9 @@ pub enum DocumentKind {
     Markdown,
     /// Any other text file: plain text, source code, data and configuration files.
     PlainText,
+    /// A rich-text (HTML) document: a web page or an article laid out for WeChat-style
+    /// publishing, edited in a design view or as source.
+    RichText,
 }
 
 /// Extensions that are text without looking inside. Other files may still be text: the host
@@ -20,7 +23,7 @@ pub enum DocumentKind {
 #[rustfmt::skip]
 const TEXT_EXTENSIONS: &[&str] = &[
     "txt", "text", "log", "json", "jsonc", "json5", "geojson", "ipynb", "yaml", "yml", "toml",
-    "ini", "cfg", "conf", "properties", "env", "xml", "svg", "html", "htm", "xhtml",
+    "ini", "cfg", "conf", "properties", "env", "xml", "svg",
     "css", "scss", "sass", "less", "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue",
     "svelte", "py", "pyi", "rs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "cs",
     "java", "kt", "kts", "swift", "m", "mm", "php", "rb", "lua", "sh", "bash", "zsh", "fish",
@@ -38,6 +41,7 @@ impl DocumentKind {
             "pptx" | "pptm" | "ppt" | "odp" => Some(Self::Presentation),
             "pdf" => Some(Self::Pdf),
             "md" | "markdown" | "mdown" | "mkd" | "mdx" => Some(Self::Markdown),
+            "html" | "htm" | "xhtml" | "shtml" => Some(Self::RichText),
             ext if TEXT_EXTENSIONS.contains(&ext) => Some(Self::PlainText),
             _ => None,
         }
@@ -52,6 +56,7 @@ impl DocumentKind {
             Self::Pdf => "pdf",
             Self::Markdown => "md",
             Self::PlainText => "txt",
+            Self::RichText => "html",
         }
     }
 
@@ -64,6 +69,7 @@ impl DocumentKind {
             .map(str::to_ascii_lowercase);
         match self {
             Self::PlainText => true,
+            Self::RichText => matches!(ext.as_deref(), Some("html" | "htm" | "xhtml" | "shtml")),
             Self::Markdown => matches!(
                 ext.as_deref(),
                 Some("md" | "markdown" | "mdown" | "mkd" | "mdx" | "txt")
@@ -280,7 +286,13 @@ mod tests {
             DocumentKind::from_path(Path::new("notes.MD")),
             Some(DocumentKind::Markdown)
         );
-        for name in ["a.txt", "b.json", "c.rs", "d.yaml"] {
+        for name in ["page.html", "b.HTM", "c.xhtml"] {
+            assert_eq!(
+                DocumentKind::from_path(Path::new(name)),
+                Some(DocumentKind::RichText)
+            );
+        }
+        for name in ["a.txt", "b.json", "c.rs", "d.yaml", "e.svg"] {
             assert_eq!(
                 DocumentKind::from_path(Path::new(name)),
                 Some(DocumentKind::PlainText)
@@ -295,5 +307,7 @@ mod tests {
         assert!(!DocumentKind::Markdown.can_save_to(Path::new("a.docx")));
         assert!(DocumentKind::PlainText.can_save_to(Path::new("Makefile")));
         assert!(DocumentKind::PlainText.can_save_to(Path::new("a.json")));
+        assert!(DocumentKind::RichText.can_save_to(Path::new("page.HTM")));
+        assert!(!DocumentKind::RichText.can_save_to(Path::new("page.md")));
     }
 }

@@ -8,13 +8,14 @@ use weave_office::{
 };
 use weave_workspace::{CloseResult, DocumentKind, TabId};
 
-const KINDS: [DocumentKind; 6] = [
+const KINDS: [DocumentKind; 7] = [
     DocumentKind::Text,
     DocumentKind::Spreadsheet,
     DocumentKind::Presentation,
     DocumentKind::Pdf,
     DocumentKind::Markdown,
     DocumentKind::PlainText,
+    DocumentKind::RichText,
 ];
 
 fn command(host: &mut Host, id: TabId, command: &str, params: Value) -> Value {
@@ -73,6 +74,14 @@ fn edit(host: &mut Host, id: TabId, marker: &str) {
                 selection: weave_text_editor::edit::Selection::caret(marker.len()),
             });
         }
+        Editor::Rich(app) => {
+            let end = app.text().len();
+            app.apply(weave_text_editor::edit::Edit {
+                range: 0..end,
+                text: marker.into(),
+                selection: weave_text_editor::edit::Selection::caret(marker.len()),
+            });
+        }
     }
     host.sync_dirty();
 }
@@ -108,6 +117,7 @@ fn content(host: &mut Host, id: TabId) -> Value {
             )
         }
         Editor::TextFile(app) => json!(app.text()),
+        Editor::Rich(app) => json!(app.text()),
         Editor::Pdf(app) => {
             let (_, doc_id) = app.active_ids().expect("PDF view exists");
             let doc = app.session.get(doc_id).expect("PDF exists");
