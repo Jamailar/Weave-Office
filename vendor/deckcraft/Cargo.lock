@@ -1077,11 +1077,12 @@ name = "deckcraft-fonts"
 version = "0.13.1"
 dependencies = [
  "epaint_default_fonts",
- "harfrust 0.13.3",
+ "harfrust",
  "kurbo",
  "log",
- "skrifa 0.47.0",
+ "skrifa 0.44.0",
  "unicode-bidi",
+ "weave-font-assets",
 ]
 
 [[package]]
@@ -1240,7 +1241,7 @@ dependencies = [
  "image",
  "kurbo",
  "log",
- "skrifa 0.47.0",
+ "skrifa 0.44.0",
  "vello_common",
  "vello_cpu",
 ]
@@ -1279,7 +1280,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
- "skrifa 0.47.0",
+ "skrifa 0.44.0",
  "toml",
  "web-time",
 ]
@@ -1619,7 +1620,7 @@ dependencies = [
  "emath",
  "epaint_default_fonts",
  "font-types 0.12.6",
- "harfrust 0.12.0",
+ "harfrust",
  "log",
  "nohash-hasher",
  "parking_lot",
@@ -2133,19 +2134,6 @@ dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
  "read-fonts 0.41.0",
- "smallvec",
-]
-
-[[package]]
-name = "harfrust"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "948d0741125ba89cd3e1c23e5642415b6ade7e1d29d67ba25fb925b533e989d6"
-dependencies = [
- "bitflags 2.13.2",
- "bytemuck",
- "once_cell",
- "read-fonts 0.43.3",
  "smallvec",
 ]
 
@@ -3903,28 +3891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "read-fonts"
-version = "0.43.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005c8acf251756c478b0bf402885bfd88a1476020c4c7e6060edc1aa68da38ea"
-dependencies = [
- "bytemuck",
- "font-types 0.12.6",
- "once_cell",
-]
-
-[[package]]
-name = "read-fonts"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5a0cf4bb6cbce4c29756270d189a5e400ac05e91192161d83a0bcb6e68492e8"
-dependencies = [
- "bytemuck",
- "font-types 0.12.6",
- "once_cell",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4360,16 +4326,6 @@ checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
  "read-fonts 0.41.0",
-]
-
-[[package]]
-name = "skrifa"
-version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "526e654b303ff4ad73a5a40b25de2b3ce3d039c5e3b6da5f89ae6e57004cb40f"
-dependencies = [
- "bytemuck",
- "read-fonts 0.44.0",
 ]
 
 [[package]]
@@ -5418,6 +5374,10 @@ dependencies = [
  "once_cell",
  "pkg-config",
 ]
+
+[[package]]
+name = "weave-font-assets"
+version = "0.1.0"
 
 [[package]]
 name = "web-sys"
