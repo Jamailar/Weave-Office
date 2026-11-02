@@ -297,6 +297,73 @@ impl Editor {
                 }),
         }
     }
+    /// The document's current contents for automatic recovery, in the editor's own format,
+    /// produced on the recovery thread. Uncommitted input (a cell being typed, an IME
+    /// composition) is left out; the editor is not flushed, so nothing it shows changes.
+    pub fn snapshot(&self) -> Result<crate::recovery::Snapshot, String> {
+        Ok(match self {
+            Self::Word(app) => {
+                let document = app.session.doc.clone();
+                Box::new(move || wordcraft_engine::io::save_bytes("recovery.docx", &document))
+            }
+            Self::Sheet(app) => {
+                let workbook = app.session.active().ok_or("没有打开的表格")?.wb.clone();
+                Box::new(move || {
+                    gridcraft_engine::io::save_bytes(&workbook, "recovery.xlsx")
+                        .map_err(|error| error.to_string())
+                })
+            }
+            Self::Slides(app) => {
+                let presentation = app.session.active().ok_or("没有打开的演示")?.doc.clone();
+                Box::new(move || {
+                    deckcraft_engine::cmd::file::save_bytes(&presentation, "pptx")
+                        .map_err(|error| error.to_string())
+                })
+            }
+            Self::Pdf(app) => {
+                let (_, id) = app.active_ids().ok_or("没有打开的 PDF")?;
+                let bytes = app
+                    .session
+                    .save_bytes(id)
+                    .map_err(|error| error.to_string())?;
+                Box::new(move || Ok(std::sync::Arc::unwrap_or_clone(bytes)))
+            }
+        })
+    }
+    /// Reopen a recovery copy as an unsaved document that belongs to `origin` (its file before
+    /// the crash), not to the copy.
+    pub fn restore(
+        kind: DocumentKind,
+        copy: &Path,
+        origin: Option<&Path>,
+        clipboard: &Clipboard,
+    ) -> Result<Self, String> {
+        if kind == DocumentKind::Pdf {
+            let bytes = std::fs::read(copy).map_err(|error| error.to_string())?;
+            let name = origin
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "PDF".into());
+            return Self::generated_pdf(&name, bytes, None);
+        }
+        let mut editor = Self::create(kind, Some(copy), clipboard)?;
+        let origin_text = origin.and_then(Path::to_str).map(str::to_owned);
+        match &mut editor {
+            Self::Word(app) => app.session.path = origin.map(Path::to_path_buf),
+            Self::Sheet(app) => {
+                if let Some(doc) = app.session.active_mut() {
+                    doc.path = origin_text;
+                }
+            }
+            Self::Slides(app) => {
+                if let Some(doc) = app.session.active_mut() {
+                    doc.path = origin_text;
+                }
+            }
+            Self::Pdf(_) => {}
+        }
+        Ok(editor)
+    }
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
         match self {
             Self::Word(a) => a.hosted_save(path),

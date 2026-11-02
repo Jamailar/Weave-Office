@@ -13,6 +13,10 @@ pub struct Document {
     pub file_services: crate::office_files::OfficeFiles,
     pub memory: egui::Memory,
     pub fonts: Option<egui::FontDefinitions>,
+    /// The file a recovered document came from before the crash: the save folder to suggest.
+    pub origin: Option<PathBuf>,
+    /// Reopened from a recovery copy and not saved since: unsaved whatever the editor says.
+    pub recovered: bool,
 }
 #[derive(Default)]
 pub struct Host {
@@ -173,6 +177,8 @@ impl Host {
                 file_services,
                 memory: Default::default(),
                 fonts: None,
+                origin: None,
+                recovered: false,
             },
         );
         self.sync_dirty();
@@ -230,6 +236,8 @@ impl Host {
                 file_services,
                 memory: Default::default(),
                 fonts: None,
+                origin: None,
+                recovered: false,
             },
         );
         self.sync_dirty();
@@ -269,6 +277,8 @@ impl Host {
                 file_services,
                 memory: Default::default(),
                 fonts: None,
+                origin: None,
+                recovered: false,
             },
         );
         protected.insert(path);
@@ -277,12 +287,48 @@ impl Host {
         Ok(id)
     }
     pub fn dirty(&self, id: TabId) -> bool {
-        self.documents.get(&id).is_some_and(|d| d.editor.dirty())
+        self.documents
+            .get(&id)
+            .is_some_and(|d| d.recovered || d.editor.dirty())
     }
     pub fn sync_dirty(&mut self) {
         for (&id, doc) in &self.documents {
-            self.workspace.sync_dirty(id, doc.editor.dirty());
+            self.workspace
+                .sync_dirty(id, doc.recovered || doc.editor.dirty());
         }
+    }
+    /// The folder to suggest when saving `id` for the first time.
+    pub fn origin(&self, id: TabId) -> Option<&Path> {
+        self.documents.get(&id)?.origin.as_deref()
+    }
+    /// Reopen a copy automatic recovery kept as an unsaved document titled `title`. It has no
+    /// file until it is saved; `origin` is only the folder to suggest.
+    pub fn restore(
+        &mut self,
+        kind: DocumentKind,
+        title: &str,
+        copy: &Path,
+        origin: Option<&Path>,
+    ) -> Result<TabId, String> {
+        let mut editor = Editor::restore(kind, copy, origin, &self.clipboard)?;
+        let file_services = self.install_services(&mut editor);
+        let id = self
+            .workspace
+            .add(kind, title, None)
+            .ok_or("标签标识已耗尽")?;
+        self.documents.insert(
+            id,
+            Document {
+                editor,
+                file_services,
+                memory: Default::default(),
+                fonts: None,
+                origin: origin.map(Path::to_path_buf),
+                recovered: true,
+            },
+        );
+        self.sync_dirty();
+        Ok(id)
     }
     pub fn path(&self, id: TabId) -> Option<&Path> {
         self.workspace.tab(id)?.path.as_deref()
@@ -309,11 +355,9 @@ impl Host {
         {
             return Err("该文件已在其他标签中打开".into());
         }
-        self.documents
-            .get_mut(&id)
-            .ok_or("标签不存在")?
-            .editor
-            .save(&path)?;
+        let document = self.documents.get_mut(&id).ok_or("标签不存在")?;
+        document.editor.save(&path)?;
+        document.recovered = false;
         if self.dirty(id) {
             return Err("仍有未提交的修改，请检查编辑区后重试".into());
         }
