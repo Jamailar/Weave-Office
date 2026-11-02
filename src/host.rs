@@ -12,6 +12,7 @@ pub struct Document {
     pub editor: Editor,
     pub file_services: crate::office_files::OfficeFiles,
     pub memory: egui::Memory,
+    /// The fonts this tab's editor installed: its part of the shared set ([`crate::font_set`]).
     pub fonts: Option<egui::FontDefinitions>,
     /// The file a recovered document came from before the crash: the save folder to suggest.
     pub origin: Option<PathBuf>,
