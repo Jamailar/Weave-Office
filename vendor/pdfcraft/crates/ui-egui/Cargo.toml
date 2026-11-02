@@ -11,8 +11,11 @@ workspace = true
 
 [features]
 # Standalone PdfCraft keeps its existing renderer; Weave selects one shared Glow renderer.
-default = ["wgpu"]
+default = ["wgpu", "updater"]
 wgpu = ["eframe/wgpu"]
+# The editor's own release check and update prompt. An embedding host that owns releases turns
+# default features off to leave out the updater and its network stack.
+updater = ["dep:craft-update"]
 shared-font-assets = ["dep:weave-font-assets", "pdfcraft-fonts/shared-font-assets"]
 
 [dependencies]
@@ -55,7 +58,7 @@ skrifa = "0.44"
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-craft-update = { workspace = true }
+craft-update = { workspace = true, optional = true }
 # Control-channel tokens.
 getrandom = "0.4"
 # Create ▸ Clipboard (images; already in the tree through egui-winit).

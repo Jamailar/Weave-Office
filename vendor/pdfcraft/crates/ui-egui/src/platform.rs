@@ -13,5 +13,6 @@ pub mod portable;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) mod system_fonts;
 pub mod ui_scale;
+#[cfg_attr(all(not(target_arch = "wasm32"), not(feature = "updater")), path = "platform/updates_off.rs")]
 pub mod updates;
 pub mod window_controls;

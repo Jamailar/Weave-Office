@@ -37,6 +37,10 @@ sys-locale = { version = "0.3", features = ["js"] }
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
 
 [features]
+default = ["updater"]
+# The editor's own release check and update prompt. An embedding host that owns releases turns
+# default features off to leave out the updater and its network stack.
+updater = ["dep:craft-update"]
 shared-font-assets = ["dep:weave-font-assets", "wordcraft-fonts/shared-font-assets"]
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
@@ -48,7 +52,7 @@ zbus = "=5.19.0"
 # Comment times in the user's own time zone (`local_time.rs`); the web app asks the browser.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-craft-update = { workspace = true }
+craft-update = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # The browser clock (`SystemTime::now()`/`Instant::now()` panic on wasm32).
