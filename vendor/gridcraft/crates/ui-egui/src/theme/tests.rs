@@ -354,3 +354,38 @@ fn fedora_package_folders_are_searched_after_the_other_linux_layouts() {
     let noto = mono.iter().position(|p| p == "/usr/share/fonts/google-noto-vf/NotoSansMono[wght].ttf");
     assert!(noto.is_some() && noto.unwrap_or(0) + 1 == mono.len(), "Fedora's default Noto Sans Mono must be the last resort: {mono:?}");
 }
+
+#[test]
+/// Chinese next to Latin in one cell sits on the Latin baseline (`n长春` drew the Han glyphs a
+/// visible step higher than the `n`): every non-emoji fallback face is put on the baseline.
+fn mixed_latin_and_han_cell_text_shares_one_baseline() {
+    let sample = "n长春 w嗯 fwe你好";
+    let sets = [("pinned", pinned_font_definitions()), ("system", font_definitions_for_language(Language::Zh))];
+    for (label, fonts) in sets {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(fonts.clone());
+        let mut out = ctx.run_ui(egui::RawInput::default(), |_ui| {});
+        out.textures_delta.clear(); // nothing consumes the atlas in a headless test
+        for role in [CELL, CELL_BOLD, CELL_ITALIC, CELL_BOLD_ITALIC, SERIF, UI] {
+            let font = FontId::new(14.0 * 96.0 / 72.0, FontFamily::Name(role.into()));
+            if !ctx.fonts_mut(|f| f.has_glyph(&font, '长')) {
+                eprintln!("skipped {label} {role}: no Han face (no system face and no craft-fonts input)");
+                continue;
+            }
+            let galley = ctx.fonts_mut(|f| f.layout_no_wrap(sample.to_owned(), font.clone(), Color32::BLACK));
+            let glyphs = &galley.rows[0].row.glyphs;
+            let latin = glyphs.iter().find(|g| g.chr == 'n').map(|g| g.pos.y).expect("Latin glyph");
+            for g in glyphs.iter().filter(|g| !g.chr.is_whitespace()) {
+                assert!((g.pos.y - latin).abs() < 0.01, "{label} {role}: {:?} baseline {} != Latin {latin}", g.chr, g.pos.y);
+            }
+        }
+        for (key, data) in &fonts.font_data {
+            let centred = ["NotoEmoji-Regular", "emoji-icon-font"].contains(&key.as_str());
+            assert_eq!(
+                data.tweak.fallback_align == egui::epaint::text::FallbackAlign::Baseline,
+                !centred,
+                "{label}: {key} must be on the baseline unless it is an emoji face"
+            );
+        }
+    }
+}

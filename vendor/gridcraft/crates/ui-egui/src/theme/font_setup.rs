@@ -169,6 +169,23 @@ pub(crate) fn drop_unparseable_fonts(fonts: &mut FontDefinitions) {
     }
 }
 
+/// egui's bundled colour-emoji and icon faces. Their glyphs fill the whole line box, so they keep
+/// epaint's default of centring a fallback face's line box on the primary face's.
+const CENTRED_FALLBACKS: [&str; 2] = ["NotoEmoji-Regular", "emoji-icon-font"];
+
+/// Puts every text face's glyphs on the baseline of the family's first face when it serves as a
+/// fallback. epaint otherwise centres a fallback face's line box on the primary face's, so in a cell
+/// like `n长春` the Han glyphs (PingFang, Microsoft YaHei, Noto Sans CJK, LXGW WenKai...) sit
+/// visibly higher or lower than the Latin ones: the faces' ascent/descent ratios differ. The tweak
+/// only matters while a face is a fallback; as the first face of a chain it is ignored.
+pub(crate) fn put_fallbacks_on_baseline(fonts: &mut FontDefinitions) {
+    for (key, data) in &mut fonts.font_data {
+        if !CENTRED_FALLBACKS.contains(&key.as_str()) {
+            Arc::make_mut(data).tweak.set_baseline_fallback(true);
+        }
+    }
+}
+
 /// egui's bundled monospace face, used as the last-resort symbol fallback (see `Hack-Regular.ttf`
 /// in `epaint_default_fonts`). It is present whenever egui is built with `default_fonts`.
 const HACK: &str = "Hack";
@@ -467,6 +484,7 @@ fn font_definitions_impl(language: crate::i18n::Language, used: &[String], syste
     // leads, and the barred Noto CJK collection never enters.
     append_craft_faces(&mut fonts);
     drop_unparseable_fonts(&mut fonts);
+    put_fallbacks_on_baseline(&mut fonts);
     // Only families egui still has data for count as bound (a dropped face can empty a chain).
     bound.retain(|f| fonts.families.get(&FontFamily::Name(f.as_str().into())).is_some_and(|c| !c.is_empty()));
     crate::fonts::set_bound(bound);

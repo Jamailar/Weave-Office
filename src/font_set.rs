@@ -8,7 +8,7 @@
 //! the fallbacks behind them are joined in a fixed order (the shell first, then tabs in the
 //! order they were opened), so the set does not depend on which tab is active.
 
-use eframe::egui::{self, FontDefinitions};
+use eframe::egui::{self, FontData, FontDefinitions};
 
 /// The set the host keeps installed: the shell's faces plus every open tab's part.
 ///
@@ -128,7 +128,8 @@ impl FontSet {
 }
 
 /// The union of `parts`, earlier parts first. A face name present in several parts keeps the
-/// first part's data; a family present in several parts lists the first part's chain, then
+/// first part's data, except that a part placing the same face on the baseline as a fallback wins
+/// (see [`on_baseline_instead`]); a family present in several parts lists the first part's chain, then
 /// the faces the later parts add, each face once.
 pub fn merge<'a>(parts: impl IntoIterator<Item = &'a FontDefinitions>) -> FontDefinitions {
     let mut out = FontDefinitions {
@@ -137,9 +138,13 @@ pub fn merge<'a>(parts: impl IntoIterator<Item = &'a FontDefinitions>) -> FontDe
     };
     for part in parts {
         for (name, data) in &part.font_data {
-            out.font_data
+            let kept = out
+                .font_data
                 .entry(name.clone())
                 .or_insert_with(|| data.clone());
+            if on_baseline_instead(kept, data) {
+                *kept = data.clone();
+            }
         }
         for (family, chain) in &part.families {
             let merged = out.families.entry(family.clone()).or_default();
@@ -158,6 +163,19 @@ pub fn merge<'a>(parts: impl IntoIterator<Item = &'a FontDefinitions>) -> FontDe
             .all(|n| out.font_data.contains_key(n))
     );
     out
+}
+
+/// Whether `later` is the same face as `kept` but put on the primary face's baseline when it is a
+/// fallback, while `kept` centres it. Editors share face names (DeckCraft and GridCraft key the
+/// craft-fonts faces alike); which tab was opened first must not decide whether Chinese next to
+/// Latin in a spreadsheet cell sits on the Latin baseline. Centring only suits emoji and icon
+/// faces, which no editor puts on the baseline, so the baseline wins regardless of order.
+fn on_baseline_instead(kept: &FontData, later: &FontData) -> bool {
+    use eframe::egui::epaint::text::FallbackAlign;
+    kept.tweak.fallback_align != FallbackAlign::Baseline
+        && later.tweak.fallback_align == FallbackAlign::Baseline
+        && kept.index == later.index
+        && (std::ptr::eq(kept.bytes(), later.bytes()) || kept.bytes() == later.bytes())
 }
 
 /// Whether two sets are the same, comparing face data by identity: a cheap per-frame check.
@@ -239,6 +257,40 @@ mod tests {
             .insert("ui".into(), Arc::new(FontData::from_static(b"other")));
         let set = merge([&first, &second]);
         assert!(Arc::ptr_eq(&set.font_data["ui"], &first.font_data["ui"]));
+    }
+
+    #[test]
+    fn a_face_on_the_baseline_wins_whatever_the_tab_order() {
+        use eframe::egui::epaint::text::FallbackAlign;
+        let centred = part(&["craft-han"], &[("deck", &["craft-han"])]);
+        let mut baseline = part(&["craft-han"], &[("cell", &["craft-han"])]);
+        let mut data = FontData::from_static(b"face");
+        data.tweak.set_baseline_fallback(true);
+        baseline
+            .font_data
+            .insert("craft-han".into(), Arc::new(data));
+        for set in [merge([&centred, &baseline]), merge([&baseline, &centred])] {
+            assert_eq!(
+                set.font_data["craft-han"].tweak.fallback_align,
+                FallbackAlign::Baseline
+            );
+            assert!(Arc::ptr_eq(
+                &set.font_data["craft-han"],
+                &baseline.font_data["craft-han"]
+            ));
+        }
+        // A different face under the same name still keeps the first part's data.
+        let mut other = FontData::from_static(b"other");
+        other.tweak.set_baseline_fallback(true);
+        let mut different = part(&["craft-han"], &[]);
+        different
+            .font_data
+            .insert("craft-han".into(), Arc::new(other));
+        let set = merge([&centred, &different]);
+        assert!(Arc::ptr_eq(
+            &set.font_data["craft-han"],
+            &centred.font_data["craft-han"]
+        ));
     }
 
     #[test]
