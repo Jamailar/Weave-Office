@@ -11,11 +11,13 @@ workspace = true
 
 [features]
 # Standalone PdfCraft keeps its existing renderer; Weave selects one shared Glow renderer.
-default = ["wgpu", "updater"]
+default = ["wgpu", "updater", "all-locales"]
 wgpu = ["eframe/wgpu"]
 # The editor's own release check and update prompt. An embedding host that owns releases turns
 # default features off to leave out the updater and its network stack.
 updater = ["dep:craft-update"]
+# Every interface translation; without it only Simplified Chinese is embedded (English is built in).
+all-locales = []
 shared-font-assets = ["dep:weave-font-assets", "pdfcraft-fonts/shared-font-assets"]
 
 [dependencies]

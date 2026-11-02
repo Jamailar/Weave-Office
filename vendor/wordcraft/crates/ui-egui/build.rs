@@ -89,6 +89,11 @@ fn locales(dir: &std::path::Path) -> Result<Vec<Locale>, String> {
     for entry in list.flatten() {
         let path = entry.path();
         let Some(code) = path.file_name().and_then(std::ffi::OsStr::to_str).map(str::to_string) else { continue };
+        // Without the `all-locales` feature an embedding host that offers only English and
+        // Simplified Chinese keeps just that catalog.
+        if std::env::var_os("CARGO_FEATURE_ALL_LOCALES").is_none() && code != "zh-hans" {
+            continue;
+        }
         let app = path.join(APP_CATALOG);
         if !app.is_file() {
             continue;
