@@ -157,7 +157,8 @@ impl CffFontBlob {
     }
 
     pub(crate) fn glyph_index_by_cid(&self, cid: u16) -> Option<GlyphId> {
-        self.charset()?.glyph_id(Sid::new(cid))
+        // PdfCraft patch: skrifa 0.44 (shared with egui) returns `Result` here; 0.47 returned `Option`.
+        self.charset()?.glyph_id(Sid::new(cid)).ok()
     }
 
     pub(crate) fn glyph_index(&self, code: u8) -> Option<GlyphId> {
