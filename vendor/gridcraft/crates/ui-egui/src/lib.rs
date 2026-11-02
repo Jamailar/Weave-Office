@@ -202,6 +202,8 @@ pub struct Perf {
 
 pub struct SheetApp {
     pub(crate) hosted: bool,
+    /// Set when the host draws the ribbon's tab row: where it drew each tab this frame.
+    pub(crate) host_tabs: Option<Vec<(String, egui::Rect)>>,
     host_dispatch: bool,
     host_commands: Vec<(String, serde_json::Value)>,
     pub session: Session,

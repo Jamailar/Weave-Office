@@ -1703,6 +1703,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "weave-ribbon",
  "web-time",
 ]
 
@@ -2864,6 +2865,7 @@ dependencies = [
  "sys-locale",
  "toml",
  "weave-font-assets",
+ "weave-ribbon",
  "weave-system-fonts",
  "web-sys",
  "web-time",
@@ -4871,6 +4873,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "weave-font-assets",
+ "weave-ribbon",
  "web-sys",
  "web-time",
  "winsafe",
@@ -7861,6 +7864,7 @@ dependencies = [
  "skrifa 0.44.0",
  "tempfile",
  "weave-font-assets",
+ "weave-ribbon",
  "weave-system-fonts",
  "weave-workspace",
  "winit",
@@ -7876,6 +7880,13 @@ name = "weave-pdf-backend"
 version = "0.1.0"
 dependencies = [
  "pdfcraft-engine",
+]
+
+[[package]]
+name = "weave-ribbon"
+version = "0.1.0"
+dependencies = [
+ "egui",
 ]
 
 [[package]]
@@ -8532,6 +8543,7 @@ dependencies = [
  "sys-locale",
  "toml",
  "weave-font-assets",
+ "weave-ribbon",
  "web-time",
  "wordcraft-doc",
  "wordcraft-engine",

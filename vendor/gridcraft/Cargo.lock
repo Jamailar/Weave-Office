@@ -2154,6 +2154,7 @@ dependencies = [
  "sys-locale",
  "toml",
  "weave-font-assets",
+ "weave-ribbon",
  "weave-system-fonts",
  "web-sys",
  "web-time",
@@ -5876,6 +5877,13 @@ dependencies = [
 [[package]]
 name = "weave-font-assets"
 version = "0.1.0"
+
+[[package]]
+name = "weave-ribbon"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
 
 [[package]]
 name = "weave-system-fonts"

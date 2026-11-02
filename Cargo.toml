@@ -6,7 +6,7 @@ rust-version = "1.95"
 description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
 
 [workspace]
-members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts"]
+members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon"]
 exclude = ["integration", "vendor/wordcraft", "vendor/gridcraft", "vendor/deckcraft", "vendor/pdfcraft"]
 resolver = "2"
 
@@ -24,18 +24,20 @@ weave-system-fonts = { path = "crates/system-fonts" }
 wordcraft-fonts = { path = "vendor/wordcraft/crates/fonts", features = ["shared-font-assets", "shared-system-fonts"] }
 deckcraft-fonts = { path = "vendor/deckcraft/crates/fonts", features = ["shared-font-assets", "shared-system-fonts"] }
 pdfcraft-fonts = { path = "vendor/pdfcraft/crates/fonts", features = ["shared-font-assets"] }
-wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
+# The host draws every editor's ribbon tab row (crates/ribbon); the editors draw the commands below.
+weave-ribbon = { path = "crates/ribbon" }
+wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "host-ribbon"] }
 wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
 wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }
 # Document reads WMF/EMF pictures with Presentation's reader: one metafile parser in the app.
 wordcraft-metafile = { path = "vendor/wordcraft/crates/metafile", features = ["shared-metafile"] }
-gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "shared-system-fonts"] }
+gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "shared-system-fonts", "host-ribbon"] }
 gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
 # Spreadsheet PDF export and printing through the shared PDF engine, with embedded fonts.
 gridcraft-pdf = { path = "vendor/gridcraft/crates/pdf", features = ["shared-pdf"] }
-deckcraft-ui-egui = { path = "vendor/deckcraft/crates/ui-egui", default-features = false }
+deckcraft-ui-egui = { path = "vendor/deckcraft/crates/ui-egui", default-features = false, features = ["host-ribbon"] }
 deckcraft-engine = { path = "vendor/deckcraft/crates/engine" }
-pdfcraft-ui-egui = { path = "vendor/pdfcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
+pdfcraft-ui-egui = { path = "vendor/pdfcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "host-ribbon"] }
 pdfcraft-engine = { path = "vendor/pdfcraft/crates/engine" }
 pdfcraft-print = { path = "vendor/pdfcraft/crates/print" }
 pdfcraft-platform = { path = "vendor/pdfcraft/crates/platform" }

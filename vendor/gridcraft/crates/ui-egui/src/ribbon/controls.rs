@@ -27,9 +27,21 @@ pub(super) fn act(app: &mut SheetApp, id: &str, params: serde_json::Value) {
 
 /// Keytips are painted, not focusable widgets: the grid retains keyboard focus.
 pub(super) fn keytip(app: &SheetApp, ui: &Ui, sequence: &str, at: egui::Pos2) {
+    badge(app, ui.ctx(), Some(ui.clip_rect()), sequence, at);
+}
+
+/// [`keytip`] over a tab the host drew, outside this editor's panels.
+pub(super) fn tab_keytip(app: &SheetApp, ctx: &egui::Context, sequence: &str, at: egui::Pos2) {
+    badge(app, ctx, None, sequence, at);
+}
+
+fn badge(app: &SheetApp, ctx: &egui::Context, clip: Option<Rect>, sequence: &str, at: egui::Pos2) {
     let Some(rest) = app.keytips.prefix().and_then(|prefix| sequence.strip_prefix(prefix)).filter(|s| !s.is_empty()) else { return };
-    let t = Tokens::get(ui.ctx());
-    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("ribbon_keytips"))).with_clip_rect(ui.clip_rect());
+    let t = Tokens::get(ctx);
+    let mut painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("ribbon_keytips")));
+    if let Some(clip) = clip {
+        painter = painter.with_clip_rect(clip);
+    }
     let text = painter.layout_no_wrap(rest.into(), theme::ui_bold(10.5), t.text);
     let rect = Rect::from_center_size(at, text.size() + vec2(7.0, 3.0));
     painter.rect_filled(rect, 2.0, t.input_bg);

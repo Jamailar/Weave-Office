@@ -47,7 +47,15 @@ const _: () = assert!(TITLE_CONTROL_H < TITLE_BAR_H, "title-bar controls keep a 
 pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let collapsed = app.ui.ribbon_collapsed;
-    let tab_height = if app.hosted { 32.0 } else { 34.0 };
+    // A host that draws the tab row leaves only the open tab's card to this panel.
+    let host_tabs = app.host_tabs.is_some();
+    let tab_height = if host_tabs {
+        0.0
+    } else if app.hosted {
+        32.0
+    } else {
+        34.0
+    };
     let card_height = if app.hosted { 84.0 } else { 88.0 };
     let h = if collapsed { tab_height } else { tab_height + card_height + 4.0 };
     // A contextual tab exists only while its object is selected (Excel hides Table Design once the
@@ -55,76 +63,96 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     if CONTEXTUAL_TABS.contains(&app.ui.ribbon_tab.as_str()) && !contextual_tabs(app).contains(&app.ui.ribbon_tab.as_str()) {
         app.ui.ribbon_tab = "Home".to_string();
     }
+    if let Some(rects) = &app.host_tabs
+        && app.keytips.prefix() == Some("")
+    {
+        for (tab, r) in rects {
+            if let Some(sequence) = keytip_table::tab_sequence(tab) {
+                controls::tab_keytip(app, ui.ctx(), sequence, pos2(r.center().x, r.bottom() - 1.0));
+            }
+        }
+    }
+    if host_tabs && collapsed {
+        return;
+    }
     egui::Panel::top("ribbon")
         .exact_size(h)
         .frame(egui::Frame::NONE.fill(t.window).inner_margin(egui::Margin { left: 10, right: 10, top: 0, bottom: 6 }))
         .show(ui, |ui| {
             // Tabs row.
             let tabs_rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), 32.0));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(tabs_rect), |ui| {
-                egui::ScrollArea::horizontal()
-                    .id_salt("ribbon_tabs")
-                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 2.0;
-                            if app.hosted {
-                                let can_undo = gridcraft_engine::cmd::can_undo(&app.session).is_ok();
-                                let can_redo = gridcraft_engine::cmd::can_redo(&app.session).is_ok();
-                                if let Some(prefix) = app.services.header_prefix.as_mut() {
-                                    app.host_commands.extend(prefix(ui, can_undo, can_redo));
-                                    ui.add_space(6.0);
-                                }
-                            }
-                            ui.add_space(8.0);
-                            if app.chrome.file_tab && !(app.hosted && app.services.header_prefix.is_some()) {
-                                file_menu(app, ui);
-                            }
-                            let mut tabs: Vec<&str> = TABS.to_vec();
-                            let ctx_tabs = contextual_tabs(app);
-                            tabs.extend(ctx_tabs.iter());
-                            for tab in tabs {
-                                let active = app.ui.ribbon_tab == tab;
-                                let contextual = ctx_tabs.contains(&tab);
-                                let font = theme::ui_font(13.0);
-                                let label = app.ui.language.tr(tab);
-                                let tw = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.text).size().x;
-                                let (r, resp) = ui.allocate_exact_size(vec2(tw + 22.0, 30.0), Sense::click());
-                                if resp.hovered() && !active {
-                                    ui.painter().rect_filled(r.shrink2(vec2(2.0, 4.0)), 5.0, t.hover);
-                                }
-                                let color = if contextual {
-                                    t.accent
-                                } else if active {
-                                    t.text
-                                } else {
-                                    t.text_dim
-                                };
-                                ui.painter().text(r.center(), Align2::CENTER_CENTER, label, if active { theme::ui_bold(13.0) } else { font }, color);
-                                if active {
-                                    let ul = Rect::from_center_size(pos2(r.center().x, r.bottom() - 3.0), vec2(tw.clamp(20.0, 40.0), 3.0));
-                                    ui.painter().rect_filled(ul, 1.5, t.accent);
-                                }
-                                if resp.clicked() {
-                                    if active && !collapsed {
-                                        app.ui.ribbon_collapsed = true;
-                                    } else {
-                                        app.ui.ribbon_tab = tab.to_string();
-                                        app.ui.ribbon_collapsed = false;
+            if !host_tabs {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(tabs_rect), |ui| {
+                    egui::ScrollArea::horizontal()
+                        .id_salt("ribbon_tabs")
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 2.0;
+                                if app.hosted {
+                                    let can_undo = gridcraft_engine::cmd::can_undo(&app.session).is_ok();
+                                    let can_redo = gridcraft_engine::cmd::can_redo(&app.session).is_ok();
+                                    if let Some(prefix) = app.services.header_prefix.as_mut() {
+                                        app.host_commands.extend(prefix(ui, can_undo, can_redo));
+                                        ui.add_space(6.0);
                                     }
                                 }
-                                if resp.double_clicked() {
-                                    app.ui.ribbon_collapsed = !collapsed;
+                                ui.add_space(8.0);
+                                if app.chrome.file_tab && !(app.hosted && app.services.header_prefix.is_some()) {
+                                    file_menu(app, ui);
                                 }
-                                if app.keytips.prefix() == Some("")
-                                    && let Some(sequence) = keytip_table::tab_sequence(tab)
-                                {
-                                    keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
+                                let mut tabs: Vec<&str> = TABS.to_vec();
+                                let ctx_tabs = contextual_tabs(app);
+                                tabs.extend(ctx_tabs.iter());
+                                for tab in tabs {
+                                    let active = app.ui.ribbon_tab == tab;
+                                    let contextual = ctx_tabs.contains(&tab);
+                                    let font = theme::ui_font(13.0);
+                                    let label = app.ui.language.tr(tab);
+                                    let tw = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.text).size().x;
+                                    let (r, resp) = ui.allocate_exact_size(vec2(tw + 22.0, 30.0), Sense::click());
+                                    if resp.hovered() && !active {
+                                        ui.painter().rect_filled(r.shrink2(vec2(2.0, 4.0)), 5.0, t.hover);
+                                    }
+                                    let color = if contextual {
+                                        t.accent
+                                    } else if active {
+                                        t.text
+                                    } else {
+                                        t.text_dim
+                                    };
+                                    ui.painter().text(
+                                        r.center(),
+                                        Align2::CENTER_CENTER,
+                                        label,
+                                        if active { theme::ui_bold(13.0) } else { font },
+                                        color,
+                                    );
+                                    if active {
+                                        let ul = Rect::from_center_size(pos2(r.center().x, r.bottom() - 3.0), vec2(tw.clamp(20.0, 40.0), 3.0));
+                                        ui.painter().rect_filled(ul, 1.5, t.accent);
+                                    }
+                                    if resp.clicked() {
+                                        if active && !collapsed {
+                                            app.ui.ribbon_collapsed = true;
+                                        } else {
+                                            app.ui.ribbon_tab = tab.to_string();
+                                            app.ui.ribbon_collapsed = false;
+                                        }
+                                    }
+                                    if resp.double_clicked() {
+                                        app.ui.ribbon_collapsed = !collapsed;
+                                    }
+                                    if app.keytips.prefix() == Some("")
+                                        && let Some(sequence) = keytip_table::tab_sequence(tab)
+                                    {
+                                        keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
+                                    }
                                 }
-                            }
+                            });
                         });
-                    });
-            });
+                });
+            }
             if collapsed {
                 return;
             }
@@ -286,6 +314,41 @@ fn theme_choices(app: &mut SheetApp, ui: &mut Ui) {
             act(app, "view.theme", json!({"mode": value}));
             ui.close();
         }
+    }
+}
+
+#[cfg(feature = "host-ribbon")]
+impl weave_ribbon::HostedRibbon for SheetApp {
+    fn ribbon_tabs(&self, _: &egui::Context) -> weave_ribbon::Tabs {
+        let contextual = contextual_tabs(self);
+        let tab = |name: &str, contextual: bool| weave_ribbon::Tab::new(name, self.ui.language.tr(name)).contextual(contextual);
+        weave_ribbon::Tabs {
+            tabs: TABS.iter().map(|name| tab(name, false)).chain(contextual.iter().map(|name| tab(name, true))).collect(),
+            active: Some(self.ui.ribbon_tab.clone()),
+        }
+    }
+
+    /// The same as a click on the editor's own tab row.
+    fn ribbon_event(&mut self, event: weave_ribbon::Event) {
+        match event {
+            weave_ribbon::Event::Clicked(tab) => {
+                if self.ui.ribbon_tab == tab && !self.ui.ribbon_collapsed {
+                    self.ui.ribbon_collapsed = true;
+                } else {
+                    self.ui.ribbon_tab = tab;
+                    self.ui.ribbon_collapsed = false;
+                }
+            }
+            weave_ribbon::Event::DoubleClicked(_) => self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed,
+        }
+    }
+
+    fn undo_redo(&self) -> (bool, bool) {
+        (gridcraft_engine::cmd::can_undo(&self.session).is_ok(), gridcraft_engine::cmd::can_redo(&self.session).is_ok())
+    }
+
+    fn ribbon_tab_rects(&mut self, rects: Vec<(String, Rect)>) {
+        self.host_tabs = Some(rects);
     }
 }
 

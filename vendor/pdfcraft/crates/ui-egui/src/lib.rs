@@ -282,6 +282,8 @@ struct HostedDocumentPending {
 
 pub struct PdfCraftApp {
     hosted: bool,
+    /// Set when the host draws the tab row.
+    host_tabs: bool,
     host_header_prefix: Option<HostHeaderPrefix>,
     host_commands: Vec<(String, serde_json::Value)>,
     host_export_writer: HostExportWriter,

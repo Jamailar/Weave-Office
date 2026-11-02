@@ -480,6 +480,8 @@ fn migrate_units(v: &mut Value) {
 pub struct WordApp {
     /// The surrounding application owns windows, document lifecycle and preferences.
     pub(crate) hosted: bool,
+    /// Set when the host draws the ribbon's tab row: where it drew each tab this frame.
+    pub(crate) host_tabs: Option<Vec<(String, egui::Rect)>>,
     host_commands: Vec<(String, Value)>,
     /// Only the synchronous, explicitly requested hosted save may bypass command forwarding.
     hosted_saving: bool,

@@ -1283,6 +1283,7 @@ dependencies = [
  "serde_json",
  "skrifa 0.44.0",
  "toml",
+ "weave-ribbon",
  "web-time",
 ]
 
@@ -5379,6 +5380,13 @@ dependencies = [
 [[package]]
 name = "weave-font-assets"
 version = "0.1.0"
+
+[[package]]
+name = "weave-ribbon"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
 
 [[package]]
 name = "weave-system-fonts"

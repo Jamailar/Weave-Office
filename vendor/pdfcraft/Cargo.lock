@@ -4670,6 +4670,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "weave-font-assets",
+ "weave-ribbon",
  "web-sys",
  "web-time",
  "winsafe",
@@ -7528,6 +7529,13 @@ dependencies = [
 [[package]]
 name = "weave-font-assets"
 version = "0.1.0"
+
+[[package]]
+name = "weave-ribbon"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
 
 [[package]]
 name = "web-sys"

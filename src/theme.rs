@@ -9,6 +9,8 @@ const ACCENT: Color32 = Color32::from_rgb(35, 103, 184);
 const ACCENT_LIGHT: Color32 = Color32::from_rgb(112, 165, 224);
 pub const TITLE_BAR_HEIGHT: f32 = 38.0;
 pub const NATIVE_CONTROLS_WIDTH: f32 = 84.0;
+/// The ribbon tab row the host draws above every editor's commands.
+pub const RIBBON_TABS_HEIGHT: f32 = 32.0;
 
 pub fn style(ctx: &egui::Context) -> egui::Style {
     let mut style = (*ctx.style_of(ctx.theme())).clone();

@@ -298,7 +298,7 @@ impl PdfCraftApp {
         for view in &mut self.views {
             view.begin_render_frame();
         }
-        if !self.combine_showing() {
+        if !self.combine_showing() && !self.host_tabs {
             egui::Panel::top("pdf-editor-tools")
                 .exact_size(32.0)
                 .frame(egui::Frame::NONE.fill(ui.visuals().panel_fill).inner_margin(egui::Margin::symmetric(8, 2)))
@@ -320,21 +320,10 @@ impl PdfCraftApp {
                                         ui.add_space(6.0);
                                     }
                                 }
-                                if hosted_mode_tab(ui, tl!("Read"), self.mode == Mode::Read && !self.left_open).clicked() {
-                                    self.select_mode(Mode::Read);
-                                    self.left_open = false;
-                                }
-                                if hosted_mode_tab(ui, tl!("Edit"), self.mode == Mode::Edit).clicked() {
-                                    self.select_mode(Mode::Edit);
-                                }
-                                if hosted_mode_tab(ui, tl!("Add comments"), false).clicked() {
-                                    self.enter_mode(Mode::AllTools);
-                                    self.select_tool("comment");
-                                    self.choose_right_panel(Some(RightPanel::Comments));
-                                }
-                                if hosted_mode_tab(ui, tl!("Organize pages"), false).clicked() {
-                                    self.enter_mode(Mode::AllTools);
-                                    self.select_tool("organize");
+                                for (id, label) in HOSTED_TABS {
+                                    if hosted_mode_tab(ui, tl!(label), self.hosted_tab_open(id)).clicked() {
+                                        self.open_hosted_tab(id);
+                                    }
                                 }
                             });
                         });
@@ -695,6 +684,72 @@ mod tests {
 }
 
 /// Compact navigation shares the hosted Office ribbon's text-and-underline treatment.
+/// The hosted editor's tab row: (id, label). Comments and Pages open a tool rather than a mode.
+const HOSTED_TABS: [(&str, &str); 4] = [("read", "Read"), ("edit", "Edit"), ("comments", "Add comments"), ("pages", "Organize pages")];
+
+impl PdfCraftApp {
+    fn hosted_tab_open(&self, id: &str) -> bool {
+        match id {
+            "read" => self.mode == Mode::Read && !self.left_open,
+            "edit" => self.mode == Mode::Edit,
+            _ => false,
+        }
+    }
+
+    fn open_hosted_tab(&mut self, id: &str) {
+        match id {
+            "read" => {
+                self.select_mode(Mode::Read);
+                self.left_open = false;
+            }
+            "edit" => self.select_mode(Mode::Edit),
+            "comments" => {
+                self.enter_mode(Mode::AllTools);
+                self.select_tool("comment");
+                self.choose_right_panel(Some(RightPanel::Comments));
+            }
+            "pages" => {
+                self.enter_mode(Mode::AllTools);
+                self.select_tool("organize");
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(feature = "host-ribbon")]
+impl weave_ribbon::HostedRibbon for PdfCraftApp {
+    fn ribbon_tabs(&self, _: &egui::Context) -> weave_ribbon::Tabs {
+        // Combining files is a page of its own, without the switcher.
+        if self.combine_showing() {
+            return weave_ribbon::Tabs::default();
+        }
+        weave_ribbon::Tabs {
+            tabs: HOSTED_TABS.iter().map(|(id, label)| weave_ribbon::Tab::new(*id, tl!(label))).collect(),
+            active: HOSTED_TABS.iter().find(|(id, _)| self.hosted_tab_open(id)).map(|(id, _)| (*id).to_owned()),
+        }
+    }
+
+    fn ribbon_event(&mut self, event: weave_ribbon::Event) {
+        let (weave_ribbon::Event::Clicked(id) | weave_ribbon::Event::DoubleClicked(id)) = event;
+        if !self.combine_showing() {
+            self.open_hosted_tab(&id);
+        }
+    }
+
+    fn undo_redo(&self) -> (bool, bool) {
+        self.active
+            .and_then(|i| self.views.get(i))
+            .and_then(|view| self.session.get(view.id))
+            .map(|doc| (doc.can_undo().is_some(), doc.can_redo().is_some()))
+            .unwrap_or((false, false))
+    }
+
+    fn ribbon_tab_rects(&mut self, _: Vec<(String, egui::Rect)>) {
+        self.host_tabs = true;
+    }
+}
+
 fn hosted_mode_tab(ui: &mut egui::Ui, label: &str, active: bool) -> egui::Response {
     let font = egui::FontId::proportional(13.0);
     let width = ui.painter().layout_no_wrap(label.to_owned(), font.clone(), ui.visuals().text_color()).size().x;

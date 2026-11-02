@@ -6031,6 +6031,13 @@ name = "weave-font-assets"
 version = "0.1.0"
 
 [[package]]
+name = "weave-ribbon"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "weave-system-fonts"
 version = "0.1.0"
 
@@ -6906,6 +6913,7 @@ dependencies = [
  "sys-locale",
  "toml",
  "weave-font-assets",
+ "weave-ribbon",
  "web-time",
  "wordcraft-doc",
  "wordcraft-engine",
