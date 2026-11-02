@@ -98,6 +98,13 @@ pub fn tr(text: &str) -> &str {
         "操作未完成" => "Action could not be completed",
         "确定" => "OK",
         "保存更改？" => "Save changes?",
+        "恢复未保存的文档？" => "Recover unsaved documents?",
+        "Weave Office 上次没有正常退出。以下文档有自动保存的副本：" => {
+            "Weave Office did not quit normally last time. These documents have automatically saved copies:"
+        }
+        "恢复" => "Recover",
+        "不恢复" => "Don’t Recover",
+        "无法恢复 {title}：{error}" => "Could not recover {title}: {error}",
         "不保存" => "Don’t Save",
         "取消" => "Cancel",
         "文字文档" => "Document",

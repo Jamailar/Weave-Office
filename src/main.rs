@@ -60,6 +60,8 @@ fn main() -> eframe::Result {
             let mut app = WeaveApp::new(cc, files);
             if startup_smoke {
                 app.startup_frames = Some(3);
+            } else {
+                app.enable_recovery();
             }
             #[cfg(target_os = "macos")]
             {

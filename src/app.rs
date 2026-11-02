@@ -73,6 +73,12 @@ pub struct WeaveApp {
     actions: VecDeque<Action>,
     close_plan: Option<ClosePlan>,
     close_prompt: Option<TabId>,
+    /// Automatic recovery, when this run keeps copies of unsaved documents.
+    recovery: Option<crate::recovery::Recovery>,
+    /// Asking whether to reopen what a crashed run left.
+    restore_prompt: bool,
+    /// The last keyboard or pointer press: copies wait until the person pauses.
+    last_input: std::time::Instant,
     close_focus: Option<TabId>,
     error: Option<String>,
     new_picker: bool,
@@ -98,7 +104,8 @@ impl WeaveApp {
         self.new_picker || self.blocking_dialog_open()
     }
     fn blocking_dialog_open(&self) -> bool {
-        self.close_plan.is_some()
+        self.restore_prompt
+            || self.close_plan.is_some()
             || self.preferences
             || self.error.is_some()
             || self.about
@@ -133,6 +140,9 @@ impl WeaveApp {
             actions: files.into_iter().map(Action::Open).collect(),
             close_plan: None,
             close_prompt: None,
+            recovery: None,
+            restore_prompt: false,
+            last_input: std::time::Instant::now(),
             close_focus: None,
             error: None,
             new_picker: false,
@@ -151,6 +161,103 @@ impl WeaveApp {
             #[cfg(target_os = "macos")]
             os_events: None,
             startup_frames: None,
+        }
+    }
+    /// Keep copies of unsaved documents for after a crash, and offer the copies a crashed run
+    /// left. Off unless the application turns it on (tests construct the app without it).
+    pub fn enable_recovery(&mut self) {
+        self.enable_recovery_in(&crate::recovery::default_root(&settings_path()));
+    }
+    pub fn enable_recovery_in(&mut self, root: &Path) {
+        match crate::recovery::Recovery::open(root) {
+            Ok(recovery) => {
+                self.restore_prompt = !recovery.found().is_empty();
+                self.recovery = Some(recovery);
+            }
+            Err(error) => eprintln!("automatic recovery is off: {error}"),
+        }
+    }
+    /// Reopen every copy a crashed run left as an unsaved document, then delete that run's
+    /// folder once this run holds its own copies of them.
+    pub fn restore_recovered(&mut self) {
+        let Some(recovery) = self.recovery.as_mut() else {
+            return;
+        };
+        let mut errors = Vec::new();
+        for found in recovery.found().to_vec() {
+            let Some(kind) = found.manifest.document_kind() else {
+                continue;
+            };
+            match self.host.restore(
+                kind,
+                &found.manifest.title,
+                &found.file,
+                found.manifest.origin.as_deref(),
+            ) {
+                Ok(id) => {
+                    if let Ok(snapshot) = self.host.documents[&id].editor.snapshot() {
+                        recovery.copy(
+                            id,
+                            kind,
+                            &found.manifest.title,
+                            found.manifest.origin.as_deref(),
+                            snapshot,
+                            std::time::Instant::now(),
+                        );
+                    }
+                }
+                Err(error) => errors.push(
+                    tr("无法恢复 {title}：{error}")
+                        .replace("{title}", &found.manifest.title)
+                        .replace("{error}", &error),
+                ),
+            }
+        }
+        recovery.flush();
+        if errors.is_empty() {
+            recovery.clear_found();
+        } else {
+            self.error = Some(errors.join("\n"));
+        }
+        self.restore_prompt = false;
+    }
+    /// Copy each unsaved document the person has changed since its last copy, once they pause.
+    fn autosave(&mut self, ctx: &egui::Context) {
+        let Some(recovery) = self.recovery.as_mut() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        let ids: Vec<TabId> = self
+            .host
+            .workspace
+            .tabs()
+            .iter()
+            .map(|tab| tab.id)
+            .collect();
+        recovery.retain(&ids);
+        let mut wake: Option<std::time::Duration> = None;
+        for id in ids {
+            match recovery.due(id, self.host.dirty(id), now, self.last_input) {
+                Ok(()) => {
+                    let (Some(tab), Some(document)) =
+                        (self.host.workspace.tab(id), self.host.documents.get(&id))
+                    else {
+                        continue;
+                    };
+                    if let Ok(snapshot) = document.editor.snapshot() {
+                        let origin = tab.path.as_deref().or(document.origin.as_deref());
+                        recovery.copy(id, tab.kind, &tab.title, origin, snapshot, now);
+                    }
+                }
+                Err(Some(wait)) => wake = Some(wake.map_or(wait, |w| w.min(wait))),
+                Err(None) => {}
+            }
+        }
+        for error in recovery.take_errors() {
+            eprintln!("automatic recovery: {error}");
+        }
+        if let Some(wait) = wake {
+            ctx.request_repaint_after(wait);
         }
     }
     fn install_shell_font(&self, ctx: &egui::Context) {
@@ -496,7 +603,8 @@ impl WeaveApp {
                 ),
                 directory: tab
                     .path
-                    .as_ref()
+                    .as_deref()
+                    .or(self.host.origin(id))
                     .and_then(|path| path.parent().map(Path::to_path_buf)),
                 filters: vec![(ext.to_uppercase(), vec![ext.into()])],
             };
@@ -512,6 +620,14 @@ impl WeaveApp {
     fn receive_sheet_transfers(&mut self) -> bool {
         let pending = self.host.has_sheet_transfers();
         let errors = self.host.receive_sheet_transfers();
+        if pending {
+            // A move between two workbooks changes a document that is not the active one.
+            if let Some(recovery) = self.recovery.as_mut() {
+                for tab in self.host.workspace.tabs() {
+                    recovery.touch(tab.id);
+                }
+            }
+        }
         if pending || !errors.is_empty() {
             // Any old save/discard choices predate this two-document transaction.
             self.close_plan = None;
@@ -1467,6 +1583,58 @@ impl WeaveApp {
                     ));
                 });
         }
+        if self.restore_prompt && self.error.is_none() {
+            let titles: Vec<String> = self
+                .recovery
+                .as_ref()
+                .map(|recovery| {
+                    recovery
+                        .found()
+                        .iter()
+                        .map(|found| found.manifest.title.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut choice = None;
+            egui::Modal::new(egui::Id::unique("weave-restore"))
+                .frame(dialog::frame(ctx))
+                .show(ctx, |ui| {
+                    dialog::prepare(ui);
+                    dialog::header(ui, tr("恢复未保存的文档？"));
+                    dialog::body(
+                        ui,
+                        tr("Weave Office 上次没有正常退出。以下文档有自动保存的副本："),
+                    );
+                    for title in &titles {
+                        ui.label(format!("• {title}"));
+                    }
+                    let (discard, restore) = dialog::split_footer(
+                        ui,
+                        |ui| dialog::button(ui, tr("不恢复"), ButtonKind::Destructive),
+                        |ui| dialog::button(ui, tr("恢复"), ButtonKind::Primary),
+                    );
+                    if ui.memory(|memory| memory.focused().is_none()) {
+                        restore.request_focus();
+                    }
+                    choice = if restore.clicked() {
+                        Some(true)
+                    } else if discard.clicked() {
+                        Some(false)
+                    } else {
+                        None
+                    };
+                });
+            match choice {
+                Some(true) => self.restore_recovered(),
+                Some(false) => {
+                    if let Some(recovery) = self.recovery.as_mut() {
+                        recovery.clear_found();
+                    }
+                    self.restore_prompt = false;
+                }
+                None => {}
+            }
+        }
         if let Some(error) = self.error.clone() {
             egui::Modal::new(egui::Id::unique("weave-error"))
                 .frame(dialog::frame(ctx))
@@ -1573,6 +1741,14 @@ impl eframe::App for WeaveApp {
             self.actions
                 .push_back(Action::OpenExternal(file.path().to_path_buf()));
         }
+        if raw.events.iter().any(edits_input) {
+            self.last_input = std::time::Instant::now();
+            if let (Some(recovery), Some(id)) =
+                (self.recovery.as_mut(), self.host.workspace.active())
+            {
+                recovery.touch(id);
+            }
+        }
         if !self.host_dialog_open() && self.mounted == self.host.workspace.active() {
             if let Some(doc) = self.host.active_mut() {
                 doc.editor.raw_input(ctx, raw);
@@ -1672,6 +1848,7 @@ impl eframe::App for WeaveApp {
         self.receive_file_requests();
         self.receive_generated();
         self.host.sync_dirty();
+        self.autosave(&ctx);
         self.dialogs(&ctx);
         let title = self
             .host
@@ -1725,6 +1902,20 @@ fn theme_preference(value: &str) -> egui::ThemePreference {
         "system" => egui::ThemePreference::System,
         _ => egui::ThemePreference::Light,
     }
+}
+
+/// Whether an input event can change a document: a key, typed or pasted text, a press or an
+/// input method. Pointer movement and focus changes cannot.
+fn edits_input(event: &egui::Event) -> bool {
+    matches!(
+        event,
+        egui::Event::Key { .. }
+            | egui::Event::Text(_)
+            | egui::Event::Paste(_)
+            | egui::Event::Cut
+            | egui::Event::Ime(_)
+            | egui::Event::PointerButton { .. }
+    )
 }
 
 /// Normalize macOS Control-click once for the shell and all embedded editing canvases.
@@ -2644,6 +2835,7 @@ mod tests {
             "打印",
             "操作未完成",
             "再次选择…",
+            "恢复未保存的文档？",
         ] {
             assert_ne!(tr(label), label);
         }
@@ -2693,6 +2885,124 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    #[test]
+    fn unsaved_documents_survive_a_crash_and_reopen_as_unsaved() {
+        let root = tempfile::tempdir().unwrap();
+        let mut host = Host::default();
+        let word = host.new_document(DocumentKind::Text).unwrap();
+        host.documents
+            .get_mut(&word)
+            .unwrap()
+            .editor
+            .command("text.insert", json!({"text":"崩溃前的文字"}))
+            .unwrap();
+        let sheet = host.new_document(DocumentKind::Spreadsheet).unwrap();
+        host.documents
+            .get_mut(&sheet)
+            .unwrap()
+            .editor
+            .command("cell.set", json!({"cell":"B2", "input":"42"}))
+            .unwrap();
+        let titles: Vec<String> = [word, sheet]
+            .iter()
+            .map(|id| host.workspace.tab(*id).unwrap().title.clone())
+            .collect();
+        let mut app = test_app(host);
+        app.enable_recovery_in(root.path());
+        assert!(!app.restore_prompt);
+        // The person paused: both unsaved documents are copied.
+        app.last_input = std::time::Instant::now() - crate::recovery::IDLE;
+        app.autosave(&egui::Context::default());
+        let mut recovery = app.recovery.take().unwrap();
+        recovery.flush();
+        assert!(recovery.take_errors().is_empty());
+        recovery.crash();
+
+        let mut next = test_app(Host::default());
+        next.enable_recovery_in(root.path());
+        assert!(next.restore_prompt);
+        next.restore_recovered();
+        assert!(next.error.is_none(), "{:?}", next.error);
+        assert!(!next.restore_prompt);
+        let mut restored: Vec<(String, bool)> = next
+            .host
+            .workspace
+            .tabs()
+            .iter()
+            .map(|tab| (tab.title.clone(), next.host.dirty(tab.id)))
+            .collect();
+        restored.sort();
+        let mut expected: Vec<(String, bool)> = titles.into_iter().map(|t| (t, true)).collect();
+        expected.sort();
+        assert_eq!(restored, expected);
+        let find = |next: &WeaveApp, kind| {
+            next.host
+                .workspace
+                .tabs()
+                .iter()
+                .find(|tab| tab.kind == kind)
+                .unwrap()
+                .id
+        };
+        let word = find(&next, DocumentKind::Text);
+        let sheet = find(&next, DocumentKind::Spreadsheet);
+        assert!(next.host.path(word).is_none());
+        let text = next
+            .host
+            .documents
+            .get_mut(&word)
+            .unwrap()
+            .editor
+            .command("document.text", json!({}))
+            .unwrap();
+        assert_eq!(text["text"].as_str().unwrap().trim(), "崩溃前的文字");
+        let cell = next
+            .host
+            .documents
+            .get_mut(&sheet)
+            .unwrap()
+            .editor
+            .command("cell.get", json!({"cell":"B2"}))
+            .unwrap();
+        assert!(cell.to_string().contains("42"), "{cell}");
+        // The crashed run's folder is gone; this run holds its own copies now.
+        let runs = std::fs::read_dir(root.path()).unwrap().count();
+        assert_eq!(runs, 1);
+        // Saving ends the recovered state.
+        let saved = root.path().join("saved.docx");
+        next.host.save_as(word, &saved).unwrap();
+        assert!(!next.host.dirty(word));
+        next.autosave(&egui::Context::default());
+        let dir = next.recovery.as_ref().unwrap().dir().to_path_buf();
+        next.recovery.as_mut().unwrap().flush();
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(!left.iter().any(|name| name.ends_with(".docx")), "{left:?}");
+        drop(next);
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn every_editor_s_recovery_copy_reopens() {
+        let directory = tempfile::tempdir().unwrap();
+        for kind in kinds() {
+            let mut host = Host::default();
+            let id = host.new_document(kind).unwrap();
+            let bytes = host.documents[&id].editor.snapshot().unwrap()().unwrap();
+            let copy = directory.path().join(format!("1.{}", extension(kind)));
+            std::fs::write(&copy, bytes).unwrap();
+            let origin = directory.path().join(format!("原文件.{}", extension(kind)));
+            let restored = host.restore(kind, "原文件", &copy, Some(&origin)).unwrap();
+            assert!(host.dirty(restored), "{kind:?}");
+            assert_eq!(host.origin(restored), Some(origin.as_path()));
+            assert!(host.path(restored).is_none());
+            std::fs::remove_file(&copy).unwrap();
+        }
+    }
+
     fn test_app(host: Host) -> WeaveApp {
         let mounted = host.workspace.active();
         WeaveApp {
@@ -2702,6 +3012,9 @@ mod tests {
             actions: VecDeque::new(),
             close_plan: None,
             close_prompt: None,
+            recovery: None,
+            restore_prompt: false,
+            last_input: std::time::Instant::now(),
             close_focus: None,
             error: None,
             new_picker: false,

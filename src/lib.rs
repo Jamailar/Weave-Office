@@ -13,6 +13,7 @@ pub mod new_document;
 pub mod office_files;
 pub mod output;
 pub mod printing;
+pub mod recovery;
 mod sheet_transfer;
 pub mod theme;
 pub mod ui_fonts;
