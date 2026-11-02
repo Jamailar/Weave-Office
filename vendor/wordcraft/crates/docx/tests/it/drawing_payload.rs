@@ -141,7 +141,7 @@ fn picture_group_canvas_keep_kind() {
 
 #[test]
 fn own_picture_fill_keeps_image() {
-    // Keep the existing WPS picture-fill fallback, distinct from a nested picture.
+    // Keep the existing WordprocessingShape (`wps:spPr`) picture-fill fallback, distinct from a nested picture.
     let start = INLINE_XML.find("<wps:spPr>").unwrap();
     let end = INLINE_XML.find("</wps:wsp>").unwrap();
     let payload = r#"<wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="2286000" cy="1016000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:blipFill><a:blip r:embed="rIdIsolationRect"/><a:stretch><a:fillRect/></a:stretch></a:blipFill></wps:spPr><wps:bodyPr/>"#;

@@ -54,7 +54,7 @@ fn substitutes_by_name(family: &str) -> (&'static [&'static str], bool) {
     const ARIAL_UNICODE: &[&str] = &["Arial", "Liberation Sans", "Helvetica", "Helvetica Neue", "Arimo", "Source Sans 3"];
     const TIMES: &[&str] = &["Liberation Serif", "Times", "Tinos", "Source Serif 4"];
     // Preserve Song's serif design and Simplified-Chinese glyph forms. Installed document
-    // fonts come before open SC serif fallbacks; none of these is bundled from macOS or WPS.
+    // fonts come before open SC serif fallbacks; none of these is bundled from macOS or another office suite.
     // Unlike a coverage-based fallback, the choice does not depend on the run's Chinese text.
     const CHINESE_SONG: &[&str] =
         &["SimSun", "NSimSun", "Songti SC", "STSong", "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC", "Source Han Serif CN"];

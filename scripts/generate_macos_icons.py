@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate original macOS icon resources with intermediates on Jamba only."""
+"""Generate original macOS icon resources with intermediates on the external volume only."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def generate(destination: Path) -> None:
     require_volume()
     cache_root = CACHE.resolve(strict=False)
     if not cache_root.is_relative_to(VOLUME.resolve(strict=True)):
-        raise RuntimeError(f"icon cache resolves outside Jamba: {cache_root}")
+        raise RuntimeError(f"icon cache resolves outside the external volume: {cache_root}")
     cache_root.mkdir(parents=True, exist_ok=True)
     destination.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="generate-", dir=cache_root) as temporary:

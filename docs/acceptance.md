@@ -22,13 +22,13 @@
 | `PDFCRAFT_SYSTEM_FONTS=0 python3 scripts/cargo.py test --test pdf_image_menu --locked --offline -j 3` | 2 项通过：阅读文字选区后进入编辑，原图右键只显示图片菜单；菜单中旋转命令实际改变图像位置矩阵且可撤销；阅读文字和编辑空白处仍有通用菜单。临时恢复通用菜单同时绘制的旧行为时，回放因旋转菜单被覆盖而失败，随后已恢复修复。 |
 | `PDFCRAFT_SYSTEM_FONTS=0 python3 scripts/cargo.py test --test native_app_menu --locked --offline -j 3` | macOS 主线程独立验证通过：不创建窗口、没有 key window 时，AppKit 实际匹配隐藏的 ⌘Q 并只提交一次宿主关闭请求；无修饰键的 q 与 ⌘W 不被截获。文件面板作用域保留原生编辑菜单，结束后恢复同一个常驻菜单和仍有效的退出 target。此测试不用默认 Rust 测试线程执行 AppKit。 |
 | `python3 scripts/cargo.py test --lib --test paint_continuity --test office_exports --test hosted_views --locked --offline -j3` | 本轮联合回归 58 项 library、2 项逐帧绘制、10 项 Office 导出及 1 项宿主混合视图全部通过。 |
-| `python3 scripts/cargo.py test --test wps_interop --locked --offline -j3` | 4 项通过：使用独立 WPS 实际新建并保存的 XLSX、DOCX 和两页 PPTX，验证编辑、另存及全新 Host 重开；Python 标准库 ZIP/XML 与引擎模型双重检查。样本来源和生成步骤记录于 `tests/fixtures/README.md`。 |
+| `python3 scripts/cargo.py test --test external_interop --locked --offline -j3` | 4 项通过：使用第三方办公软件实际新建并保存的 XLSX、DOCX 和两页 PPTX，验证编辑、另存及全新 Host 重开；Python 标准库 ZIP/XML 与引擎模型双重检查。样本来源和生成步骤记录于 `tests/fixtures/README.md`。 |
 | `python3 scripts/cargo.py test --test native_app_menu --locked --offline -j3` | Native AppMenu 原位刷新后 Quit 标题的测试通过。 |
 | 本轮语言与根快捷键回归 | 4 项共享语言测试及 6 条相关命令验证通过；新增根快捷键回归通过。`⇧⌘P` 曾被 `consume_key` 折叠为 `⌘P`，现按事件修饰键精确消费。 |
 | `title_bar_new_picker` | 新建浮层分帧指针测试通过，覆盖锚定位置、点击外部收起、Escape 收起、选择类型，以及点击浮层时不拖动窗口。 |
 | UI 字体与绘制回归 | 既有 2 项逐帧绘制测试已加入实际 UI 字体安装并通过；新增 UI 字体契约测试 1 项通过。最新 `--lib --test hosted_views` 的 60 项库测试及 1 项宿主混合视图通过，包含新建浮层、紧凑字体、长文件名标签及语言偏好。PDF 字体隔离首轮的 6 项编辑测试通过，表单与填充签名的后续检查另行记录。 |
 | PDF 页面字体隔离 | `pdfcraft-ui-egui --test it forms::` 的 44 项表单回放、`--test it fill_sign::` 的 33 项填充签名回放全部通过，覆盖自动字号、旋转/缩放下的文字框和保存。表单字号上界的既有数学单测也通过。界面字体测试同时核对真实 PDF 正文字体族在合并 UI 字体后原样保留；不以界面字体替换页面内容。 |
-| `WEAVE_ACCEPTANCE_DIR=/Volumes/Jamba/DevCache/WeaveOffice/acceptance PDFCRAFT_SYSTEM_FONTS=0 python3 scripts/cargo.py test --test native_ui_files --locked --offline -j 3 -- --ignored` | 5 项通过：用全新宿主读取界面实际保存的四类文件、正文/新增图片的 PDF、原图替换与变换的 PDF、页面旋转与插页副本，以及三种 Office 插图文件；核对正文、公式、幻灯片标题、批注、实际图像像素、位置矩阵及逐页旋转。读取前后所有样本内容及修改时间不变。 |
+| `WEAVE_ACCEPTANCE_DIR="$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/acceptance" PDFCRAFT_SYSTEM_FONTS=0 python3 scripts/cargo.py test --test native_ui_files --locked --offline -j 3 -- --ignored` | 5 项通过：用全新宿主读取界面实际保存的四类文件、正文/新增图片的 PDF、原图替换与变换的 PDF、页面旋转与插页副本，以及三种 Office 插图文件；核对正文、公式、幻灯片标题、批注、实际图像像素、位置矩阵及逐页旋转。读取前后所有样本内容及修改时间不变。 |
 | `python3 scripts/cargo.py test -p weave-workspace -p weave-pdf-backend --lib --locked --offline -j 3` | 3 项工作区测试与 1 项 PDF 后端测试通过，含关闭保护与保存版本保护。 |
 | `PDFCRAFT_SYSTEM_FONTS=0 python3 scripts/cargo.py test --manifest-path vendor/pdfcraft/Cargo.toml -p pdfcraft-annot --lib --locked -j 3` | 77 项批注模块测试通过，含 Unicode 字体嵌入、窄框数字不被截断、TAB 外观与重开后继续编辑；原有 ASCII 用例保持通过。 |
 
@@ -61,17 +61,17 @@ PDF 测试还核对 FreeText 批注的内容、作者、几何位置、撤销重
 - Word、Grid、PDF 改用 `ctx` 中实际可用的字体状态，移除固定帧数空等；Deck 在绘制 shell 前准备字体，仅在确实可以重跑时丢弃当前 pass，末 pass 使用安全不透明 fallback。
 - 宿主每个 pass 开始时执行 `mount_active`；保留 raw input hook，以免修复绘制连续性时破坏 IME 输入处理。宿主底面改为不透明，`clear_color` 与当前主题匹配。
 - 新增 `tests/paint_continuity.rs` 两项测试，分别覆盖最多 1 个及 2 个 pass；检查四类编辑器首次挂载与恢复混排时，每个提交帧都有画布和至少 10 个按钮。测试不铺宿主 root 背景，以免背景掩盖子界面的空绘制；Grid 用例还逐帧变更中文、fill、border、Arial/宋体字体。
-- 后续联合回归 `--lib --test paint_continuity --test office_exports --test hosted_views` 全部通过：58 项 library、2 项逐帧绘制、10 项 Office 导出及 1 项宿主混合视图。WPS 互操作现有独立 4 项测试，见下文。
+- 后续联合回归 `--lib --test paint_continuity --test office_exports --test hosted_views` 全部通过：58 项 library、2 项逐帧绘制、10 项 Office 导出及 1 项宿主混合视图。外部文件互操作现有独立 4 项测试，见下文。
 - 临时恢复旧 Word 两帧 gate 后，相同逐帧测试按预期失败：首个提交帧只有 3 个 shape，没有编辑器画布。随后恢复修复源码并再次通过两项逐帧测试。负向对照日志位于外置盘 `acceptance/black-flash-negative-control.log`。
 - Deck 原有 `a_control_click_on_the_first_font_discard_is_requeued_and_lands` 测试通过，确认字体准备重跑时的合成点击仍能到达控件。该测试不替代真实系统输入法候选测试。
 
-### WPS 来源工作簿小样本
+### 外部来源工作簿小样本
 
-本轮自建并保存 `tests/fixtures/wps-origin-pricing.xlsx`，未改动真实用户文件；自建样本已关闭。`wps_interop` 的 1 项测试通过，覆盖该小样本中的中文、粗体宋体 11 pt、日期序号与格式及 4 个公式，其中修改 B2 为 4 后，公式结果核对为 60 和 322.5，并在全新 Host 保存重开。此证据只说明这一个独立小样本，不代表复杂工作簿兼容性。
+本轮自建并保存 `tests/fixtures/external-origin-pricing.xlsx`，未改动真实用户文件；自建样本已关闭。`external_interop` 的 1 项测试通过，覆盖该小样本中的中文、粗体宋体 11 pt、日期序号与格式及 4 个公式，其中修改 B2 为 4 后，公式结果核对为 60 和 322.5，并在全新 Host 保存重开。此证据只说明这一个独立小样本，不代表复杂工作簿兼容性。
 
-### WPS 原生文件互操作与界面语言
+### 外部来源原生文件互操作与界面语言
 
-- 当前 `tests/wps_interop.rs` 的 4 项均通过。独立 WPS 新建保存的 XLSX、DOCX 与两页 PPTX 由 Python 标准库 ZIP/XML 解析和引擎模型双检，覆盖编辑、另存、全新 Host 重开。DOCX 中文标题居中、深蓝、粗体、红色、段距及 2×2 底纹表保留；PPTX 未编辑另存后精确保留两页几何信息。
+- 当前 `tests/external_interop.rs` 的 4 项均通过。第三方办公软件新建保存的 XLSX、DOCX 与两页 PPTX 由 Python 标准库 ZIP/XML 解析和引擎模型双检，覆盖编辑、另存、全新 Host 重开。DOCX 中文标题居中、深蓝、粗体、红色、段距及 2×2 底纹表保留；PPTX 未编辑另存后精确保留两页几何信息。
 - 编辑 PPTX 的 `AutoFit::Shape` 文本框后，高度由 660400 变为 655320 EMU（约 -0.4 pt），属于源 `spAutoFit` 允许的文字重排；引擎模型与 XML 检查一致，其余文字 run、顺序、尺寸和填充保留。此样本不代表复杂全格式保真已完成。
 - 统一公共界面语言偏好已实现 `zh-hans` / `en`。Word Language Preferences pane 保留，只显示校对状态且为只读；切换界面语言不会改变文档校对语言、dirty 状态或 undo 历史。
 - PDF 切换语言后的字体优先顺序已修复。旧条件负对照按预期失败，确认该回归能被测试捕获。
@@ -81,47 +81,47 @@ PDF 测试还核对 FreeText 批注的内容、作者、几何位置、撤销重
 
 - 顶部“+”按钮下方锚定新建浮层已实现：原创图标依次为文字、演示、表格、PDF；选择后创建对应类型标签，支持点击外部、Escape 或再次点击“+”收起。浮层跟随按钮定位，不居中，也不提供未支持的文件格式或云服务。
 - `title_bar_new_picker` 实际分帧指针测试通过，验证锚定、关闭方式、所选类型和不触发窗口拖动。最终安装包另已通过 GUI 分别新建文字、表格、演示和 PDF；再次点击“+”收起、选择后浮层消失均有实际操作证据。
-- 新增 `src/ui_fonts.rs`：运行时读取 macOS SF 与 PingFang 字体，Inter/Noto 作为内嵌 fallback；Apple 字体不随应用打包。当前实现采用共同 24 pt 控件、6×3 padding、约 32 pt 导航尺寸，以及 Word/Sheet/Deck 分别 84/88/78 pt 的 ribbon 尺寸。这些是本轮实现参数，供界面统一使用，不表示对所有 WPS 控件进行精确测量或等值复刻。
+- 新增 `src/ui_fonts.rs`：运行时读取 macOS SF 与 PingFang 字体，Inter/Noto 作为内嵌 fallback；Apple 字体不随应用打包。当前实现采用共同 24 pt 控件、6×3 padding、约 32 pt 导航尺寸，以及 Word/Sheet/Deck 分别 84/88/78 pt 的 ribbon 尺寸。这些是本轮实现参数，供界面统一使用。
 - hosted Word 隐藏组 caption，同时保留完整控件 launcher 与无障碍组名；导航未选中项改用正常字重，选中项略加重。Word/Deck 文档 renderer 字体体系独立；PDF 的正文预览、表单、填充签名、水印及签名外观使用独立 `pdf-editor` 字体族。上述字体隔离与逐帧测试通过。
 - GUI 已从 Word 审阅的“语言首选项…”进入公共语言页，显示原英语校对状态；切换 English 后公共壳和设置改为英文，校对状态保持，再恢复中文。演示 `⇧⌘P` 已打开命令面板，通过原 Export 设置选择 Outline，再由系统 Save 面板写出 `weave-deck-ui-outline-20261101.txt`；独立读取确认两页中文完整（91 字符），源 PPTX SHA-256 未变。
 - 界面截图保存在外置盘 acceptance 中：`weave-new-picker-20261101.png`、`weave-density-{word,sheet,slides,pdf}-20261101.png`、`weave-density-save-dialog-20261101.png` 和 `weave-language-settings-20261101.png`。这些验证覆盖本轮指定界面，不代表所有专业弹窗或导出格式均已 GUI 逐项验收。
 
-### WPS DOCX 宋体与 macOS 显示比例修复
+### 外部来源 DOCX 宋体与 macOS 显示比例修复
 
-前轮诊断确认普通正文没有被误导入为粗体，UI 的 SF/PingFang 也没有进入正文 renderer。问题来自缺失宋体落入通用 Sans、中文片段按字符覆盖混用字体，以及较高的替代字体行框让源 15.6 pt 文档网格取到 31.2 pt；另有 hosted 画布的 `96/72` 比例，使标称 100% 纸宽约为 WPS 的 4/3。
+前轮诊断确认普通正文没有被误导入为粗体，UI 的 SF/PingFang 也没有进入正文 renderer。问题来自缺失宋体落入通用 Sans、中文片段按字符覆盖混用字体，以及较高的替代字体行框让源 15.6 pt 文档网格取到 31.2 pt；另有 hosted 画布的 `96/72` 比例，使标称 100% 纸宽约为预期值的 4/3。
 
 本轮改为显式宋体家族替代，优先读取已安装的中文宋体，再使用开放的简体中文衬线字体；EA 请求也保持同一命名字体。只有缺失宋体命中已知替代时，排版使用该替代字体合法的 OS/2 typographic body，不附加 leading。已安装字体、其他 glyph fallback、字号和网格取整规则保持原逻辑，20 pt 文字仍占多行网格。样式缓存同时区分最终度量，避免同一物理字体通过不同请求使用时相互覆盖。
 
-- Word native 构建增加独立内嵌的 Noto Serif CJK SC Regular（OFL-1.1），固定字体、清单和许可证均从外置盘校验，未复制 WPS 或 Apple 字体。无系统字体数据库测试确认实际内嵌字节可绘制中文、英文和数字；UI 的首个 Hans 字体仍是 Noto Sans。
+- Word native 构建增加独立内嵌的 Noto Serif CJK SC Regular（OFL-1.1），固定字体、清单和许可证均从外置盘校验，未复制第三方办公软件或 Apple 字体。无系统字体数据库测试确认实际内嵌字节可绘制中文、英文和数字；UI 的首个 Hans 字体仍是 Noto Sans。
 - hosted macOS 画布改用每文档 pt 对应一个逻辑屏幕 pt 的基准；其他平台及 standalone 原比例保留。两项 `hosted_screen_` 测试通过，覆盖 2× backing pixels 下的纸宽、100/150% 切换、Fit 往返、标尺、hit、caret 和 IME rect；文档模型和打印 layout 不变。这不替代真实输入法候选操作验收。
-- `wordcraft-fonts --lib` 为 108 项通过、1 项因缺少另行授权的 kaiu.ttf 而按原规则忽略；其中包括新增内嵌字体测试。宋体 layout 3 项和 EA 混排缓存 1 项通过；公共宿主 60 项、逐帧绘制 2 项、WPS 互操作 4 项通过。
-- WPS 从同一自建 DOCX 原生输出 PDF；PyMuPDF 与 pdfplumber 独立交叉核对字形尺寸、baseline 与向量边框，两个 PDF 均由 Poppler 以 144 dpi 渲染并人工查看。同为 595.3×841.9 pt 纸张，新 Weave PDF 首段、强调段、两行表格及尾段 baseline 比 WPS 低约 0.38–0.48 pt，标题低 0.731 pt；此前的整行网格翻倍已消除。宋体字形、标题中点间距及其他字体细部仍有差别，不据此声称完整 DOCX 视觉保真。
+- `wordcraft-fonts --lib` 为 108 项通过、1 项因缺少另行授权的 kaiu.ttf 而按原规则忽略；其中包括新增内嵌字体测试。宋体 layout 3 项和 EA 混排缓存 1 项通过；公共宿主 60 项、逐帧绘制 2 项、外部文件互操作 4 项通过。
+- 外部办公软件从同一自建 DOCX 原生输出基准 PDF；PyMuPDF 与 pdfplumber 独立交叉核对字形尺寸、baseline 与向量边框，两个 PDF 均由 Poppler 以 144 dpi 渲染并人工查看。同为 595.3×841.9 pt 纸张，新 Weave PDF 首段、强调段、两行表格及尾段 baseline 比基准低约 0.38–0.48 pt，标题低 0.731 pt；此前的整行网格翻倍已消除。宋体字形、标题中点间距及其他字体细部仍有差别，不据此声称完整 DOCX 视觉保真。
 
-基准与新版 PDF、PNG、layout JSON、独立 measurement/comparison JSON 均保存在外置盘 acceptance，文件前缀为 `wps-origin-text-20261101`、`weave-song-text-20261101`、`weave-song-layout-20261101` 和 `weave-vs-wps-origin-text-20261101`。诊断临时 Rust example 已删除，两个 DOCX 原件 SHA-256 均保持 `f1152a707cb55514ffc2d2efa084423316216fa6f671cffe91fff2867b617eff`。
+基准与新版 PDF、PNG、layout JSON、独立 measurement/comparison JSON 均保存在本机验收目录，不随仓库发布。诊断临时 Rust example 已删除，两个 DOCX 原件 SHA-256 均保持不变。
 
 ### 表格边框 band 修复
 
 表格行高已包含顶部边框全宽，以及末行底部边框全宽；原实现却把描边中心放在预留区域的外沿。现将水平线移入自己的 band，末端竖线收至底部 band 上沿，保留文字、行高和分页 flow。`CellPart` 明确记录本层边框，跨页分片重建这些索引，避免把嵌套表格线误认为父边框；单侧共享边回借的顶部 inset 也保留到续页。
 
 - 完整 `wordcraft-layout --lib` 577 项、`wordcraft-render --lib` 65 项通过。新增 8 项参数化回归覆盖三种边宽、Auto/AtLeast/Exact 行高、单侧边、合并、连续跨页与真实嵌套表格。
-- 重新从同一 WPS DOCX 导出 `weave-word-final-20261101.pdf`，由 PyMuPDF 独立读取并用 Poppler 渲染检查。三条水平线中心为 176.775 / 202.125 / 227.475 pt，与 WPS 基准各差 0.015 pt；列边界不变。最终 PDF/PNG、layout JSON 及 comparison JSON 均在外置盘 acceptance。
+- 重新从同一外部来源 DOCX 导出 `weave-word-final-20261101.pdf`，由 PyMuPDF 独立读取并用 Poppler 渲染检查。三条水平线中心为 176.775 / 202.125 / 227.475 pt，与基准各差 0.015 pt；列边界不变。最终 PDF/PNG、layout JSON 及 comparison JSON 均在外置盘 acceptance。
 - PDF 中的水平边框中心间距不等于实际 flow 行高，不能据此把末行含 bottom band 的高度强行缩短。不同可见边宽的 OOXML 冲突优先级仍是既有限制；本次对此保留原有中心叠加，并使用线性区间扫描检测，未宣称完整解决所有边框冲突。
 
 ### 安装与原生界面复验
 
-修复已打包至 `/Users/Jam/Applications/Weave Office.app`，Rust 格式检查及严格签名检查通过。闪黑修复那轮正常重启后恢复 K16；本轮新建浮层及字体更新前确认表格已保存，通过 ⌘Q 正常退出。最终版本的四类界面、浮层、语言和演示提纲导出已按上述范围 GUI 复验。结束时仅保留原 `weave-image-sheet.xlsx`，恢复本轮开始时的活动单元格 L20，中文偏好和浅色 1× 界面缩放保持；没有修改原文件。未用桌面高帧率录像证明所有操作均无闪帧；系统输入法与持续原生拖动仍待用户体验。
+修复已打包至 `~/Applications/Weave Office.app`，Rust 格式检查及严格签名检查通过。闪黑修复那轮正常重启后恢复 K16；本轮新建浮层及字体更新前确认表格已保存，通过 ⌘Q 正常退出。最终版本的四类界面、浮层、语言和演示提纲导出已按上述范围 GUI 复验。结束时仅保留原 `weave-image-sheet.xlsx`，恢复本轮开始时的活动单元格 L20，中文偏好和浅色 1× 界面缩放保持；没有修改原文件。未用桌面高帧率录像证明所有操作均无闪帧；系统输入法与持续原生拖动仍待用户体验。
 
 2026-11-02 续轮完成宋体、屏幕比例、表格边框与屏幕字重修复后的安装和复验。最终 arm64 Mach-O UUID 为 `D24D7A6C-2250-34DA-994A-6818FA7406A3`，与外置 target 的构建相同，严格 codesign 校验通过；文档衬线字体 OFL、清单和 NOTICE 已纳入包。全程正常 ⌘Q 重启，没有强制终止或丢弃未保存内容。
 
-更新开始时实际工作区与前轮记录不同：表格活动位置为 J9，另有未保存的 `未命名PDF4`。先由原生 Save 面板将 PDF 保留为外置盘 `weave-preserved-pdf4-20261101.pdf`，再正常更新。最终恢复表格 J9、PDF 编辑模式、注释侧栏与 62% 显示；只保留这两个干净标签。表格、保留的 PDF 和 WPS DOCX 原件 SHA-256 在验证前后均一致。一次自动化 AX 点击名称框没有获得键盘焦点，导致位置文字落入单元格，已立即 Undo 并确认恢复干净状态，未保存改写；最终重启后改用实际格子点击恢复 J9，也清除了这次自动化的 redo 历史。
+更新开始时实际工作区与前轮记录不同：表格活动位置为 J9，另有未保存的 `未命名PDF4`。先由原生 Save 面板将 PDF 保留为外置盘 `weave-preserved-pdf4-20261101.pdf`，再正常更新。最终恢复表格 J9、PDF 编辑模式、注释侧栏与 62% 显示；只保留这两个干净标签。表格、保留的 PDF 和外部来源 DOCX 原件 SHA-256 在验证前后均一致。一次自动化 AX 点击名称框没有获得键盘焦点，导致位置文字落入单元格，已立即 Undo 并确认恢复干净状态，未保存改写；最终重启后改用实际格子点击恢复 J9，也清除了这次自动化的 redo 历史。
 
 ### 屏幕字重与保存点边界
 
 - 实际界面复验发现：即使普通正文 `bold=false`，macOS screen render 仍附加轮廓描边，11 pt / 2× 下每边约 0.283 px，造成屏幕伪粗。hosted 文档页现关闭这层额外加重，保留字体本身轮廓、真实粗体及 standalone 原策略；页面纹理 key 也区分 hosted 状态。
-- 新屏幕与原屏幕同一正文、尾段和表格区域的墨量约减少 34–36%，普通与粗体可清楚区分，人工查看确认宋体细横画恢复。新图比 WPS 仍轻约 13–14%；所用宋体轮廓与栅格器不同，不以墨量单一指标推断新的格式错误，也不重新硬编码加粗。原图、最终界面图和 ROI 方法记录为 `weave-word-screen-20261101.png`、`weave-word-screen-final-20261102.png`、`screen-weight-comparison-20261102.json`，均在外置 acceptance。
+- 新屏幕与原屏幕同一正文、尾段和表格区域的墨量约减少 34–36%，普通与粗体可清楚区分，人工查看确认宋体细横画恢复。新图比基准仍轻约 13–14%；所用宋体轮廓与栅格器不同，不以墨量单一指标推断新的格式错误，也不重新硬编码加粗。原图、最终界面图和 ROI 方法记录为 `weave-word-screen-20261101.png`、`weave-word-screen-final-20261102.png`、`screen-weight-comparison-20261102.json`，均在外置 acceptance。
 - `wordcraft-ui-egui hosted_` 首次发现一个既有保存点回归失败，exact 单跑也复现：成功保存未结束 Typing 合并组，后续输入仍并进保存前的撤销项。成功持久化并确认保存当前文档时现调用 `close_typing()`；失败保存和异路径有损副本不改变分组。原回归新增 Undo 后全文为 `saved`、Redo 后为 `saved new work` 的内容断言，避免仅绕过 dirty 检查。
-- 修复后 hosted 14 项通过（包含屏幕字重、100/150% 坐标与保存点）；引擎普通保存/副本边界及失败保存 stamp 两项分别通过。最终公共宿主 60 项、混合视图 1 项、逐帧绘制 2 项、WPS 互操作 4 项再次通过，日志为 `weave-font-final-tests-20261102.log`。
-- 已安装应用中原生另存自建副本 `weave-word-savepoint-ui-20261102.docx`，粘贴并保存标记 A，继续粘贴 B，再 Undo 回到 A 且清除修改标记；Redo 恢复 B 和修改标记，再 Undo 后正常关闭。独立读取落盘 DOCX XML 确认只有 A，没有未保存的 B。该界面回放验证保存/编辑/撤销路由；连续 Typing 合并边界由前述引擎与 hosted 回归验证。原 WPS 样张字节未改变。
+- 修复后 hosted 14 项通过（包含屏幕字重、100/150% 坐标与保存点）；引擎普通保存/副本边界及失败保存 stamp 两项分别通过。最终公共宿主 60 项、混合视图 1 项、逐帧绘制 2 项、外部文件互操作 4 项再次通过，日志为 `weave-font-final-tests-20261102.log`。
+- 已安装应用中原生另存自建副本 `weave-word-savepoint-ui-20261102.docx`，粘贴并保存标记 A，继续粘贴 B，再 Undo 回到 A 且清除修改标记；Redo 恢复 B 和修改标记，再 Undo 后正常关闭。独立读取落盘 DOCX XML 确认只有 A，没有未保存的 B。该界面回放验证保存/编辑/撤销路由；连续 Typing 合并边界由前述引擎与 hosted 回归验证。原外部来源样张字节未改变。
 
 ## 已完成的原生界面操作
 
@@ -137,8 +137,8 @@ PDF 测试还核对 FreeText 批注的内容、作者、几何位置、撤销重
 | 原生窗口关闭 | 点击原生 close 控件后出现未保存 Word 确认；选择取消后窗口和文档保持打开。 |
 | 系统打开入口 | 新版工具栏打开图标调出 macOS `NSOpenPanel`，取消后返回编辑器。 |
 | 统一保存确认 | 对本轮自建 Word 草稿按 ⌘W，显示新式确认框；取消后正文保留。点保存后打开原生 `NSSavePanel`，取消面板回到同一个自建确认框，文档内容仍保留。按钮顺序为左侧红色“不保存”、描边“取消”、最右蓝色“保存”。 |
-| 文件载入错误 | 用自建无效文件 [`weave-ui-invalid-20261101.docx`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-invalid-20261101.docx) 触发 Weave 自建载入错误提示；右下主操作可关闭提示，原有 dirty Word 标签仍在。错误样本为本轮自建，未修改用户文件。 |
-| 打印窗口 | 新式 footer 布局实际打开 macOS 打印窗口；系统发现真实打印机“Mi”。没有提交打印任务，关闭打印窗口后正常返回。 |
+| 文件载入错误 | 用自建无效文件 `weave-ui-invalid-20261101.docx` 触发 Weave 自建载入错误提示；右下主操作可关闭提示，原有 dirty Word 标签仍在。错误样本为本轮自建，未修改用户文件。 |
+| 打印窗口 | 新式 footer 布局实际打开 macOS 打印窗口；系统发现真实打印机。没有提交打印任务，关闭打印窗口后正常返回。 |
 | 对话框样式实现范围 | 宿主保存确认、操作错误、文件错误/重试和打印统一由 `src/dialog.rs` 实现。内容宽 420 pt、内边距 20 pt、圆角 8 pt；footer 与内容分隔，按钮高 32 pt、最小宽 84 pt。四个 vendor 的公共窗口 frame 与 OK/Cancel helper 也采用相同尺寸和间距；PDF prompt 局部按钮变体保留 `PromptButton::ORDER` 及安全默认语义。Grid 的宏停止、宏保存和动态问题提示也补齐卡片、footer 及主次按钮；动态多选保留原有顺序和默认选项。专业属性表单没有改写。以上是代码实施范围，GUI 只覆盖本表所列场景，并非所有 vendor 专业弹窗都逐一验收。 |
 | 系统打开面板 | ⌘O 显示 macOS `NSOpenPanel`；通过系统目录导航多选五份混合文件并打开，系统“前往文件夹”字段可定位完整 PDF 路径。 |
 | 系统保存与覆盖 | 新建文字文件保存为 `weave-native-picker.docx`，另存为也显示 `NSSavePanel`；同名目标的覆盖确认由原生保存面板显示系统 Replace/Cancel，取消后原文件保留。重开及独立读取 DOCX XML，均得到两段预期中英文。 |
@@ -163,13 +163,13 @@ PDF 测试还核对 FreeText 批注的内容、作者、几何位置、撤销重
 | 深浅主题（此前版本） | 旧版自建标题栏、控件和设置窗口的深浅主题实际切换可读；验收后恢复原来的浅色偏好。 |
 | 跨编辑器剪贴板 | 从文字文档通过 ⌘C 复制两段中文，再在表格通过 ⌘V 粘贴，分别进入 A1/A2；来源文字保持不变。 |
 | 中文主界面与演示切换 | 最新开发包中的四种编辑视图均可显示中文主界面；演示功能区与状态栏可切入，无障碍启用时未再出现已修复的锁重入。个别上游控件仍有英文。 |
-| Finder 文件入口 | Finder 的“打开方式 → Weave Office”启动应用并打开 DOCX；重复执行仍只有原来的一个文件标签。菜单中的默认应用仍为 WPS，未改变文件默认关联。 |
+| Finder 文件入口 | Finder 的“打开方式 → Weave Office”启动应用并打开 DOCX；重复执行仍只有原来的一个文件标签。未改变文件默认关联。 |
 
-GUI 文件保存在外置盘专用目录 `/Volumes/Jamba/DevCache/WeaveOffice/acceptance/`。它们是本机验收输出，不是用户原文件，也不作为上游兼容性样本库发布。
+GUI 文件保存在外置盘专用目录 `$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/acceptance/`。它们是本机验收输出，不是用户原文件，也不作为上游兼容性样本库发布。
 
-新版界面截图由自建文档生成，分别为 [`weave-ui-word-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-word-20261101.png)、[`weave-ui-sheet-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-sheet-20261101.png)、[`weave-ui-slides-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-slides-20261101.png) 和 [`weave-ui-pdf-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-pdf-20261101.png)。截图左上角包含截图工具提供的紫色系统共享叠层，该叠层不是应用绘制内容；原生 titlebar 控件存在性以 AX 观察单独验收，不以截图像素作为证据。
+新版界面截图由自建文档生成，分别为 `weave-ui-word-20261101.png`、`weave-ui-sheet-20261101.png`、`weave-ui-slides-20261101.png` 和 `weave-ui-pdf-20261101.png`。截图左上角包含截图工具提供的紫色系统共享叠层，该叠层不是应用绘制内容；原生 titlebar 控件存在性以 AX 观察单独验收，不以截图像素作为证据。
 
-本轮对话框截图为 [`weave-ui-save-dialog-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-save-dialog-20261101.png)、[`weave-ui-print-dialog-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-print-dialog-20261101.png) 和 [`weave-ui-error-dialog-20261101.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-error-dialog-20261101.png)。
+本轮对话框截图为 `weave-ui-save-dialog-20261101.png`、`weave-ui-print-dialog-20261101.png` 和 `weave-ui-error-dialog-20261101.png`。
 
 此前对话框验收结束时仅丢弃该轮创建的 Word 草稿，应用回到空白 home；没有改动用户文件，也没有提交打印任务。本轮闪黑修复后的运行状态见上文，已恢复原先打开的表格。
 
@@ -181,23 +181,23 @@ GUI 文件保存在外置盘专用目录 `/Volumes/Jamba/DevCache/WeaveOffice/ac
 
 ## 构建与交付进展
 
-- 最新优化 release `.app` 已完成打包、启动及本轮指定 GUI 复验，位于 `/Users/Jam/Applications/Weave Office.app`；严格签名检查和格式检查通过。正式发行签名、公证和最低系统版本仍需对应环境验证。
+- 最新优化 release `.app` 已完成打包、启动及本轮指定 GUI 复验，位于 `~/Applications/Weave Office.app`；严格签名检查和格式检查通过。正式发行签名、公证和最低系统版本仍需对应环境验证。
 - 本次打包包含新版工作区布局和原创应用/文档图标；图标经 `iconutil` 检查，bundle 设置了应用及各文档类型图标引用。新版 GUI 操作和四类界面截图见上文。旧版“原运行进程未重启、新逻辑下次启动生效”的记录仅适用于当时共享剪贴板/后台任务那次交付，不代表当前安装包状态。
 - Root 保存确认、操作错误、文件错误/重试和打印窗口已统一实现并再次打包、启动。修改后的 53 项单元测试通过；最终四个 vendor 的窗口 frame/helper 修改后，bundle build、Rust 格式检查及签名检查通过。PDF 原有三项 prompt 键盘选择测试随后通过（`--manifest-path vendor/pdfcraft/Cargo.toml -p pdfcraft-ui-egui --lib prompt_button_tests`），覆盖默认 Save、方向键边界、Tab 循环及按钮对应答复。GUI 只覆盖上表中的保存、打印及文件载入错误场景。
 - 对话框版本替换前确认旧版应用显示无文档 home，通过 ⌘Q 正常退出。后续闪黑版本更新时确认表格已保存，正常重启后重开同一文件并恢复 K16，未修改文档内容。
-- Cargo 目标位于 `/Volumes/Jamba/DevCache/WeaveOffice/target`，默认应用包位于其中的 `bundle/`。构建脚本验证 Jamba 挂载和输出目录，不自动回退系统盘。
-- 通过 `CARGO_TARGET_DIR=/Volumes/Jamba/DevCache/WeaveOffice/rebuild-20261101/target CARGO_BUILD_JOBS=3 python3 scripts/cargo.py build --bin weave-office --locked --offline -j3` 从此前不存在的 target 编译全部依赖与主程序，用时约 5 分 28 秒，生成程序输出 `Weave Office 0.1.0`。后续应用级退出入口改动也在该目录重编通过。此项复用已下载的 Cargo 源码及固定字体/翻译输入，证明空编译缓存重建，不等同于新机器的联网安装或旧版 macOS 验证。
+- Cargo 目标位于 `$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/target`，默认应用包位于其中的 `bundle/`。构建脚本验证外置盘挂载和输出目录，不自动回退系统盘。
+- 通过 `CARGO_TARGET_DIR=$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/rebuild-20261101/target CARGO_BUILD_JOBS=3 python3 scripts/cargo.py build --bin weave-office --locked --offline -j3` 从此前不存在的 target 编译全部依赖与主程序，用时约 5 分 28 秒，生成程序输出 `Weave Office 0.1.0`。后续应用级退出入口改动也在该目录重编通过。此项复用已下载的 Cargo 源码及固定字体/翻译输入，证明空编译缓存重建，不等同于新机器的联网安装或旧版 macOS 验证。
 - `--replace` 只替换同一 bundle ID 的生成应用；先完成新包，提交失败时恢复旧包。构建失败时旧包保留。
 - 开放字体与翻译输入固定版本并校验，位于外置盘；字体 SHA-256、许可和翻译目录检查已接入开发及打包脚本。
-- 独立运行使用位于用户 Applications 的应用包，在 `/tmp` 启动，移除字体与翻译输入环境变量，并用临时 sandbox profile 禁止读取项目源码、参考仓库、外置 `target`/`inputs` 和本机 WPS；已核对拒绝规则生效。该进程仍能新建并操作四种编辑器、显示中文、跨编辑器复制粘贴及处理关闭取消，最后正常退出。此项证明当前包无需读取这些开发资源，不代替另一台干净机器的兼容性验证。
+- 独立运行使用位于用户 Applications 的应用包，在 `/tmp` 启动，移除字体与翻译输入环境变量，并用临时 sandbox profile 禁止读取项目源码、参考仓库、外置 `target`/`inputs` 和其他办公软件；已核对拒绝规则生效。该进程仍能新建并操作四种编辑器、显示中文、跨编辑器复制粘贴及处理关闭取消，最后正常退出。此项证明当前包无需读取这些开发资源，不代替另一台干净机器的兼容性验证。
 
 ## 2026-11-02 优化构建与界面密度复验
 
-- 已安装优化 release 包 `/Users/Jam/Applications/Weave Office.app`，arm64 Mach-O UUID `3246D071-C889-373A-8189-578E88E5568A`，严格签名验证通过。首次 release 编译用时 13 分 40 秒；最后一轮格式窗口改动重编 49.42 秒。构建日志为外置 acceptance 中的 `release-build-20261102.log`、`release-compact-dialog-build-20261102.log`、`release-compact-install-20261102.log`。
+- 已安装优化 release 包 `~/Applications/Weave Office.app`，arm64 Mach-O UUID `3246D071-C889-373A-8189-578E88E5568A`，严格签名验证通过。首次 release 编译用时 13 分 40 秒；最后一轮格式窗口改动重编 49.42 秒。构建日志为外置 acceptance 中的 `release-build-20261102.log`、`release-compact-dialog-build-20261102.log`、`release-compact-install-20261102.log`。
 - UI 使用公共 SF/PingFang 字体链与 13/11 pt 基础字号；常规控件高 24 pt，按钮 padding 6×3 pt，常规间距 6×4 pt。表格普通表单和演示命令搜索补齐显式卡片 frame（20 pt 内边距、8 pt 圆角）；表格格式窗口的六个页签及常用字段补充中文。这里只记录本次覆盖的字段，颜色选择器等子控件仍有部分英文。
-- 在 1280×706 逻辑点窗口实际打开表格格式的六个页签并取消。数字格式两列各自最多 216 pt 高，右侧预设列表可滚至最后的 `@`，示例、自定义代码输入和底部“取消/确定”保持可见；取消后文件保持干净。截图为 [`weave-format-cells-compact-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-format-cells-compact-20261102.png)。六个页签未逐一提交格式修改，这项验证布局与取消路径。
-- 同一最终安装包的混合五标签中，文字样张中英文和表格、电子表格公式合计 292.5、两页演示的缩略图与正文、PDF 已编辑正文和图片均实际显示。顶部“+”显示锚定的四格式图标浮层，截图为 [`weave-ui-final-new-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-ui-final-new-20261102.png)。截图工具的紫色系统共享叠层不属于应用。
-- 最终包从中立临时目录启动，子进程移除六个构建字体/翻译环境变量，临时 Seatbelt profile 禁止读取整个 `/Volumes/Jamba`、本项目、参考仓库及 WPS bundle，并禁止写入五个应用偏好目录。源码、外置字体清单和 WPS 三处路径被拒绝、中立 DOCX 可读的对照验证已通过。五个文档均使用自己制作的中立副本，正常退出后副本 SHA-256 和真实 Weave 偏好 SHA-256 全部保持一致；证据为 `runtime-isolation-final-20261102.json`、`runtime-isolation-policy-controls-20261102.json` 和 `runtime-isolation-runtime-20261102.sb`。未禁止网络，不把这项记为网络离线、另一台机器或最低系统版本验证。
+- 在 1280×706 逻辑点窗口实际打开表格格式的六个页签并取消。数字格式两列各自最多 216 pt 高，右侧预设列表可滚至最后的 `@`，示例、自定义代码输入和底部“取消/确定”保持可见；取消后文件保持干净。截图为 `weave-format-cells-compact-20261102.png`。六个页签未逐一提交格式修改，这项验证布局与取消路径。
+- 同一最终安装包的混合五标签中，文字样张中英文和表格、电子表格公式合计 292.5、两页演示的缩略图与正文、PDF 已编辑正文和图片均实际显示。顶部“+”显示锚定的四格式图标浮层，截图为 `weave-ui-final-new-20261102.png`。截图工具的紫色系统共享叠层不属于应用。
+- 最终包从中立临时目录启动，子进程移除六个构建字体/翻译环境变量，临时 Seatbelt profile 禁止读取整个 外置盘、本项目、参考仓库及其他办公软件 bundle，并禁止写入五个应用偏好目录。源码、外置字体清单和该办公软件三处路径被拒绝、中立 DOCX 可读的对照验证已通过。五个文档均使用自己制作的中立副本，正常退出后副本 SHA-256 和真实 Weave 偏好 SHA-256 全部保持一致；证据为 `runtime-isolation-final-20261102.json`、`runtime-isolation-policy-controls-20261102.json` 和 `runtime-isolation-runtime-20261102.sb`。未禁止网络，不把这项记为网络离线、另一台机器或最低系统版本验证。
 
 ## 2026-11-02 最终包四格式保存重开及原生退出补验
 
@@ -205,7 +205,7 @@ GUI 文件保存在外置盘专用目录 `/Volumes/Jamba/DevCache/WeaveOffice/ac
 
 | 类型 | 本轮实际修改及保存重开结果 |
 | --- | --- |
-| DOCX | 在原 WPS 样张前加入 `Release 中文验收 2026.11` 段落；新进程显示新增中英文和原正文。独立 ZIP/XML 核对新增段落、原强调文字、尾段及一张两行表格均保留。 |
+| DOCX | 在原外部来源样张前加入 `Release 中文验收 2026.11` 段落；新进程显示新增中英文和原正文。独立 ZIP/XML 核对新增段落、原强调文字、尾段及一张两行表格均保留。 |
 | XLSX | 将 B2 从 2 改为 4；D2 重算为 60，D5 合计为 322.5。新进程仍显示这些结果；独立 XML 核对四个公式及对应缓存值，未把公式降为数值。 |
 | PPTX | 将第一页文本框内容改为 `Release 中文演示 2026.11`；新进程画布与缩略图显示新内容且仍有两页。独立 XML 核对新文字、第二页文字不变。此操作替换了该文本框的全部文字，不宣称保留被主动替换的旧副标题。 |
 | PDF | 将已有页面文字改为 `Weave release invoice 2026.11`，在文本编辑状态直接 ⌘S 提交并保存；新进程显示新正文。pypdf 和 Poppler 读取同样的内容，保留一页、两张图片、零批注；Poppler 独立渲染也已目视核对。较长正文在原文本框内换为两行，读取比较仅合并这个换行。 |
@@ -222,7 +222,7 @@ GUI 文件保存在外置盘专用目录 `/Volumes/Jamba/DevCache/WeaveOffice/ac
 
 ## 2026-11-02 字体弹窗真实预览
 
-原安装版的文字字体弹窗中，选择 Georgia 后字段已更新，但 `AaBbYyZz 中文` 示例仍用界面无衬线字体显示；问题已在自有干净空白文档中复现，取消后直接关闭，没有修改原文件。旧版截图为 `weave-font-dialog-georgia-before-20261102.png`。本机 WPS 自建空白表格的字体页也已观察：使用有边框的固定预览区呈现字体；参考截图 `wps-font-preview-reference-20261102.png` 只存外置验收目录，不包含于应用或源码素材。
+原安装版的文字字体弹窗中，选择 Georgia 后字段已更新，但 `AaBbYyZz 中文` 示例仍用界面无衬线字体显示；问题已在自有干净空白文档中复现，取消后直接关闭，没有修改原文件。旧版截图为 `weave-font-dialog-georgia-before-20261102.png`。
 
 Word 字体弹窗现复用文档 snippet 的排版与渲染，按照当前字段构造临时样文，拉丁与亚洲字体分别生效；菜单、按钮的 SF/PingFang 界面字体保持原链。预览固定高 88 pt，大字号按该区域裁切，不向下移动确定/取消按钮；缺字体按原文档字体规则回退，NaN/inf 继续使用安全字号。缓存只保留当前一张预览纹理，按样文全部字符属性、样式、字体 generation、主题、显示比例和尺寸区分。AX 仍保留预览样文，未增加屏幕说明文字或其他控件。
 
@@ -233,11 +233,11 @@ Word 字体弹窗现复用文档 snippet 的排版与渲染，按照当前字段
 
 该轮优化包 UUID `4B60F04D-C1E0-3600-A751-F9B1037FA004` 已安装并启动，构建约 1 分 09 秒，格式和严格签名检查通过。1280×706 逻辑点窗口中，实际选择 Georgia 与“宋体-简”，预览分别显示对应中英文字体；输入 72 磅后样文在固定区域内裁切，确定/取消仍保持原位置且完整可见。切为深色模式重新打开字体窗口，自动文字和按钮均可读；随后取消、恢复浅色，空白草稿仍为 0 字并可直接关闭，不出现保存提示。最后恢复原两份文档的表格 J9/100% 与 PDF 编辑、注释/62%，三个受保护文件 SHA-256 不变。
 
-GUI 截图为 [`weave-font-dialog-georgia-final-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-font-dialog-georgia-final-20261102.png)、[`weave-font-dialog-72pt-final-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-font-dialog-72pt-final-20261102.png) 和 [`weave-font-dialog-dark-final-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-font-dialog-dark-final-20261102.png)。构建、安装日志分别为 `release-font-preview-weight-build-20261102.log`、`release-font-preview-weight-install-20261102.log`，源码摘要和验收结果记录为 `font-dialog-preview-verified-20261102.json`。
+GUI 截图为 `weave-font-dialog-georgia-final-20261102.png`、`weave-font-dialog-72pt-final-20261102.png` 和 `weave-font-dialog-dark-final-20261102.png`。构建、安装日志分别为 `release-font-preview-weight-build-20261102.log`、`release-font-preview-weight-install-20261102.log`，源码摘要和验收结果记录为 `font-dialog-preview-verified-20261102.json`。
 
 ## 2026-11-02 专业弹窗与统一工作区操作边界
 
-实际对照发现：WPS 自建空白工作簿的“设置单元格格式”打开时，⌘N/⌘W 不创建或关闭文件；Weave 原安装包 `4B60F04D-C1E0-3600-A751-F9B1037FA004` 却会在 ⌘W 后关闭整个表格标签。观察使用自建空白文档，原有两份验收文件及 WPS 原工作簿均保留。
+实际对照发现：专业弹窗（如表格“设置单元格格式”）打开期间，⌘N/⌘W 不应创建或关闭文件；Weave 原安装包 `4B60F04D-C1E0-3600-A751-F9B1037FA004` 却会在 ⌘W 后关闭整个表格标签。观察使用自建空白文档，原有两份验收文件均保留。
 
 四个 hosted 适配现在提供专业弹窗状态。宿主据此禁用文件标签切换、关闭、新建，以及共享文件菜单与快捷工具；精确消费宿主管理的文件快捷键，复制等文本编辑事件和额外修饰键继续交给编辑器。弹窗自己的输入、绘制、引用选择和已确认的保存/导出请求继续运行。Finder 与文件拖入另行排队，弹窗结束后按顺序打开；它们不会挡住后面的已确认保存请求。应用退出保留统一保存事务，取消后原专业弹窗继续存在。
 
@@ -245,7 +245,7 @@ GUI 截图为 [`weave-font-dialog-georgia-final-20261102.png`](/Volumes/Jamba/De
 
 - 五项 `editor_modal` 回归通过：四类真实专业弹窗打开后的快捷键保护；标签切换、关闭和“+”的实际指针命中；Word/Sheet 取消后恢复；共享工具栏/文件菜单禁用与 Quit 可用；外部打开排队但已确认保存可写出并独立读取；退出取消保留文字与弹窗。其中保存请求由测试通过真实宿主 dispatcher 注入，未据此声称逐个高级编辑器弹窗的请求产出都已覆盖。日志 `editor-modal-contract-tests-toolbar-20261102.log`。
 - 暂时移除宿主专业弹窗门禁后，同一个快捷键测试按预期失败；随后恢复源码。负向对照日志 `editor-modal-negative-control-20261102.log`。
-- 恢复后的联合回归为 65 项 library、1 项混合视图、2 项逐帧绘制、4 项 WPS 文件互操作，合计 72 项通过；另外新增的 `navigation_work_panes_keep_host_shortcuts_available` 1 项通过。日志 `editor-modal-integrated-tests-20261102.log`、`navigation-pane-contract-tests-20261102.log`。这轮未新增或复制任何字体或图标资产。
+- 恢复后的联合回归为 65 项 library、1 项混合视图、2 项逐帧绘制、4 项外部文件互操作，合计 72 项通过；另外新增的 `navigation_work_panes_keep_host_shortcuts_available` 1 项通过。日志 `editor-modal-integrated-tests-20261102.log`、`navigation-pane-contract-tests-20261102.log`。这轮未新增或复制任何字体或图标资产。
 
 原生 GUI 在优化包 `0E704B76-4B62-3066-AA12-FAE3FC1875F1` 中确认表格格式弹窗内 ⌘N/⌘W 均保持原标签，取消后新建和关闭恢复；Word 字体弹窗内输入 18 磅草稿，⌘Q 进入统一保存确认，取消退出后原文字与 18 磅字段继续保留。临时文字文档随后取消字体设置并选择不保存，未对原文件写入。
 
@@ -253,7 +253,7 @@ GUI 截图为 [`weave-font-dialog-georgia-final-20261102.png`](/Volumes/Jamba/De
 
 最终安装包 UUID `52592DE9-2046-37DB-AB29-1D26C9D0AE5F`，优化构建约 50.35 秒，严格签名检查通过。实际窗口中分类与预览分离，选择“货币”会更新格式代码，两边列表均独立滚动到末尾，确定/取消始终完整可见；同包再次验证 ⌘N/⌘W 不穿透专业弹窗，取消后空白表格可直接关闭。最后只保留原两份验收文件，恢复表格 J9/100% 与 PDF 编辑、注释/62%；三个受保护文件 SHA-256 均不变。构建与安装日志为 `release-format-columns-height-{build,install}-20261102.log`，源码摘要与分包 GUI 证据记录在 `editor-modal-contract-verified-20261102.json`。
 
-截图为 [`weave-format-columns-final-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-format-columns-final-20261102.png)、[`weave-format-columns-both-scroll-final-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-format-columns-both-scroll-final-20261102.png) 和 [`weave-modal-word-quit-cancel-20261102.png`](/Volumes/Jamba/DevCache/WeaveOffice/acceptance/weave-modal-word-quit-cancel-20261102.png)。字体、尺寸与工作区边界的这些代表性验收不表示所有 WPS 专业菜单均已逐项等值复刻。
+截图为 `weave-format-columns-final-20261102.png`、`weave-format-columns-both-scroll-final-20261102.png` 和 `weave-modal-word-quit-cancel-20261102.png`。字体、尺寸与工作区边界的这些是代表性验收，不表示所有专业菜单均已逐项验收。
 
 ## 2026-11-02 宿主弹窗、批量打开与当前包独立运行
 
@@ -265,7 +265,7 @@ GUI 截图为 [`weave-font-dialog-georgia-final-20261102.png`](/Volumes/Jamba/De
 - 优化包 `5888C3B8-3DBC-3CF6-B53B-B26169A4690D` 实机确认：设置保持打开时，Finder 请求不新增或激活标签；关闭设置后同一请求自动打开，无需重发。原生打开面板同时选中 A-first.docx、B-broken.docx、C-last.docx，先显示 A；坏文件卡片出现时 C 尚未打开，关闭卡片后 C 正常进入同一标签栏。自建有效副本随后正常关闭，原两份文件保留。
 - 当前安装包 UUID `682F9549-C639-300F-B479-ABED1C1BAC19`，优化构建 21.51 秒，严格签名通过；实机错误卡片已显示 Broken.docx 的完整路径。截图及 AX 为 `host-open-error-context-final-20261102.{png,txt}`。Finder 等待和批处理恢复的截图/AX 分别为 `host-modal-finder-after-waiting-20261102`、`host-modal-finder-after-open-20261102`、`host-batch-error-paused-20261102` 和 `host-batch-after-resume-20261102`。
 
-对当前 `682F9549-C639-300F-B479-ABED1C1BAC19` 再做独立运行：以本地临时目录为工作目录，移除六个字体/翻译构建输入环境变量，Seatbelt 禁止读取整个 Jamba、源码、参考仓库和 WPS bundle，并禁止写入 Weave/Craft 偏好目录。对照命令确认源码 README、外置字体清单及 WPS Info.plist 三项读取被拒绝，临时 DOCX 可读。相同应用成功打开五个混合副本，实际检查了中文 Word 标题、正文与两行表格，中文工作簿及计算合计 292.5，两页演示缩略图和中英文字，以及 PDF 已编辑正文、图片与适合整页显示。
+对当前 `682F9549-C639-300F-B479-ABED1C1BAC19` 再做独立运行：以本地临时目录为工作目录，移除六个字体/翻译构建输入环境变量，Seatbelt 禁止读取整个外置盘、源码、参考仓库和其他办公软件 bundle，并禁止写入 Weave/Craft 偏好目录。对照命令确认源码 README、外置字体清单及其他办公软件 Info.plist 三项读取被拒绝，临时 DOCX 可读。相同应用成功打开五个混合副本，实际检查了中文 Word 标题、正文与两行表格，中文工作簿及计算合计 292.5，两页演示缩略图和中英文字，以及 PDF 已编辑正文、图片与适合整页显示。
 
 正常退出后五份副本的 SHA-256 与应用偏好均不变；随后正常重启并恢复原表格 J9/100% 和 PDF 编辑、注释/62%，三个受保护文件哈希不变，Finder 返回原 acceptance 目录。记录为 `runtime-isolation-current-20261102.json`、`host-modal-batch-verified-20261102.json`，四类截图为 `runtime-current-{word,sheet,slides,pdf-page}-20261102.png`。此验证限定当前 Mac 的进程文件读取隔离，没有据此声称无网络运行、新机器安装或最低系统版本兼容。
 
@@ -279,7 +279,7 @@ GUI 截图为 [`weave-font-dialog-georgia-final-20261102.png`](/Volumes/Jamba/De
 
 `weave-font-assets` 按真实内容去重并拥有命名静态数组；Word/Grid/Deck/PDF 的生成字体表及 Word/PDF/宿主的现有拉丁字体借用这些数组。原有清单筛选、脚本覆盖、后备优先级和文档 serif 保持。根 release 配置移除符号，保留默认 unwind；PDF UI 的 WGPU 成为 standalone 默认 feature，Weave 关闭该默认项，只选同一 Glow 后端。
 
-本轮 78 项检查通过：69 library、1 hosted views、2 paint continuity、2 跨编辑器字体指针/覆盖检查、4 WPS Office 互操作。格式检查与严格签名检查通过。安装包在禁止读取 Jamba、源码、参考仓库和 WPS 的进程中打开五个混合文件，实际核对了 Word 中文/英文/表格、Sheet 中文和合计 292.5、Deck 两页与中英文、PDF 正文 678.90 及彩色图片，并正常退出（返回码 0）。五份副本及宿主自定义设置文件哈希保持不变。原工作区已恢复至两个干净标签：Sheet J9 / 100%，PDF 编辑与注释面板 / 62%；三份受保护原文件哈希保持不变。
+本轮 78 项检查通过：69 library、1 hosted views、2 paint continuity、2 跨编辑器字体指针/覆盖检查、4 外部文件互操作。格式检查与严格签名检查通过。安装包在禁止读取外置盘、源码、参考仓库和其他办公软件的进程中打开五个混合文件，实际核对了 Word 中文/英文/表格、Sheet 中文和合计 292.5、Deck 两页与中英文、PDF 正文 678.90 及彩色图片，并正常退出（返回码 0）。五份副本及宿主自定义设置文件哈希保持不变。原工作区已恢复至两个干净标签：Sheet J9 / 100%，PDF 编辑与注释面板 / 62%；三份受保护原文件哈希保持不变。
 
 首个非保活测试进程在文字截图后退出，未捕获返回码，标准错误为空，未找到匹配崩溃报告；原因未确定。随后保留父会话重跑四类界面、回切及正常退出均通过。此记录不把首轮退出宣称为已修复的应用缺陷。证据在外置 `acceptance/` 的 `bundle-size-before/after-20261102.json`、`shared-fonts-release-verified-20261102.json`、`shared-fonts-runtime-20261102.json` 和对应截图、构建与测试日志。
 

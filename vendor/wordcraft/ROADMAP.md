@@ -752,7 +752,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-20 | trivial | Russian sorting keeps ё with е and recognises decomposed ё/й; synthetic ordering, case and index-heading regressions; broader parity estimates unchanged |
 | 2026-10-20 | trivial | Progress log: a click below a floating table goes to the text after it, not its last row (#2038) |
 | 2026-10-20 | trivial | Progress log: the table handles show while the caret is in the table (#2428) |
-| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
+| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WordprocessingShape (`wps:spPr`) picture fills keep their existing image fallback. |
 | 2026-10-20 | trivial | Progress log: a picture cropped to a sliver of its source is drawn at the size the file gives (#1899) |
 | 2026-10-20 | trivial | Progress log: Cuban and Peruvian Spanish table numbers use decimal points, matching their CLDR parent locale and existing region settings |
 | 2026-10-20 | trivial | Progress log: closing the header returns to the body selection (#3331) |

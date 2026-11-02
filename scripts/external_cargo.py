@@ -9,9 +9,11 @@ import runpy
 import subprocess
 import sys
 
+from weave_volume import dev_volume
+
 
 ROOT = Path(__file__).resolve().parent.parent
-VOLUME = Path("/Volumes/Jamba")
+VOLUME = dev_volume()
 FONTS_DIR = VOLUME / "DevCache/WeaveOffice/inputs/craft-fonts"
 DOCUMENT_FONTS_DIR = VOLUME / "DevCache/WeaveOffice/inputs/weave-document-fonts"
 I18N_DIR = VOLUME / "DevCache/WeaveOffice/inputs/craft-i18n"
@@ -36,7 +38,7 @@ def i18n_revision() -> str:
 def require_volume() -> None:
     if not VOLUME.is_mount():
         raise RuntimeError(
-            f"{VOLUME} is not mounted; mount the Jamba volume before building or testing"
+            f"{VOLUME} is not mounted; mount the external volume (WEAVE_DEV_VOLUME) before building or testing"
         )
 
 
@@ -54,7 +56,7 @@ def cargo_metadata() -> dict:
     volume = VOLUME.resolve(strict=True)
     if target == volume or not target.is_relative_to(volume):
         raise RuntimeError(
-            f"Cargo target directory is outside the mounted Jamba volume: {target}"
+            f"Cargo target directory is outside the mounted external volume: {target}"
         )
     return metadata
 
@@ -69,7 +71,7 @@ def build_environment() -> dict[str, str]:
     font_policy()
     font_path = FONTS_DIR.resolve(strict=True)
     if not font_path.is_relative_to(VOLUME.resolve(strict=True)):
-        raise RuntimeError(f"craft-fonts input resolves outside Jamba: {font_path}; run {hint}")
+        raise RuntimeError(f"craft-fonts input resolves outside the external volume: {font_path}; run {hint}")
     result = subprocess.run(
         [sys.executable, str(prepare), "--verify-only", "--dir", str(font_path)],
         cwd=ROOT,
@@ -86,7 +88,7 @@ def build_environment() -> dict[str, str]:
         raise RuntimeError(f"required document fonts input is missing at {DOCUMENT_FONTS_DIR}; run {document_hint}")
     document_path = DOCUMENT_FONTS_DIR.resolve(strict=True)
     if not document_path.is_relative_to(VOLUME.resolve(strict=True)):
-        raise RuntimeError(f"document fonts input resolves outside Jamba: {document_path}; run {document_hint}")
+        raise RuntimeError(f"document fonts input resolves outside the external volume: {document_path}; run {document_hint}")
     document_result = subprocess.run(
         [sys.executable, str(document_prepare), "--verify-only", "--dir", str(document_path)],
         cwd=ROOT,
@@ -104,7 +106,7 @@ def build_environment() -> dict[str, str]:
     i18n_revision()
     i18n_path = I18N_DIR.resolve(strict=True)
     if not i18n_path.is_relative_to(VOLUME.resolve(strict=True)):
-        raise RuntimeError(f"craft-i18n input resolves outside Jamba: {i18n_path}; run {i18n_hint}")
+        raise RuntimeError(f"craft-i18n input resolves outside the external volume: {i18n_path}; run {i18n_hint}")
     i18n_result = subprocess.run(
         [sys.executable, str(i18n_prepare), "--verify-only", "--dir", str(i18n_path)],
         cwd=ROOT,
