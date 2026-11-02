@@ -45,7 +45,8 @@ def generate(destination: Path) -> None:
         )
         for kind, filename in ICON_FILES.items():
             iconset = work / f"{kind}.iconset"
-            subprocess.run([str(generator), kind, str(iconset)], check=True,
+            subprocess.run([str(generator), kind, str(iconset),
+                            *([str(ROOT / "assets/app-icon/weave-office.png")] if kind == "app" else [])], check=True,
                            env={**os.environ, "TMPDIR": str(work), "TMP": str(work), "TEMP": str(work)})
             subprocess.run(["iconutil", "-c", "icns", str(iconset),
                             "-o", str(destination / filename)], check=True,

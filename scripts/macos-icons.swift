@@ -1,5 +1,5 @@
-// Original vector artwork for the macOS app and document icons.
-// Drawn directly into each iconset size; no external artwork or font is used.
+// Approved original raster artwork for the app; code-drawn document icons.
+// Each iconset size is rendered directly from its master; no fonts are used.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -45,20 +45,16 @@ func line(_ ctx: CGContext, _ a: CGPoint, _ b: CGPoint, _ width: CGFloat, _ colo
     ctx.strokePath()
 }
 
-func appIcon(_ ctx: CGContext) {
-    // Four offset leaves and a woven white path form a W without using a brand mark.
-    rounded(ctx, CGRect(x: 78, y: 64, width: 868, height: 868), 210, pale.color())
-    polygon(ctx, [CGPoint(x: 177, y: 782), CGPoint(x: 433, y: 864), CGPoint(x: 456, y: 245), CGPoint(x: 222, y: 314)], blue.color())
-    polygon(ctx, [CGPoint(x: 373, y: 852), CGPoint(x: 590, y: 791), CGPoint(x: 573, y: 290), CGPoint(x: 428, y: 241)], green.color())
-    polygon(ctx, [CGPoint(x: 578, y: 792), CGPoint(x: 805, y: 716), CGPoint(x: 785, y: 332), CGPoint(x: 559, y: 292)], orange.color())
-    polygon(ctx, [CGPoint(x: 800, y: 710), CGPoint(x: 865, y: 670), CGPoint(x: 818, y: 302), CGPoint(x: 773, y: 328)], red.color())
-    // Light cuts make a readable, open weave at Finder sizes.
-    line(ctx, CGPoint(x: 245, y: 700), CGPoint(x: 310, y: 365), 63, pale.color())
-    line(ctx, CGPoint(x: 310, y: 365), CGPoint(x: 418, y: 555), 63, pale.color())
-    line(ctx, CGPoint(x: 418, y: 555), CGPoint(x: 508, y: 347), 63, pale.color())
-    line(ctx, CGPoint(x: 508, y: 347), CGPoint(x: 622, y: 563), 63, pale.color())
-    line(ctx, CGPoint(x: 622, y: 563), CGPoint(x: 703, y: 400), 63, pale.color())
-    line(ctx, CGPoint(x: 703, y: 400), CGPoint(x: 777, y: 652), 63, pale.color())
+func appIcon(_ ctx: CGContext, _ image: CGImage) {
+    // Standard icon tile clipping removes the presentation backdrop while preserving
+    // the approved raster artwork. The outside of the macOS tile is transparent.
+    ctx.saveGState()
+    ctx.addPath(CGPath(roundedRect: CGRect(x: 65, y: 65, width: 894, height: 894),
+                       cornerWidth: 220, cornerHeight: 220, transform: nil))
+    ctx.clip()
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: 1024, height: 1024))
+    ctx.restoreGState()
 }
 
 func documentIcon(_ ctx: CGContext, _ kind: String) {
@@ -102,7 +98,7 @@ func documentIcon(_ ctx: CGContext, _ kind: String) {
     }
 }
 
-func render(_ kind: String, _ pixels: Int, _ url: URL) throws {
+func render(_ kind: String, _ pixels: Int, _ url: URL, _ appImage: CGImage?) throws {
     let space = CGColorSpaceCreateDeviceRGB()
     guard let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8,
                               bytesPerRow: 0, space: space,
@@ -110,7 +106,10 @@ func render(_ kind: String, _ pixels: Int, _ url: URL) throws {
         throw NSError(domain: "WeaveIcons", code: 1)
     }
     ctx.scaleBy(x: CGFloat(pixels) / 1024, y: CGFloat(pixels) / 1024)
-    if kind == "app" { appIcon(ctx) } else { documentIcon(ctx, kind) }
+    if kind == "app" {
+        guard let image = appImage else { throw NSError(domain: "WeaveIcons", code: 4) }
+        appIcon(ctx, image)
+    } else { documentIcon(ctx, kind) }
     guard let image = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
         throw NSError(domain: "WeaveIcons", code: 2)
     }
@@ -118,15 +117,22 @@ func render(_ kind: String, _ pixels: Int, _ url: URL) throws {
     guard CGImageDestinationFinalize(dest) else { throw NSError(domain: "WeaveIcons", code: 3) }
 }
 
-guard CommandLine.arguments.count == 3 else {
-    fputs("usage: macos-icons <kind> <iconset-directory>\n", stderr)
+guard (3...4).contains(CommandLine.arguments.count) else {
+    fputs("usage: macos-icons <kind> <iconset-directory> [app-master.png]\n", stderr)
     exit(2)
 }
 let kind = CommandLine.arguments[1]
 guard ["app", "word", "sheet", "slides", "pdf"].contains(kind) else { exit(2) }
+var appImage: CGImage? = nil
+if kind == "app" {
+    guard CommandLine.arguments.count == 4,
+          let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: CommandLine.arguments[3]) as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { exit(2) }
+    appImage = image
+}
 let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 for size in [16, 32, 128, 256, 512] {
-    try render(kind, size, directory.appendingPathComponent("icon_\(size)x\(size).png"))
-    try render(kind, size * 2, directory.appendingPathComponent("icon_\(size)x\(size)@2x.png"))
+    try render(kind, size, directory.appendingPathComponent("icon_\(size)x\(size).png"), appImage)
+    try render(kind, size * 2, directory.appendingPathComponent("icon_\(size)x\(size)@2x.png"), appImage)
 }
