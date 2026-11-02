@@ -57,7 +57,7 @@ use vello_cpu::color::AlphaColor;
 use vello_cpu::color::Srgb;
 use vello_cpu::color::palette::css::TRANSPARENT;
 use vello_cpu::color::palette::css::WHITE;
-use vello_cpu::{Level, Pixmap, RenderMode};
+use vello_cpu::{Level, Pixmap, PixmapMut, RasterizerSettings, RenderMode};
 
 mod renderer;
 /// PdfCraft patch: exported for its regression test.
@@ -242,7 +242,6 @@ pub fn render_into<'a>(
     let vc_settings = vello_cpu::RenderSettings {
         level: Level::new(),
         num_threads: 0,
-        render_mode: RenderMode::OptimizeSpeed,
     };
 
     let mut device = Renderer::new(
@@ -294,12 +293,13 @@ pub fn render_into<'a>(
     }
 
     let mut resources = vello_cpu::Resources::default();
-    device.ctx.render_to_buffer(
+    // PdfCraft patch: vello_cpu 0.2 (shared with egui, WordCraft and DeckCraft) takes the render
+    // mode per rasterization and writes through a borrowed pixmap view of the caller's buffer.
+    let target = PixmapMut::new(pix_width, pix_height, buffer).expect("buffer matches the page size");
+    device.ctx.render_with(
+        target,
         &mut resources,
-        buffer,
-        pix_width,
-        pix_height,
-        vc_settings.render_mode,
+        RasterizerSettings { render_mode: RenderMode::OptimizeSpeed, ..RasterizerSettings::default() },
     );
 }
 

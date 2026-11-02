@@ -37,7 +37,7 @@ pub(crate) fn transform_blur_params(std_deviation: f32, transform: &Affine) -> f
 /// The multi-scale decimation algorithm guarantees that kernel size never exceeds this value.
 /// Decimation stops when remaining variance ≤ 4.0 (σ ≤ 2.0), which produces kernels of size
 /// at most 13 (radius = ceil(3σ) = 6, size = 1 + 2×6 = 13).
-// Keep in sync with MAX_KERNEL_SIZE in vello_sparse_shaders/shaders/filters.wgsl
+// Keep in sync with MAX_KERNEL_SIZE in vello_sparse_shaders/shaders/filter.wesl
 pub const MAX_KERNEL_SIZE: usize = 13;
 
 #[cfg(test)]
@@ -108,13 +108,16 @@ pub fn plan_decimated_blur(std_deviation: f32) -> (usize, [f32; MAX_KERNEL_SIZE]
     let mut n_decimations = 0;
     let mut remaining_variance = variance;
 
-    // Each decimation step:
-    // 1. Applies [1,3,3,1] blur which adds variance = 0.75 per axis
-    // 2. Downsamples by 2× per axis, adding variance = 0.75 × 4 = 3.0 total
-    // 3. The 2× downsampling scales the remaining variance by 0.25 (= 1/2²)
-    // Stop when remaining variance ≤ 4.0 (σ ≈ 2), as further decimation isn't beneficial.
+    // Each decimation level blurs the image *twice* over the full round trip, and both passes
+    // must be subtracted from the budget so the final result matches the target σ:
+    // 1. The downscale applies a [1,3,3,1]/8 binomial filter (variance 0.75 in the current grid).
+    // 2. The matching upscale reconstruction adds 0.75 variance too: each output samples
+    //    neighbouring decimated pixels 0.5 and 1.5 original-grid pixels away from its centre,
+    //    so 0.75*(0.5²) + 0.25*(1.5²) = 0.75.
+    // So a level removes 0.75 + 0.75 = 1.5 of variance (in current-grid units) before the 2×
+    // downsampling rescales the remaining variance by 0.25 (= 1/2²) into the next grid.
     while remaining_variance > 4.0 {
-        remaining_variance = (remaining_variance - 3.0) * 0.25;
+        remaining_variance = (remaining_variance - 1.5) * 0.25;
         n_decimations += 1;
     }
     // Compute the reduced standard deviation to apply at the decimated resolution

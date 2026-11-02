@@ -95,7 +95,7 @@ impl StripGenerator {
         Self {
             level,
             line_buf: Vec::new(),
-            tiles: Tiles::new(level, height),
+            tiles: Tiles::new(level, width, height),
             flatten_ctx: FlattenCtx::default(),
             stroke_ctx: StrokeCtx::default(),
             temp_storage: StripStorage::default(),
@@ -239,10 +239,12 @@ impl StripGenerator {
         );
     }
 
-    /// Reset the strip generator.
-    pub fn reset(&mut self) {
+    /// Reset the strip generator for a viewport size, resizing only when needed.
+    pub fn reset(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
         self.line_buf.clear();
-        self.tiles.reset();
+        self.tiles.reset(width, height);
         self.temp_storage.clear();
     }
 }
@@ -308,7 +310,7 @@ mod tests {
         assert!(!generator.line_buf.is_empty());
         assert!(!storage.is_empty());
 
-        generator.reset();
+        generator.reset(100, 100);
         storage.clear();
 
         assert!(generator.line_buf.is_empty());
@@ -330,7 +332,7 @@ mod tests {
             &mut storage_path,
             None,
         );
-        generator.reset();
+        generator.reset(100, 100);
 
         generator.generate_filled_rect_fast(&rect, &mut storage_rect, None);
 

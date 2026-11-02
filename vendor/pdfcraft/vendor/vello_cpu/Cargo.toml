@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.88"
 name = "vello_cpu"
-version = "0.0.8"
+version = "0.2.0"
 build = false
 autolib = false
 autobins = false
@@ -60,6 +60,7 @@ multithreading = [
     "vello_common/multithreading",
 ]
 png = [
+    "std",
     "dep:png",
     "vello_common/png",
     "glifo?/png",
@@ -116,7 +117,7 @@ version = "0.5.15"
 optional = true
 
 [dependencies.glifo]
-version = "0.1.0"
+version = "0.3.0"
 optional = true
 default-features = false
 
@@ -146,7 +147,7 @@ version = "1.1.9"
 optional = true
 
 [dependencies.vello_common]
-version = "0.0.8"
+version = "0.2.0"
 default-features = false
 
 [lints.clippy]

@@ -3,11 +3,13 @@
 
 use crate::Level;
 use crate::dispatch::multi_threaded::{
-    CoarseTask, CoarseTaskSender, CoarseTaskType, RenderTask, RenderTaskType,
+    RecordedCommand, RecordedCommandSender, RecordedCommandTask, RenderTask, RenderTaskType,
 };
 use std::vec::Vec;
 use vello_common::clip::PathDataRef;
+use vello_common::geometry::RectU16;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::strip_bbox;
 
 #[derive(Debug)]
 pub(crate) struct Worker {
@@ -36,14 +38,14 @@ impl Worker {
         self.thread_id
     }
 
-    pub(crate) fn reset(&mut self) {
-        self.strip_generator.reset();
+    pub(crate) fn reset(&mut self, width: u16, height: u16) {
+        self.strip_generator.reset(width, height);
     }
 
     pub(crate) fn run_render_task(
         &mut self,
         mut render_task: RenderTask,
-        result_sender: &mut CoarseTaskSender,
+        result_sender: &mut RecordedCommandSender,
     ) {
         let num_tasks = render_task.allocation_group.render_tasks.len();
         self.strip_storage.strips.clear();
@@ -85,7 +87,7 @@ impl Worker {
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
-                    let coarse_command = CoarseTaskType::RenderPath {
+                    let recorded_command = RecordedCommand::RenderPath {
                         thread_id: self.thread_id,
                         strips: start..end,
                         blend_mode,
@@ -95,8 +97,8 @@ impl Worker {
 
                     render_task
                         .allocation_group
-                        .coarse_tasks
-                        .push(coarse_command);
+                        .recorded_commands
+                        .push(recorded_command);
                 }
                 RenderTaskType::StrokePath {
                     path_range,
@@ -121,7 +123,7 @@ impl Worker {
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
-                    let coarse_command = CoarseTaskType::RenderPath {
+                    let recorded_command = RecordedCommand::RenderPath {
                         thread_id: self.thread_id,
                         strips: start..end,
                         blend_mode,
@@ -131,8 +133,8 @@ impl Worker {
 
                     render_task
                         .allocation_group
-                        .coarse_tasks
-                        .push(coarse_command);
+                        .recorded_commands
+                        .push(recorded_command);
                 }
                 RenderTaskType::PushLayer {
                     clip_path,
@@ -142,7 +144,7 @@ impl Worker {
                     fill_rule,
                     aliasing_threshold,
                 } => {
-                    let clip = if let Some((path_range, transform)) = clip_path {
+                    let (clip, clip_bbox) = if let Some((path_range, transform)) = clip_path {
                         let start = self.strip_storage.strips.len() as u32;
                         let path = &render_task.allocation_group.path
                             [path_range.start as usize..path_range.end as usize];
@@ -157,15 +159,21 @@ impl Worker {
                         );
 
                         let end = self.strip_storage.strips.len() as u32;
+                        let range = start..end;
+                        let bbox = strip_bbox(
+                            &self.strip_storage.strips[range.start as usize..range.end as usize],
+                        )
+                        .unwrap_or(RectU16::ZERO);
 
-                        Some(start..end)
+                        (Some(range), Some(bbox))
                     } else {
-                        None
+                        (None, None)
                     };
 
-                    let coarse_command = CoarseTaskType::PushLayer {
+                    let recorded_command = RecordedCommand::PushLayer {
                         thread_id: self.thread_id,
                         clip_path: clip,
+                        clip_bbox,
                         blend_mode,
                         mask,
                         opacity,
@@ -173,14 +181,14 @@ impl Worker {
 
                     render_task
                         .allocation_group
-                        .coarse_tasks
-                        .push(coarse_command);
+                        .recorded_commands
+                        .push(recorded_command);
                 }
                 RenderTaskType::PopLayer => {
                     render_task
                         .allocation_group
-                        .coarse_tasks
-                        .push(CoarseTaskType::PopLayer);
+                        .recorded_commands
+                        .push(RecordedCommand::PopLayer);
                 }
             }
         }
@@ -191,7 +199,7 @@ impl Worker {
         );
         render_task.allocation_group.strips = taken_strips;
 
-        let task = CoarseTask {
+        let task = RecordedCommandTask {
             allocation_group: render_task.allocation_group,
         };
 

@@ -13,15 +13,15 @@
 //!
 //! To use Vello CPU, you need to:
 //!
-//! - Create a [`RenderContext`][], a 2D drawing context for a fixed-size target area.
+//! - Create a [`RenderContext`][], a 2D drawing context for a fixed-size scene area.
 //! - For each object in your scene:
 //!   - Set how the object will be painted, using [`set_paint`][RenderContext::set_paint].
 //!   - Set the shape to be drawn for that object, using methods like [`fill_path`][RenderContext::fill_path],
 //!     [`stroke_path`][RenderContext::stroke_path], or [`glyph_run`][RenderContext::glyph_run].
-//! - Render it to an image using [`RenderContext::render_to_pixmap`][].
+//! - Render it to an image using [`RenderContext::render`][].
 //!
 //! ```rust
-//! use vello_cpu::{RenderContext, Resources, Pixmap, RenderMode};
+//! use vello_cpu::{RenderContext, Resources, Pixmap};
 //! use vello_cpu::{color::{palette::css, PremulRgba8}, kurbo::Rect};
 //! let width = 10;
 //! let height = 5;
@@ -34,7 +34,7 @@
 //! // While calling `flush` is only strictly necessary if you are rendering using
 //! // multiple threads, it is recommended to always do this.
 //! context.flush();
-//! context.render_to_pixmap(&mut resources, &mut target);
+//! context.render(&mut target, &mut resources);
 //!
 //! let expected_render = b"\
 //!     0000000000\
@@ -57,9 +57,9 @@
 //! assert_eq!(&result, expected_render);
 //! ```
 //!
-//! Feel free to take a look at some further
+//! See the
 //! [examples](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
-//! to better understand how to interact with Vello CPU's API,
+//! for more complete demonstrations of Vello CPU's API.
 //!
 //! # Features
 //!
@@ -82,20 +82,26 @@
 //! You might choose to disable one of these pipelines if your application
 //! won't use it, so as to reduce binary size.
 //!
-//! # Caveats
+//! # Current state
 //!
-//! Overall, Vello CPU is already very feature-rich and should be ready for
-//! production use cases. The main caveat at the moment is that the API is
-//! still likely to change and not stable yet. For example, we have
-//! known plans to change the API around how image resources are used.
+//! Vello CPU is a solid CPU-only 2D renderer with broad, reliable feature
+//! support. It provides excellent performance across a wide range of workloads,
+//! with optimized SIMD implementations for all major architectures. The
+//! renderer is still under active development, however, and a few limitations
+//! remain:
 //!
-//! Additionally, there are certain APIs that are still very much experimental,
-//! including for example support for filters. This will be reflected in the
-//! documentation of those APIs.
+//! - Complex filter graphs are currently not supported at all and will panic.
+//!   In multi-threaded mode, even simple filters are currently unsupported.
+//! - Parts of the API and its documentation are still suboptimal, for example
+//!   the [`Resources`][] lifecycle.
+//! - Some exposed features remain experimental and are not recommended for use,
+//!   including glyph caching. Experimental APIs are identified in their method
+//!   documentation.
+//! - There is still more room for performance improvements, in particular on
+//!   x86 systems and also for multi-threaded rendering.
 //!
-//! Another caveat is that multi-threading with large thread counts
-//! (more than 4) might give diminishing returns, especially when
-//! making heavy use of layers and clip paths.
+//! With that said, we are continuously improving Vello CPU and will address
+//! these and other limitations in future releases.
 //!
 //! # Performance
 //!
@@ -146,8 +152,10 @@ compile_error!("vello_cpu must have at least one of the u8 or f32 pipelines enab
 
 mod render;
 
+mod coarse;
 mod dispatch;
 mod filter;
+mod record;
 #[cfg(feature = "text")]
 mod text;
 #[cfg(all(feature = "text", feature = "std", debug_assertions))]
@@ -157,11 +165,11 @@ mod util;
 #[doc(hidden)]
 pub mod fine;
 #[doc(hidden)]
-pub mod layer_manager;
-#[doc(hidden)]
 pub mod region;
 
-pub use render::{RenderContext, RenderSettings, Resources};
+pub use render::{
+    CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,
+};
 // Note: The first one is not something that should be
 // exposed, but is currently needed by vello_sparse_tests.
 #[cfg(feature = "text")]
@@ -171,12 +179,12 @@ pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
 pub use vello_common::fearless_simd::Level;
 pub use vello_common::mask::Mask;
 pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
-pub use vello_common::pixmap::Pixmap;
+pub use vello_common::pixmap::{Pixmap, PixmapMut};
 pub use vello_common::{color, kurbo, peniko};
 
 /// The selected rendering mode.
 /// For using [`RenderMode::OptimizeQuality`] you also need to enable `f32_pipeline` feature.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum RenderMode {
     /// Optimize speed (by performing calculations with u8/16).
     #[default]

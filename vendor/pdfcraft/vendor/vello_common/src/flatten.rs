@@ -336,6 +336,8 @@ impl Callback for FlattenerCallback<'_> {
     }
 }
 
+// PdfCraft patch: tests for the near-line stroke fallback.
+
 #[cfg(test)]
 mod tests {
     use super::{FlattenCtx, Line, TOL, expand_stroke, stroke};

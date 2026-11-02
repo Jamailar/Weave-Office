@@ -65,7 +65,6 @@ extern crate std;
 
 pub mod blurred_rounded_rect;
 pub mod clip;
-pub mod coarse;
 pub mod encode;
 pub mod filter;
 pub mod filter_effects;
@@ -84,14 +83,16 @@ pub mod pixmap;
 #[doc(hidden)]
 #[cfg(feature = "probe")]
 pub mod probe;
+pub mod record;
 pub mod rect;
-pub mod render_graph;
 pub mod render_state;
 pub mod simd;
 pub mod strip;
 pub mod strip_generator;
 pub mod tile;
+pub mod transforms;
 pub mod util;
+pub mod viewport;
 
 pub use fearless_simd;
 pub use peniko;

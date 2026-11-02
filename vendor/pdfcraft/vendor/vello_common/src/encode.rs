@@ -12,14 +12,16 @@ use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
+use crate::util::f32_to_u8;
 use alloc::borrow::Cow;
 use alloc::fmt::Debug;
 use alloc::vec;
 use alloc::vec::Vec;
+use bytemuck::Pod;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
 use core::hash::{Hash, Hasher};
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, mask32x4, mask32x16};
+use fearless_simd::{Simd, SimdBase, SimdFloat, SimdFrom, f32x4, f32x16, mask32x16};
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::color::gradient_unpremultiplied;
 use peniko::{
@@ -200,18 +202,13 @@ impl EncodeExt for Gradient {
         // for the paint transform of the render context.
         let transform = base_transform * transform.inverse();
 
-        // One possible approach of calculating the positions would be to apply the above
-        // transform to _each_ pixel that we render in the wide tile. However, a much better
-        // approach is to apply the transform once for the first pixel in each wide tile,
-        // and from then on only apply incremental updates to the current x/y position
-        // that we calculate based on the transform.
+        // One possible approach to calculating the positions would be to apply the above
+        // transform to each rendered pixel. Instead, renderers apply the transform to the first
+        // pixel of a span and then incrementally update the current x/y position.
         //
-        // Remember that we render wide tiles in column major order (i.e. we first calculate the
-        // values for a specific x for all Tile::HEIGHT y by incrementing y by 1, and then finally
-        // we increment the x position by 1 and start from the beginning). If we want to implement
-        // the above approach of incrementally updating the position, we need to calculate
-        // how the x/y unit vectors are affected by the transform, and then use this as the
-        // step delta for a step in the x/y direction.
+        // Pixels are rendered in column-major order: for a specific x, we calculate the values for
+        // all y coordinates before incrementing x. To update the position incrementally, we
+        // calculate how the transform affects the x/y unit vectors and use those as the step deltas.
         let (x_advance, y_advance) = x_y_advances(&transform);
 
         let cache_key = CacheKey(GradientCacheKey {
@@ -517,10 +514,12 @@ impl EncodeExt for Image {
 
         // If the tint color has alpha < 1.0, the image will have opacities
         // even if the source pixels are all opaque.
-        let tint_has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0);
+        let has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0)
+            // Not supported yet, but just to future-proof.
+            || sampler.alpha != 1.0;
 
         let encoded = EncodedImage {
-            may_have_transparency: self.image.may_have_transparency() || tint_has_opacity,
+            may_have_transparency: self.image.may_have_transparency() || has_opacity,
             source: self.image.clone(),
             sampler,
             transform,
@@ -546,6 +545,28 @@ pub enum EncodedPaint {
     ExternalTexture(EncodedExternalTexture),
     /// A blurred, rounded rectangle.
     BlurredRoundedRect(EncodedBlurredRoundedRectangle),
+}
+
+impl EncodedPaint {
+    /// Returns whether this encoded paint may produce non-opaque pixels.
+    pub fn may_have_transparency(&self) -> bool {
+        match self {
+            Self::Gradient(gradient) => gradient.may_have_transparency,
+            Self::Image(image) => image.may_have_transparency,
+            Self::ExternalTexture(texture) => texture.may_have_transparency,
+            Self::BlurredRoundedRect(_) => true,
+        }
+    }
+}
+
+impl Paint {
+    /// Returns whether this paint may produce non-opaque pixels.
+    pub fn may_have_transparency(&self, encoded_paints: &[EncodedPaint]) -> bool {
+        match self {
+            Self::Solid(color) => !color.is_opaque(),
+            Self::Indexed(index) => encoded_paints[index.index()].may_have_transparency(),
+        }
+    }
 }
 
 impl From<EncodedGradient> for EncodedPaint {
@@ -778,12 +799,14 @@ pub struct EncodedGradient {
 
 impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
+    // No need to vectorize here, as vectorization happens in the constructor.
     pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
         self.u8_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
+    // No need to vectorize here, as vectorization happens in the constructor.
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
         self.f32_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))
@@ -855,6 +878,11 @@ pub struct EncodedBlurredRoundedRectangle {
     pub height: f32,
     /// An component for computing the blur effect.
     pub r1: f32,
+    /// Whether to paint the inverse (`1 - alpha`) of the blur coverage.
+    ///
+    /// When `true`, the paint is fully opaque outside the blurred rectangle and fades to
+    /// transparent inside it. This is useful for implementing inset box shadows.
+    pub invert: bool,
     /// The base color for the blurred rectangle.
     pub color: PremulColor,
     /// A transform that needs to be applied to the position of the first processed pixel.
@@ -929,6 +957,7 @@ impl EncodeExt for BlurredRoundedRectangle {
             r1,
             std_dev_inv,
             min_edge,
+            invert: self.invert,
             color: PremulColor::from_alpha_color(self.color),
             w,
             h,
@@ -974,50 +1003,55 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
     ])
 }
 
-/// A helper trait for converting a premultiplied f32 color to `Self`.
-pub trait FromF32Color: Sized + Debug + Copy + Clone {
+/// A helper trait for converting gradient colors to `Self`.
+pub trait GradientLutExt: Sized + Debug + Copy + Clone + Pod {
     /// The zero value.
     const ZERO: Self;
-    /// Convert from a premultiplied f32 color to `Self`.
-    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4];
+    /// Convert from `f32x16` to `[Self; 16]`.
+    fn from_f32x16<S: Simd>(color: f32x16<S>) -> [Self; 16];
 }
 
-impl FromF32Color for f32 {
+impl GradientLutExt for f32 {
     const ZERO: Self = 0.0;
 
-    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
+    #[inline(always)]
+    fn from_f32x16<S: Simd>(color: f32x16<S>) -> [Self; 16] {
         color.into()
     }
 }
 
-impl FromF32Color for u8 {
+impl GradientLutExt for u8 {
     const ZERO: Self = 0;
 
-    fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
+    #[inline(always)]
+    fn from_f32x16<S: Simd>(color: f32x16<S>) -> [Self; 16] {
         let simd = color.simd;
-        color = color.mul_add(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
-
-        [
-            color[0] as Self,
-            color[1] as Self,
-            color[2] as Self,
-            color[3] as Self,
-        ]
+        let color = color.mul_add(f32x16::splat(simd, 255.0), f32x16::splat(simd, 0.5));
+        f32_to_u8(color).into()
     }
 }
 
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
-pub struct GradientLut<T: FromF32Color> {
+pub struct GradientLut<T: GradientLutExt> {
     lut: Vec<[T; 4]>,
     scale: f32,
 }
 
-impl<T: FromF32Color> GradientLut<T> {
+impl<T: GradientLutExt> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
+        simd.vectorize(
+            #[inline(always)]
+            || Self::new_inner(simd, ranges),
+        )
+    }
+
+    #[inline(always)]
+    fn new_inner<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = determine_lut_size(ranges);
         let mut lut = vec![[T::ZERO; 4]; lut_size];
+        let lut_flat = bytemuck::cast_slice_mut::<[T; 4], T>(&mut lut);
 
         // Calculate how many indices are covered by each range.
         let ramps = {
@@ -1053,8 +1087,10 @@ impl<T: FromF32Color> GradientLut<T> {
                 // Premultiply colors, since we did interpolation in unpremultiplied space.
                 if range.interpolation_alpha_space == InterpolationAlphaSpace::Unpremultiplied {
                     result = {
-                        let mask =
-                            mask32x16::block_splat(mask32x4::from_slice(simd, &[-1, -1, -1, 0]));
+                        let mask = mask32x16::simd_from(
+                            simd,
+                            [-1, -1, -1, 0, -1, -1, -1, 0, -1, -1, -1, 0, -1, -1, -1, 0],
+                        );
                         simd.select_f32x16(mask, result * alphas, alphas)
                     };
                 }
@@ -1064,15 +1100,13 @@ impl<T: FromF32Color> GradientLut<T> {
                 // become greater than the alpha channel. To prevent overflows
                 // in later parts of the pipeline, we need to take the minimum here.
                 result = result.min(1.0).min(alphas);
-                let (im1, im2) = simd.split_f32x16(result);
-                let (r1, r2) = simd.split_f32x8(im1);
-                let (r3, r4) = simd.split_f32x8(im2);
-                let rs = [r1, r2, r3, r4].map(T::from_f32);
+                let rs = T::from_f32x16(result);
 
                 // We always compute 4 samples at a time, but a gradient ramp does not necessarily
                 // start at a multiple of 4, therefore we might have to truncate.
-                let lut = &mut lut[idx..(idx + 4).min(lut_size)];
-                lut.copy_from_slice(&rs[..lut.len()]);
+                let start = idx * 4;
+                let end = (idx + 4).min(lut_size) * 4;
+                lut_flat[start..end].copy_from_slice(&rs[..end - start]);
             });
         }
 

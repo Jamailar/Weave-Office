@@ -20,6 +20,7 @@
 //! - `Flood` - Solid color fill
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
+//! - `DropShadowOnly` - Drop shadow effect without the original input
 //! - `Offset` - Translation/shift (single primitive)
 //!
 //! **Note:** Currently only single primitive filters are supported. Filter graphs with
@@ -49,7 +50,7 @@
 //! - `DiffuseLighting`, `SpecularLighting` - Lighting effects
 
 use crate::color::{AlphaColor, Srgb};
-use crate::kurbo::{Affine, Rect};
+use crate::kurbo::{Affine, Rect, Vec2};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
@@ -100,28 +101,44 @@ impl Filter {
         }
     }
 
-    /// Calculate the bounds expansion for this filter in pixel/device space.
+    // Note: We could simplify this by just returning a single union rect and combining
+    // `filter_expansion` and `source_expansion`. However, they are conceptually different
+    // and therefore worth being treated separately. For example, if we combined them, we'd
+    // end up computing the filter effect for the source expansion area as well, even though
+    // it's not necessary there since the filter itself doesn't touch that area.
+
+    /// Calculate how far the filtered output can extend beyond the source content.
     ///
-    /// Returns a `Rect` representing how many extra pixels are needed around the
-    /// filtered region to correctly compute the filter effect. For example, a blur
-    /// filter needs to sample beyond the original bounds to avoid edge artifacts.
-    ///
-    /// The expansion accounts for the transform (rotation, scale, and shear) to compute
-    /// the correct axis-aligned bounding box expansion in device space.
-    ///
-    /// The returned rect is centered at origin:
-    /// - x0: negative left expansion (in pixels)
-    /// - y0: negative top expansion (in pixels)
-    /// - x1: positive right expansion (in pixels)
-    /// - y1: positive bottom expansion (in pixels)
+    /// The returned `Rect` is an expansion around the source content bounds, expressed
+    /// in device space after applying the linear part of `transform`. Negative `x0`/`y0`
+    /// values expand to the left/top; positive `x1`/`y1` values expand to the right/bottom.
     ///
     /// # Arguments
     /// * `transform` - The transform applied to this filter layer
-    pub fn bounds_expansion(&self, transform: &Affine) -> Rect {
-        let [a, b, c, d, _e, _f] = transform.as_coeffs();
+    pub fn filter_expansion(&self, transform: &Affine) -> Rect {
+        let [a, b, c, d, ..] = transform.as_coeffs();
         let linear_only = Affine::new([a, b, c, d, 0.0, 0.0]);
 
-        self.graph.bounds_expansion(&linear_only)
+        self.graph.filter_expansion(&linear_only)
+    }
+
+    /// Calculate how far the source input must extend outside the visible source bounds
+    /// to render the filter correctly.
+    ///
+    /// In most cases (for example for Gaussian blurs), this is the same as
+    /// [`Filter::filter_expansion`]. However, it isn't the same for drop shadows.
+    /// Let's say we have a drop shadow of dx = 20 and dy = 20. In this case,
+    /// the filter expansion rect will be [0, 0, 20, 20], meaning we need to extend
+    /// our pixmap 20 pixels to the right/bottom to fully render the filter effect.
+    /// [`Filter::source_expansion`] will instead return [-20, -20, 0, 0]. For example,
+    /// let's say the rect is placed in such a way that the drop shadow starts at (0, 0).
+    /// In this case, we need to expand the source area by twenty pixels to the _top/left_
+    /// to ensure that the drop shadow is not cut off.
+    pub fn source_expansion(&self, transform: &Affine) -> Rect {
+        let [a, b, c, d, ..] = transform.as_coeffs();
+        let linear_only = Affine::new([a, b, c, d, 0.0, 0.0]);
+
+        self.graph.source_expansion(&linear_only)
     }
 }
 
@@ -137,10 +154,10 @@ pub struct FilterGraph {
     pub output: FilterId,
     /// Next available filter ID (monotonically increasing counter).
     next_id: u16,
-    /// Accumulated bounds expansion from all primitives in the graph, cached in user space.
-    /// This is the axis-aligned bounding box of the expansion region (centered at origin),
-    /// which can be transformed to device space when needed.
-    expansion_rect: Rect,
+    /// Accumulated filter expansion from all primitives in the graph, cached in user space.
+    filter_expansion: Rect,
+    /// Accumulated source expansion from all primitives in the graph, cached in user space.
+    source_expansion: Rect,
 }
 
 impl Default for FilterGraph {
@@ -156,21 +173,21 @@ impl FilterGraph {
             primitives: SmallVec::new(),
             output: FilterId(0),
             next_id: 0,
-            expansion_rect: Rect::ZERO,
+            filter_expansion: Rect::ZERO,
+            source_expansion: Rect::ZERO,
         }
     }
 
     /// Add a filter primitive with optional inputs.
     ///
     /// Returns a `FilterId` that can be referenced by other primitives.
-    /// Automatically updates the accumulated bounds expansion based on the primitive's requirements.
+    /// Automatically updates the accumulated source and filter expansion requirements.
     pub fn add(&mut self, primitive: FilterPrimitive, _inputs: Option<FilterInputs>) -> FilterId {
         let id = FilterId(self.next_id);
         self.next_id += 1;
 
-        // Update accumulated expansion by taking the union of rects
-        let primitive_rect = primitive.expansion_rect();
-        self.expansion_rect = self.expansion_rect.union(primitive_rect);
+        self.filter_expansion = self.filter_expansion.union(primitive.filter_expansion());
+        self.source_expansion = self.source_expansion.union(primitive.source_expansion());
 
         self.primitives.push(primitive);
 
@@ -182,20 +199,14 @@ impl FilterGraph {
         self.output = output;
     }
 
-    /// Get the accumulated bounds expansion for all primitives in this graph.
-    ///
-    /// This returns the expansion required by all primitives in the graph,
-    /// representing the padding needed to render all filter effects correctly.
-    ///
-    /// The expansion accounts for the transform (rotation, scale, and shear) to compute
-    /// the correct axis-aligned bounding box expansion in device space.
-    ///
-    /// # Arguments
-    /// * `transform` - The transform applied to this filter layer
-    pub fn bounds_expansion(&self, transform: &Affine) -> Rect {
-        // Transform the cached expansion rect to device space
-        // transform_rect_bbox computes the axis-aligned bounding box of the transformed rect
-        transform.transform_rect_bbox(self.expansion_rect)
+    /// The filter expansion of all filters in the graph, see [`Filter::filter_expansion`].
+    pub fn filter_expansion(&self, transform: &Affine) -> Rect {
+        transform.transform_rect_bbox(self.filter_expansion)
+    }
+
+    /// The source expansion of all filters in the graph, see [`Filter::source_expansion`].
+    pub fn source_expansion(&self, transform: &Affine) -> Rect {
+        transform.transform_rect_bbox(self.source_expansion)
     }
 }
 
@@ -400,6 +411,21 @@ pub enum FilterPrimitive {
         /// Default is `EdgeMode::None` per SVG spec.
         edge_mode: EdgeMode,
     },
+    /// Same as [`FilterPrimitive::DropShadow`], but without compositing the original
+    /// layer on top of it.
+    DropShadowOnly {
+        /// Horizontal offset of the shadow in pixels. Positive values shift right.
+        dx: f32,
+        /// Vertical offset of the shadow in pixels. Positive values shift down.
+        dy: f32,
+        /// Blur standard deviation for the shadow. Larger values create softer shadows.
+        std_deviation: f32,
+        /// Color applied to the blurred, offset input alpha mask. The input's color
+        /// channels are ignored, and this color's alpha controls shadow opacity.
+        color: AlphaColor<Srgb>,
+        /// Edge mode for handling boundaries during blur operation.
+        edge_mode: EdgeMode,
+    },
     //
     // ============================================================
     // TODO: The following filter primitives are not yet implemented
@@ -548,25 +574,11 @@ pub enum FilterPrimitive {
 }
 
 impl FilterPrimitive {
-    /// Calculate the bounds expansion as a `Rect` in user space.
-    ///
-    /// Returns a rectangle centered at the origin representing how much the filter
-    /// expands the processing region in each direction. The rect coordinates are:
-    /// - x0: negative left expansion
-    /// - y0: negative top expansion
-    /// - x1: positive right expansion
-    /// - y1: positive bottom expansion
-    ///
-    /// A `Rect::ZERO` means no expansion. This representation allows the expansion
-    /// to be correctly transformed (including rotation) using standard rect transforms.
-    ///
-    /// For example, a blur filter needs additional pixels around the edges (3*sigma).
-    /// Most filters that don't sample neighboring pixels return `Rect::ZERO`.
-    pub fn expansion_rect(&self) -> Rect {
+    /// The filter expansion of the primitive, see [`Filter::filter_expansion`].
+    pub fn filter_expansion(&self) -> Rect {
         match self {
             Self::GaussianBlur { std_deviation, .. } => {
-                // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
-                let radius = (*std_deviation * 3.0) as f64;
+                let radius = blur_radius(*std_deviation);
                 Rect::new(-radius, -radius, radius, radius)
             }
             Self::Offset { dx, dy } => {
@@ -580,39 +592,97 @@ impl FilterPrimitive {
                 dx,
                 dy,
                 ..
+            }
+            | Self::DropShadowOnly {
+                std_deviation,
+                dx,
+                dy,
+                ..
             } => {
-                // Drop shadow = blur + offset + composite with original
-                // The expansion rect encompasses both the blur and the offset
-                let blur_radius = (*std_deviation * 3.0) as f64;
-                let dx = *dx as f64;
-                let dy = *dy as f64;
+                let blur_radius = blur_radius(*std_deviation);
+                let dx = f64::from(*dx);
+                let dy = f64::from(*dy);
 
                 Rect::new(
-                    -(blur_radius + (-dx).max(0.0)),
-                    -(blur_radius + (-dy).max(0.0)),
-                    blur_radius + dx.max(0.0),
-                    blur_radius + dy.max(0.0),
+                    (dx - blur_radius).min(0.0),
+                    (dy - blur_radius).min(0.0),
+                    (dx + blur_radius).max(0.0),
+                    (dy + blur_radius).max(0.0),
                 )
             }
             // Most other filters don't expand bounds
             _ => Rect::ZERO,
         }
     }
+
+    /// The source expansion of the primitive, see [`Filter::source_expansion`].
+    pub fn source_expansion(&self) -> Rect {
+        match self {
+            Self::Offset { dx, dy } => {
+                self.filter_expansion() - Vec2::new(f64::from(*dx), f64::from(*dy))
+            }
+            Self::DropShadow {
+                std_deviation,
+                dx,
+                dy,
+                ..
+            }
+            | Self::DropShadowOnly {
+                std_deviation,
+                dx,
+                dy,
+                ..
+            } => {
+                let blur_radius = blur_radius(*std_deviation);
+                let dx = -f64::from(*dx);
+                let dy = -f64::from(*dy);
+
+                Rect::new(
+                    (dx - blur_radius).min(0.0),
+                    (dy - blur_radius).min(0.0),
+                    (dx + blur_radius).max(0.0),
+                    (dy + blur_radius).max(0.0),
+                )
+            }
+            _ => self.filter_expansion(),
+        }
+    }
+}
+
+fn blur_radius(std_deviation: f32) -> f64 {
+    // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
+    f64::from(std_deviation * 3.0)
 }
 
 #[cfg(test)]
-mod offset_expansion_tests {
+mod expansion_tests {
     use super::FilterPrimitive;
+    use crate::color::palette::css::RED;
+    use crate::filter_effects::EdgeMode;
     use crate::kurbo::Rect;
 
     #[test]
     fn offset_expands_in_direction_of_shift() {
         let p = FilterPrimitive::Offset { dx: 2.5, dy: -3.0 };
         assert_eq!(
-            p.expansion_rect(),
+            p.filter_expansion(),
             Rect::new(0.0, -3.0, 2.5, 0.0),
             "Offset expansion should be asymmetric and include the shift vector"
         );
+    }
+
+    #[test]
+    fn drop_shadow_expansion_combines_blur_and_offset_tightly() {
+        let p = FilterPrimitive::DropShadow {
+            dx: 20.0,
+            dy: -10.0,
+            std_deviation: 8.0,
+            color: RED,
+            edge_mode: EdgeMode::None,
+        };
+
+        assert_eq!(p.filter_expansion(), Rect::new(-4.0, -34.0, 44.0, 14.0));
+        assert_eq!(p.source_expansion(), Rect::new(-44.0, -14.0, 4.0, 34.0));
     }
 }
 

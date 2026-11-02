@@ -5,13 +5,13 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+#[cfg(feature = "multithreading")]
+use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
 
-#[cfg(feature = "multithreading")]
-use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use alloc::boxed::Box;
@@ -22,14 +22,16 @@ use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
-use vello_common::pixmap::Pixmap;
+use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
+use vello_common::transforms::{RootTransforms, Transforms};
 use vello_common::util::is_axis_aligned;
 
 #[cfg(feature = "text")]
@@ -55,6 +57,8 @@ pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 
 /// Persistent resources required by Vello CPU for rendering.
+///
+/// You should create one such instance per renderer.
 #[derive(Debug, Default)]
 pub struct Resources {
     pub(crate) image_registry: ImageRegistry,
@@ -71,14 +75,76 @@ impl Resources {
         Self::default()
     }
 
-    pub(crate) fn before_render(&mut self) {
+    pub(crate) fn before_render(&mut self, render_mode: RenderMode) {
         #[cfg(feature = "text")]
-        self.prepare_glyph_cache();
+        self.prepare_glyph_cache(render_mode);
+
+        #[cfg(not(feature = "text"))]
+        let _ = render_mode;
     }
 
     pub(crate) fn after_render(&mut self) {
         #[cfg(feature = "text")]
         self.maintain_glyph_cache();
+    }
+}
+
+// TODO: Consider changing `Replace` to overwrite only the rendered region, leaving pixels outside
+// it unchanged. See https://github.com/linebender/vello/pull/1665#issuecomment-4667033939
+
+/// The composition mode that should be used when rendering into a pixmap.
+///
+/// For performance reason it is _highly_ recommended that you use `CompositeMode::Replace`, even
+/// if you know that the pixmap is already cleared. Only use `SrcOver` if you really have to
+/// preserve existing contents.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum CompositeMode {
+    /// Clear the destination pixmap and render the scene into it.
+    #[default]
+    Replace,
+    /// Render the scene into the pixmap using src-over compositing.
+    SrcOver,
+}
+
+/// The pixel format to assume for the destination pixmap.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum PixelFormat {
+    /// Premultiplied RGBA8.
+    #[default]
+    Rgba8,
+}
+
+/// Settings used when rasterizing a scene into a pixmap.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct RasterizerSettings {
+    /// Whether to prioritize speed or quality when rendering.
+    ///
+    /// For most cases (especially for real-time rendering), it is highly recommended to set
+    /// this to [`RenderMode::OptimizeSpeed`]. If color accuracy is a more significant concern,
+    /// then you can set this to [`RenderMode::OptimizeQuality`].
+    ///
+    /// Currently, the only difference this makes is that when choosing [`RenderMode::OptimizeSpeed`],
+    /// rasterization will happen using u8/u16,
+    /// while [`RenderMode::OptimizeQuality`] will use a f32-based pipeline.
+    pub render_mode: RenderMode,
+    /// How rendered content is composited into the destination.
+    pub composite_mode: CompositeMode,
+    /// Pixel format of the destination.
+    pub pixel_format: PixelFormat,
+    /// Offset in destination pixels where the render context origin is placed.
+    ///
+    /// See [`RenderContext::render_with`] for more information.
+    pub offset: (u16, u16),
+}
+
+impl Default for RasterizerSettings {
+    fn default() -> Self {
+        Self {
+            render_mode: RenderMode::OptimizeSpeed,
+            composite_mode: CompositeMode::Replace,
+            pixel_format: PixelFormat::Rgba8,
+            offset: (0, 0),
+        }
     }
 }
 
@@ -95,6 +161,7 @@ pub struct RenderContext {
     pub(crate) height: u16,
     /// The current rendering state.
     pub(crate) state: RenderState,
+    root_transforms: RootTransforms,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
     /// Temporary path buffer to avoid repeated allocations.
@@ -119,15 +186,6 @@ pub struct RenderSettings {
     /// The number of worker threads that should be used for rendering. Only has an effect
     /// if the `multithreading` feature is active.
     pub num_threads: u16,
-    /// Whether to prioritize speed or quality when rendering.
-    ///
-    /// For most cases (especially for real-time rendering), it is highly recommended to set
-    /// this to `OptimizeSpeed`. If accuracy is a more significant concern (for example for visual
-    /// regression testing), then you can set this to `OptimizeQuality`.
-    ///
-    /// Currently, the only difference this makes is that when choosing `OptimizeSpeed`, rasterization
-    /// will happen using u8/u16, while `OptimizeQuality` will use a f32-based pipeline.
-    pub render_mode: RenderMode,
 }
 
 impl Default for RenderSettings {
@@ -142,7 +200,6 @@ impl Default for RenderSettings {
                 .min(8),
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
-            render_mode: RenderMode::OptimizeSpeed,
         }
     }
 }
@@ -180,6 +237,7 @@ impl RenderContext {
             height,
             dispatcher,
             state: RenderState::default(),
+            root_transforms: RootTransforms::default(),
             aliasing_threshold,
             render_settings: settings,
             mask: None,
@@ -189,38 +247,50 @@ impl RenderContext {
         }
     }
 
+    fn transforms(&self) -> &Transforms {
+        &self.state.transforms
+    }
+
+    fn transforms_mut(&mut self) -> &mut Transforms {
+        &mut self.state.transforms
+    }
+
     fn encode_current_paint(&mut self) -> Paint {
         match self.state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => {
+                let transform = self
+                    .root_transforms
+                    .effective_paint_transform(self.transforms());
                 // TODO: Add caching?
-                g.encode_into(
-                    &mut self.encoded_paints,
-                    self.state.transform * self.state.paint_transform,
-                    None,
-                )
+                g.encode_into(&mut self.encoded_paints, transform, None)
             }
-            PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints,
-                self.state.transform * self.state.paint_transform,
-                self.state.tint,
-            ),
+            PaintType::Image(i) => {
+                let transform = self
+                    .root_transforms
+                    .effective_paint_transform(self.transforms());
+                i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
+            }
         }
     }
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
+        // TODO: Similarly to Vello Hybrid, make sure that inline blend + filter are applies
+        // to the same layer.
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx
+                .root_transforms
+                .effective_path_transform(ctx.transforms());
             ctx.dispatcher.fill_path(
                 path,
                 ctx.state.fill_rule,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -229,15 +299,17 @@ impl RenderContext {
     pub fn stroke_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx
+                .root_transforms
+                .effective_path_transform(ctx.transforms());
             ctx.dispatcher.stroke_path(
                 path,
                 &ctx.state.stroke,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -246,19 +318,21 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx
+                .root_transforms
+                .effective_path_transform(ctx.transforms());
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
             // TODO: Maybe also support no anti-aliasing in the fast path
-            if is_axis_aligned(&ctx.state.transform) && ctx.aliasing_threshold.is_none() {
+            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
                 // Transform the rect to screen coordinates.
-                let transformed_rect = ctx.state.transform.transform_rect_bbox(*rect);
+                let transformed_rect = transform.transform_rect_bbox(*rect);
                 ctx.dispatcher.fill_rect_fast(
                     &transformed_rect,
                     paint,
                     ctx.state.blend_mode,
                     ctx.mask.clone(),
-                    &ctx.encoded_paints,
                 );
             } else {
                 // Fall back to path-based rendering for rotated/skewed transforms.
@@ -266,12 +340,11 @@ impl RenderContext {
                 ctx.dispatcher.fill_path(
                     &ctx.temp_path,
                     ctx.state.fill_rule,
-                    ctx.state.transform,
+                    transform,
                     paint,
                     ctx.state.blend_mode,
                     ctx.aliasing_threshold,
                     ctx.mask.clone(),
-                    &ctx.encoded_paints,
                 );
             }
         });
@@ -282,15 +355,17 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             ctx.rect_to_temp_path(rect);
             let paint = ctx.encode_current_paint();
+            let transform = ctx
+                .root_transforms
+                .effective_path_transform(ctx.transforms());
             ctx.dispatcher.stroke_path(
                 &ctx.temp_path,
                 &ctx.state.stroke,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -310,9 +385,19 @@ impl RenderContext {
 
     /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
+    /// can be used to implement inset box shadows.
+    ///
     /// Note that this only works properly if the current paint is set to a solid color.
     /// If not, it will fall back to using black as the fill color.
-    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+    pub fn fill_blurred_rounded_rect(
+        &mut self,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    ) {
         let rect = rect.abs();
         let color = match self.state.paint {
             PaintType::Solid(s) => s,
@@ -325,6 +410,7 @@ impl RenderContext {
             color,
             radius,
             std_dev,
+            invert,
         };
 
         // The actual rectangle we paint needs to be larger so that the blurring effect
@@ -333,20 +419,24 @@ impl RenderContext {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-        let transform = self.state.transform * self.state.paint_transform;
+        let transform = self
+            .root_transforms
+            .effective_path_transform(self.transforms());
+        let paint_transform = self
+            .root_transforms
+            .effective_paint_transform(self.transforms());
 
         self.rect_to_temp_path(&inflated_rect);
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, paint_transform, None);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,
-            self.state.transform,
+            transform,
             paint,
             self.state.blend_mode,
             self.aliasing_threshold,
             self.mask.clone(),
-            &self.encoded_paints,
         );
     }
 
@@ -359,7 +449,8 @@ impl RenderContext {
     ) -> GlyphRunBuilder<'a> {
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            self.state.transform,
+            self.transforms().scene_transform(),
+            *self.transforms().paint_transform(),
             crate::text::CpuGlyphRunBackend {
                 ctx: self,
                 resources,
@@ -373,6 +464,10 @@ impl RenderContext {
     /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
     /// it will be ignored. In addition to that, the mask will not be affected by the current
     /// transformation matrix in place.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `filter` is provided when this context uses multi-threaded rendering.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -391,16 +486,32 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
+        let layer_transform = self
+            .root_transforms
+            .effective_path_transform(self.transforms());
+        let filter_data = filter.map(|filter| FilterData::new(filter, layer_transform));
+
+        // The important part! Let's say we have an element placed in a way such that
+        // its drop shadow starts at (0, 0). In order for it to render correctly, we would
+        // have to render parts of the shape that at negative viewport coordinates, which is
+        // not supported. Therefore, we instead shift everything down such that we can assume
+        // everything left/above (0, 0) is not needed for correct rendering, and simply
+        // shift everything back when actually compositing the rendered filter layer.
+        let relative_transform = filter_data.as_ref().map_or(Affine::IDENTITY, |data| {
+            let (shift_x, shift_y) = data.source_shift();
+            Affine::translate((f64::from(shift_x), f64::from(shift_y)))
+        });
+        self.root_transforms.push_root(relative_transform);
 
         self.dispatcher.push_layer(
             clip_path,
             self.state.fill_rule,
-            self.state.transform,
+            layer_transform,
             blend_mode,
             opacity,
             self.aliasing_threshold,
             mask,
-            filter,
+            filter_data,
         );
     }
 
@@ -437,6 +548,10 @@ impl RenderContext {
     /// WARNING: Note that filters are currently incomplete and experimental. In
     /// particular, they will lead to a panic when used in combination with
     /// multi-threaded rendering.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this context uses multi-threaded rendering.
     pub fn push_filter_layer(&mut self, filter: Filter) {
         self.push_layer(None, None, None, None, Some(filter));
     }
@@ -459,6 +574,7 @@ impl RenderContext {
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
         self.dispatcher.pop_layer();
+        self.root_transforms.pop_root();
     }
 
     /// Set the current stroke.
@@ -517,17 +633,17 @@ impl RenderContext {
     /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
     /// transforming the paint independently from the drawn geometry.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
-        self.state.paint_transform = paint_transform;
+        self.transforms_mut().set_paint_transform(paint_transform);
     }
 
     /// Get the current paint transform.
     pub fn paint_transform(&self) -> &Affine {
-        &self.state.paint_transform
+        self.transforms().paint_transform()
     }
 
     /// Reset the current paint transform.
     pub fn reset_paint_transform(&mut self) {
-        self.state.paint_transform = Affine::IDENTITY;
+        self.transforms_mut().reset_paint_transform();
     }
 
     /// Set the current fill rule.
@@ -557,23 +673,26 @@ impl RenderContext {
 
     /// Set the current transform.
     pub fn set_transform(&mut self, transform: Affine) {
-        self.state.transform = transform;
+        self.transforms_mut().set_transform(transform);
     }
 
     /// Get the current transform.
     pub fn transform(&self) -> &Affine {
-        &self.state.transform
+        self.transforms().transform()
     }
 
     /// Reset the current transform.
     pub fn reset_transform(&mut self) {
-        self.state.transform = Affine::IDENTITY;
+        self.transforms_mut().reset_transform();
     }
 
     /// Apply filter to the current paint (affects next drawn elements).
     ///
     /// This sets a filter that will be applied to the next drawn element.
     /// To apply a filter to multiple elements, use `push_filter_layer` instead.
+    /// # Panics
+    ///
+    /// When this context uses multi-threaded rendering.
     pub fn set_filter_effect(&mut self, filter: Filter) {
         self.filter = Some(filter);
     }
@@ -583,11 +702,20 @@ impl RenderContext {
         self.filter = None;
     }
 
+    /// Reset the render context and update the scene size.
+    pub fn reset_and_resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+
+        self.reset();
+    }
+
     /// Reset the render context.
     pub fn reset(&mut self) {
-        self.dispatcher.reset();
+        self.dispatcher.reset(self.width, self.height);
         self.encoded_paints.clear();
         self.mask = None;
+        self.root_transforms.reset();
         self.state.reset();
     }
 
@@ -596,10 +724,11 @@ impl RenderContext {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        let transform = self.transforms().clip_path_transform();
         self.dispatcher.push_clip_path(
             path,
             self.state.fill_rule,
-            self.state.transform,
+            transform,
             self.aliasing_threshold,
         );
     }
@@ -618,38 +747,78 @@ impl RenderContext {
     /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
     /// the program will panic.
     pub fn flush(&mut self) {
-        self.dispatcher.flush(&self.encoded_paints);
+        self.dispatcher.flush();
     }
 
-    /// Render the current context into a buffer.
-    /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
-    pub fn render_to_buffer(
+    /// Render the current context into a target using default rasterizer settings.
+    ///
+    /// See the documentation of [`RenderContext::render_with`] for more information.
+    pub fn render<'a>(&self, target: impl Into<PixmapMut<'a>>, resources: &mut Resources) {
+        self.render_with(target, resources, RasterizerSettings::default());
+    }
+
+    /// Render the current context into a target using custom rasterizer settings.
+    ///
+    /// See the documentation of [`RasterizerSettings`] to understand the tunable parameters for
+    /// rasterization.
+    ///
+    /// There is an important note to make about render sizes. [`RenderContext`] can be configured with
+    /// a specific width/height, but so can [`Pixmap`]. In the vast majority of cases, you will simply
+    /// want to configure them both to have the same size. However, it _is_ very much possible for them
+    /// to have different sizes, which can be useful in certain situations. In principle, the size
+    /// that you specify when creating a [`RenderContext`] defines the bound of the scene itself. Any
+    /// content that is to the top/left of (0, 0) and to the right/bottom of (width/height) will be
+    /// removed. However, the offset in [`RasterizerSettings`] as well as the width/height of
+    /// the [`PixmapMut`] define at which location the scene will be rasterized into, and allows
+    /// for further clipping certain parts of the scene away. The semantics are defined as follows:
+    ///
+    /// 1. [`RasterizerSettings::offset`] defines the where the top-left corner will be positioned
+    ///    on the pixmap, assuming a y-down coordinate system. In most cases (0, 0) will be the
+    ///    appropriate choice, but other values are certainly sensible. For example, if you want to
+    ///    implement a custom glyph-atlas, you can construct the scene assuming (0, 0) as the origin
+    ///    and then position the glyphs at rasterization time using this feature.
+    ///
+    /// 2. In case the pixmap width/height is larger than the offset plus the width/height of the
+    ///    [`RenderContext`], any remaining rows/columns are simply treated as padding (**however**,
+    ///    when using [`CompositeMode::Replace`], then the _whole_ destination pixmap will
+    ///    be cleared, not just the area covered by the scene). One potential reason for doing this
+    ///    is that certain platforms, for example macOS, require a specific byte stride for buffers.
+    ///    For example, let's say that a byte stride of 128 is imposed by the platform, but the actual
+    ///    size of the scene you are drawing is only 20x20. In this case, you can create a pixmap
+    ///    of size 32x20, and the last 12 columns are essentially treated as padding.
+    ///
+    /// 3. In case the width/height of the pixmap is _smaller_ than the offset + width/height of the
+    ///    scene, then anything that exceeds the pixmap boundaries is simply cut off. This can be useful
+    ///    if for some reason you only want to rasterize a small cut-out of the original scene.
+    pub fn render_with<'a>(
         &self,
+        target: impl Into<PixmapMut<'a>>,
         resources: &mut Resources,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        render_mode: RenderMode,
+        settings: RasterizerSettings,
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
-        let wide = self.dispatcher.wide();
-        assert!(!wide.has_layers(), "some layers haven't been popped yet");
-        assert_eq!(
-            buffer.len(),
-            (width as usize) * (height as usize) * 4,
-            "provided width ({}) and height ({}) do not match buffer size ({})",
-            width,
-            height,
-            buffer.len(),
+        assert!(
+            !self.dispatcher.has_layers(),
+            "some layers haven't been popped yet"
         );
 
-        resources.before_render();
+        resources.before_render(settings.render_mode);
+        let mut target = target.into();
+        let target_fully_covered = settings.offset == (0, 0)
+            && self.width >= target.width()
+            && self.height >= target.height();
+        // If the scene covers the whole pixmap than packing will take care
+        // of clearing everything anyway, so no reason to clear it explicitly
+        // here.
+        if settings.composite_mode == CompositeMode::Replace && !target_fully_covered {
+            target.data_mut().fill(0);
+        }
 
         self.dispatcher.rasterize(
-            buffer,
-            render_mode,
-            width,
-            height,
+            target,
+            self.width,
+            self.height,
+            settings,
             &self.encoded_paints,
             &resources.image_registry,
         );
@@ -661,65 +830,12 @@ impl RenderContext {
         resources.after_render();
     }
 
-    /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, resources: &mut Resources, pixmap: &mut Pixmap) {
-        let width = pixmap.width();
-        let height = pixmap.height();
-        self.render_to_buffer(
-            resources,
-            pixmap.data_as_u8_slice_mut(),
-            width,
-            height,
-            self.render_settings.render_mode,
-        );
-    }
-
-    /// Composite the current context into a region of a pixmap.
-    ///
-    /// The context's content (sized `self.width × self.height`) is composited
-    /// directly to the destination pixmap starting at `(dst_x, dst_y)`.
-    /// If the region extends beyond the pixmap bounds, it is clipped.
-    ///
-    /// Unlike [`render_to_pixmap`](Self::render_to_pixmap), this method composites on top of
-    /// existing pixmap content rather than clearing it first, allowing multiple
-    /// renders to accumulate.
-    ///
-    /// This is useful for rendering individual elements (like glyphs) into
-    /// a spritesheet at specific coordinates.
-    ///
-    /// # Panics
-    ///
-    /// This method is only supported with the single-threaded dispatcher and will
-    /// **panic** if called on a `RenderContext` using the multi-threaded dispatcher.
-    pub fn composite_to_pixmap_at_offset(
-        &self,
-        resources: &Resources,
-        pixmap: &mut Pixmap,
-        dst_x: u16,
-        dst_y: u16,
-    ) {
-        let dst_buffer_width = pixmap.width();
-        let dst_buffer_height = pixmap.height();
-        self.dispatcher.composite_at_offset(
-            pixmap.data_as_u8_slice_mut(),
-            self.width,
-            self.height,
-            dst_x,
-            dst_y,
-            dst_buffer_width,
-            dst_buffer_height,
-            self.render_settings.render_mode,
-            &self.encoded_paints,
-            &resources.image_registry,
-        );
-    }
-
-    /// Return the width of the pixmap.
+    /// Return the width of the scene.
     pub fn width(&self) -> u16 {
         self.width
     }
 
-    /// Return the height of the pixmap.
+    /// Return the height of the scene.
     pub fn height(&self) -> u16 {
         self.height
     }
@@ -756,6 +872,11 @@ impl RenderContext {
     /// Restore rendering state.
     pub fn restore_state(&mut self, state: RenderState) {
         self.state = state;
+    }
+
+    /// Whether rendering is currently configured to run in multi-threaded mode.
+    pub fn is_multi_threaded(&self) -> bool {
+        self.dispatcher.is_multi_threaded()
     }
 }
 
@@ -839,15 +960,54 @@ impl ImageResolver for ImageRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::RenderContext;
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
+    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
+    use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    use vello_common::color::PremulRgba8;
+    use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::kurbo::{Rect, Shape};
+    use vello_common::pixmap::{Pixmap, PixmapMut};
     use vello_common::tile::Tile;
+
+    const GRAY: PremulRgba8 = PremulRgba8 {
+        r: 9,
+        g: 10,
+        b: 11,
+        a: 255,
+    };
+
+    fn red_pixel() -> PremulRgba8 {
+        RED.premultiply().to_rgba8()
+    }
+
+    fn blue_pixel() -> PremulRgba8 {
+        BLUE.premultiply().to_rgba8()
+    }
+
+    fn transparent_pixel() -> PremulRgba8 {
+        PremulRgba8::from_u32(0)
+    }
+
+    fn solid_pixmap(width: u16, height: u16, color: PremulRgba8) -> Pixmap {
+        Pixmap::from_parts(
+            vec![color; usize::from(width) * usize::from(height)],
+            width,
+            height,
+        )
+    }
+
+    fn red_rect_context(width: u16, height: u16, rect: Rect) -> RenderContext {
+        let mut ctx = RenderContext::new(width, height);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&rect);
+        ctx.flush();
+        ctx
+    }
 
     #[test]
     fn clip_overflow() {
@@ -862,27 +1022,313 @@ mod tests {
         ctx.flush();
     }
 
+    #[test]
+    fn render_with_offset_clears_pixels_outside_scene() {
+        let ctx = red_rect_context(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 3, GRAY);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                offset: (1, 1),
+                ..Default::default()
+            },
+        );
+
+        for y in 0..3 {
+            for x in 0..4 {
+                let expected = if (1..=2).contains(&x) && (1..=2).contains(&y) {
+                    red_pixel()
+                } else {
+                    transparent_pixel()
+                };
+
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn render_clips_scene_to_target_bounds() {
+        let ctx = red_rect_context(3, 3, Rect::new(0.0, 0.0, 3.0, 3.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 4, GRAY);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                offset: (2, 1),
+                ..Default::default()
+            },
+        );
+
+        for y in 0..4 {
+            for x in 0..4 {
+                let expected = if (2..=3).contains(&x) && (1..=3).contains(&y) {
+                    red_pixel()
+                } else {
+                    transparent_pixel()
+                };
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn render_into_padded_pixmap() {
+        let ctx = red_rect_context(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 2, GRAY);
+
+        ctx.render(&mut pixmap, &mut resources);
+
+        for y in 0..2 {
+            for x in 0..4 {
+                let expected = if x < 2 {
+                    red_pixel()
+                } else {
+                    transparent_pixel()
+                };
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn reset_and_resize_updates_scene_size() {
+        let mut ctx = RenderContext::new(8, 4);
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(4, 8);
+
+        ctx.reset_and_resize(4, 8);
+        assert_eq!(ctx.width(), 4);
+        assert_eq!(ctx.height(), 8);
+
+        ctx.set_paint(BLUE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 8.0));
+        ctx.flush();
+        ctx.render(&mut pixmap, &mut resources);
+
+        for y in 0..8 {
+            for x in 0..4 {
+                assert_eq!(pixmap.sample(x, y), blue_pixel(), "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn render_into_raw_buffer() {
+        let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 2.0, 1.0));
+        let mut resources = Resources::new();
+        let mut buffer = vec![0; 3 * 2 * 4];
+        for pixel in buffer.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[GRAY.r, GRAY.g, GRAY.b, GRAY.a]);
+        }
+
+        {
+            let pixmap = PixmapMut::new(3, 2, &mut buffer).unwrap();
+            ctx.render_with(
+                pixmap,
+                &mut resources,
+                RasterizerSettings {
+                    offset: (1, 1),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let expected = [
+            transparent_pixel(),
+            transparent_pixel(),
+            transparent_pixel(),
+            transparent_pixel(),
+            red_pixel(),
+            red_pixel(),
+        ];
+        for (pixel, expected) in buffer.chunks_exact(4).zip(expected) {
+            assert_eq!(pixel, [expected.r, expected.g, expected.b, expected.a]);
+        }
+    }
+
+    #[test]
+    fn pixmap_mut_validates_buffer_length() {
+        let mut short_buffer = vec![0; 3 * 2 * 4 - 1];
+        assert!(PixmapMut::new(3, 2, &mut short_buffer).is_none());
+
+        let mut exact_buffer = vec![0; 3 * 2 * 4];
+        assert!(PixmapMut::new(3, 2, &mut exact_buffer).is_some());
+    }
+
+    #[test]
+    fn render_src_over_opaque() {
+        let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(2, 1, blue_pixel());
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                composite_mode: CompositeMode::SrcOver,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+        assert_eq!(pixmap.sample(1, 0), blue_pixel());
+    }
+
+    #[test]
+    fn render_src_over_transparent() {
+        let mut ctx = RenderContext::new(1, 1);
+        ctx.set_paint(RED.with_alpha(0.5));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(1, 1, blue_pixel());
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                composite_mode: CompositeMode::SrcOver,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            pixmap.sample(0, 0),
+            PremulRgba8 {
+                r: 128,
+                g: 0,
+                b: 127,
+                a: 255,
+            }
+        );
+    }
+
     #[cfg(feature = "multithreading")]
     #[test]
     fn multithreaded_crash_after_reset() {
-        use crate::{Level, RenderMode, RenderSettings};
-        use vello_common::pixmap::Pixmap;
+        use crate::{Level, RasterizerSettings, RenderMode, RenderSettings};
 
         let mut pixmap = Pixmap::new(200, 200);
         let settings = RenderSettings {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             num_threads: 1,
+        };
+        let rasterizer_settings = RasterizerSettings {
             render_mode: RenderMode::OptimizeQuality,
+            ..Default::default()
         };
 
-        let mut resources = crate::Resources::new();
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render_to_pixmap(&mut resources, &mut pixmap);
+        ctx.render_with(&mut pixmap, &mut resources, rasterizer_settings);
         ctx.flush();
-        ctx.render_to_pixmap(&mut resources, &mut pixmap);
+        ctx.render_with(&mut pixmap, &mut resources, rasterizer_settings);
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_render_empty_frame_after_reset() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 4,
+                ..Default::default()
+            },
+        );
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(100, 100);
+
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        ctx.flush();
+        ctx.render(&mut pixmap, &mut resources);
+
+        ctx.reset();
+        ctx.flush();
+        ctx.render(&mut pixmap, &mut resources);
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_push_clip_path_before_draw() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 1,
+                ..Default::default()
+            },
+        );
+        let clip = Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1);
+
+        // Just make sure we don't panic.
+        ctx.push_clip_path(&clip);
+        ctx.flush();
+        ctx.pop_clip_path();
+        ctx.flush();
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_reset_with_pending_tasks() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 4,
+                ..Default::default()
+            },
+        );
+
+        // Note: This test only works if we draw enough rectangles
+        // to trigger a batch send.
+        for _ in 0..300 {
+            ctx.fill_rect(&Rect::new(0.0, 0.0, 100., 100.0));
+        }
+
+        ctx.reset();
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_drop_with_pending_tasks() {
+        use crate::RenderSettings;
+
+        for _ in 0..10 {
+            let mut ctx = RenderContext::new_with(
+                100,
+                100,
+                RenderSettings {
+                    num_threads: 4,
+                    ..Default::default()
+                },
+            );
+
+            // Note: This test only works if we draw enough rectangles
+            // to trigger a batch send.
+            for _ in 0..300 {
+                ctx.fill_rect(&Rect::new(0.0, 0.0, 100., 100.0));
+            }
+
+            drop(ctx);
+        }
     }
 
     #[cfg(feature = "text")]
@@ -898,7 +1344,7 @@ mod tests {
             y: 0.0,
         }];
 
-        let mut resources = crate::Resources::new();
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new(100, 100);
 
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));

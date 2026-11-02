@@ -1665,8 +1665,8 @@ dependencies = [
  "kurbo 0.13.1",
  "log",
  "skrifa 0.44.0",
- "vello_common 0.2.0",
- "vello_cpu 0.2.0",
+ "vello_common",
+ "vello_cpu",
 ]
 
 [[package]]
@@ -2178,7 +2178,7 @@ dependencies = [
  "unicode-general-category",
  "unicode-properties",
  "unicode-segmentation",
- "vello_cpu 0.2.0",
+ "vello_cpu",
 ]
 
 [[package]]
@@ -2667,23 +2667,6 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d99fc21d493812643aae86d53b7bbd02f376434a90317e8a790bc209fdd6605e"
-dependencies = [
- "bytemuck",
- "foldhash",
- "hashbrown 0.17.1",
- "log",
- "peniko",
- "png 0.18.1",
- "skrifa 0.42.1",
- "smallvec",
- "vello_common 0.0.9",
-]
-
-[[package]]
-name = "glifo"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282a26c1e23de04bdab3e34a21b6f877a479b96737792516b9b8b8f69b6661be"
@@ -2696,7 +2679,7 @@ dependencies = [
  "png 0.18.1",
  "skrifa 0.44.0",
  "smallvec",
- "vello_common 0.2.0",
+ "vello_common",
 ]
 
 [[package]]
@@ -2984,7 +2967,7 @@ dependencies = [
  "kurbo 0.13.1",
  "log",
  "pic-scale",
- "vello_cpu 0.0.8",
+ "vello_cpu",
 ]
 
 [[package]]
@@ -7582,41 +7565,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.0.8"
-dependencies = [
- "bytemuck",
- "fearless_simd",
- "guillotiere",
- "hashbrown 0.17.1",
- "log",
- "peniko",
- "png 0.18.1",
- "smallvec",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "vello_common"
-version = "0.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19d672facaa2d697285a786cd9d44d614cd2ce54cdc022504bf339f8fff3b750"
-dependencies = [
- "bytemuck",
- "fearless_simd",
- "guillotiere",
- "hashbrown 0.17.1",
- "log",
- "peniko",
- "png 0.18.1",
- "smallvec",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "vello_common"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbb2141a2bca6e6d598e471fd4d1d7eed8e020aad6a28187edda07f091a325dd"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -7630,30 +7579,17 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.0.8"
-dependencies = [
- "bytemuck",
- "glifo 0.1.1",
- "hashbrown 0.17.1",
- "png 0.18.1",
- "vello_common 0.0.8",
-]
-
-[[package]]
-name = "vello_cpu"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ace506ca414548966fcf3c283be94eb1cad8254de488791ee698bf438b0890a9"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
- "glifo 0.3.0",
+ "glifo",
  "hashbrown 0.17.1",
  "ordered-channel",
  "png 0.18.1",
  "rayon",
  "thread_local",
- "vello_common 0.2.0",
+ "vello_common",
 ]
 
 [[package]]
@@ -8552,7 +8488,7 @@ version = "0.13.2"
 dependencies = [
  "image",
  "log",
- "vello_cpu 0.2.0",
+ "vello_cpu",
  "wordcraft-doc",
  "wordcraft-fonts",
  "wordcraft-geom",
