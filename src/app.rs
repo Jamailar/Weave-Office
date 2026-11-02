@@ -2040,6 +2040,9 @@ fn consume_exact_shortcut(
 }
 
 #[cfg(test)]
+mod editing_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3035,7 +3038,7 @@ mod tests {
         }
     }
 
-    fn test_app(host: Host) -> WeaveApp {
+    pub(super) fn test_app(host: Host) -> WeaveApp {
         let mounted = host.workspace.active();
         WeaveApp {
             _native_menu: crate::native_file_panel::AppMenu::default(),

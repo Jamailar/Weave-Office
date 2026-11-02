@@ -2360,3 +2360,25 @@ fn overdue_visible_logic_does_not_reanchor_a_later_hidden_show() {
     let _ = ctx.run_logic(&raw_at(12.0, true, false), |ctx| app.tick_hidden_show(ctx, visible_anchor + std::time::Duration::from_secs(3)));
     assert_eq!(app.show.as_ref().unwrap().state.slide, 1, "time from the full visible frame is preserved through the logic-only pass");
 }
+
+/// A host that merges this editor's fonts with other editors' keeps its own order of the shared
+/// fallback faces. The fonts are installed all the same: treating the merged set as missing
+/// reinstalled it on every pass, and every frame was discarded together with its input.
+#[test]
+fn interface_fonts_merged_in_another_order_count_as_installed() {
+    let mut app = SlideApp::new(Session::with_new(), Services::default());
+    let ctx = egui::Context::default();
+    let mut merged = theme::font_definitions(&app.ui_fonts.faces);
+    for chain in merged.families.values_mut() {
+        chain.rotate_right(1);
+        chain.insert(0, "host-face".into());
+    }
+    merged.font_data.insert("host-face".into(), merged.font_data.values().next().unwrap().clone());
+    ctx.set_fonts(merged);
+    ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+    ctx.run_ui(egui::RawInput::default(), |ui| {
+        assert!(app.prepare_interface_fonts(ui.ctx()), "the merged set has every face this editor draws with");
+        assert!(!ui.ctx().will_discard());
+    })
+    .drop_without_applying_deltas();
+}
