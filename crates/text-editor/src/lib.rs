@@ -182,6 +182,18 @@ impl TextApp {
         self.path = path;
     }
 
+    /// Highlight plain text as the language a file called `name` would have.
+    pub fn set_language_for(&mut self, name: &str) {
+        if self.kind == Kind::PlainText {
+            self.language = Language::for_path(name);
+        }
+    }
+
+    /// The name of the language the text is highlighted as.
+    pub fn language_name(&self) -> &'static str {
+        self.language.name
+    }
+
     /// Mark the document as changed since it was saved (a restored copy).
     pub fn mark_unsaved(&mut self) {
         self.saved = String::from("\u{0}unsaved");

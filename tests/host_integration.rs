@@ -379,3 +379,33 @@ fn save_as_cannot_overwrite_another_open_tab_even_through_a_symlink() {
         assert_eq!(host.documents.len(), 2);
     }
 }
+
+#[test]
+fn new_code_files_take_the_language_and_extension_of_their_tile() {
+    let mut host = Host::default();
+    for (extension, language) in [("json", "JSON"), ("py", "Python"), ("sql", "SQL")] {
+        let id = host.new_text_file(extension).unwrap();
+        let tab = host.workspace.tab(id).unwrap();
+        assert_eq!(tab.kind, DocumentKind::PlainText);
+        assert!(
+            tab.title.ends_with(&format!(".{extension}")),
+            "{}",
+            tab.title
+        );
+        match &host.documents[&id].editor {
+            weave_office::editor::Editor::TextFile(app) => {
+                assert_eq!(app.language_name(), language)
+            }
+            _ => unreachable!(),
+        }
+    }
+    assert!(host.new_text_file("../x").is_err());
+    for (_, entries) in weave_office::new_document::groups() {
+        for entry in entries {
+            match entry.extension {
+                Some(extension) => assert!(host.new_text_file(extension).is_ok()),
+                None => assert!(host.new_document(entry.kind).is_ok()),
+            }
+        }
+    }
+}
