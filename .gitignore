@@ -1,0 +1,15 @@
+/target
+.DS_Store
+
+/integration/target
+
+/crates/workspace/target
+
+/crates/pdf-backend/target
+
+# Machine-local external Cargo cache
+/.cargo/config.toml
+
+# Generated local tooling and legacy bundle output
+__pycache__/
+/packaging/dist/

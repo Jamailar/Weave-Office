@@ -1,0 +1,47 @@
+[package]
+name = "weave-office-integration"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde_json = "1"
+tempfile = "3"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow"] }
+rfd = "0.16"
+wordcraft-ui-egui = { path = "../vendor/wordcraft/crates/ui-egui" }
+wordcraft-engine = { path = "../vendor/wordcraft/crates/engine" }
+wordcraft-doc = { path = "../vendor/wordcraft/crates/doc" }
+gridcraft-ui-egui = { path = "../vendor/gridcraft/crates/ui-egui" }
+gridcraft-engine = { path = "../vendor/gridcraft/crates/engine" }
+deckcraft-ui-egui = { path = "../vendor/deckcraft/crates/ui-egui" }
+deckcraft-engine = { path = "../vendor/deckcraft/crates/engine" }
+
+weave-workspace = { path = "../crates/workspace" }
+weave-pdf-backend = { path = "../crates/pdf-backend" }
+
+[patch.crates-io]
+hayro-interpret = { path = "../vendor/pdfcraft/vendor/hayro-interpret" }
+hayro = { path = "../vendor/pdfcraft/vendor/hayro" }
+hayro-syntax = { path = "../vendor/pdfcraft/vendor/hayro-syntax" }
+hayro-cmap = { path = "../vendor/pdfcraft/vendor/hayro-cmap" }
+hayro-postscript = { path = "../vendor/pdfcraft/vendor/hayro-postscript" }
+hayro-jbig2 = { path = "../vendor/pdfcraft/vendor/hayro-jbig2" }
+lopdf = { path = "../vendor/pdfcraft/vendor/lopdf" }
+vello_common = { path = "../vendor/pdfcraft/vendor/vello_common" }
+vello_cpu = { path = "../vendor/pdfcraft/vendor/vello_cpu" }
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }
+ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-wgpu = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_kittest = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_demo_lib = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_inspection = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }

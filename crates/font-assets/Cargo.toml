@@ -1,0 +1,8 @@
+[package]
+name = "weave-font-assets"
+version = "0.1.0"
+edition = "2024"
+description = "One immutable copy of the font bytes shared by Weave Office editors"
+
+[lib]
+path = "src/lib.rs"

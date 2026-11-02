@@ -1,0 +1,7 @@
+[package]
+name = "weave-pdf-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pdfcraft-engine = { path = "../../vendor/pdfcraft/crates/engine" }

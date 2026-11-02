@@ -1,0 +1,3 @@
+# Source: https://github.com/notofonts/noto-cjk/tree/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Serif
+# family | style | font file | scripts | license | license file | font SHA-256 | source URL
+Noto Serif CJK SC | Regular | NotoSerifCJKsc-Regular.otf | Hans | OFL-1.1 | OFL.txt | 2a2eae2628df83556c54018c41e20fa532c1b862c5256ae8b3f23feb918d12ca | https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Serif/OTF/SimplifiedChinese/NotoSerifCJKsc-Regular.otf

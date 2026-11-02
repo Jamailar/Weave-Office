@@ -1,0 +1,84 @@
+[package]
+name = "weave-office"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
+
+[workspace]
+members = ["crates/workspace", "crates/pdf-backend", "crates/font-assets"]
+exclude = ["integration", "vendor/wordcraft", "vendor/gridcraft", "vendor/deckcraft", "vendor/pdfcraft"]
+resolver = "2"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "clipboard", "links", "accesskit"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+skrifa = "0.44"
+tempfile = "3"
+arboard = "3.7"
+rfd = "0.17.2"
+weave-workspace = { path = "crates/workspace" }
+weave-font-assets = { path = "crates/font-assets" }
+wordcraft-fonts = { path = "vendor/wordcraft/crates/fonts", features = ["shared-font-assets"] }
+deckcraft-fonts = { path = "vendor/deckcraft/crates/fonts", features = ["shared-font-assets"] }
+pdfcraft-fonts = { path = "vendor/pdfcraft/crates/fonts", features = ["shared-font-assets"] }
+wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", features = ["shared-font-assets"] }
+wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
+wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }
+gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", features = ["shared-font-assets"] }
+gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
+deckcraft-ui-egui = { path = "vendor/deckcraft/crates/ui-egui" }
+deckcraft-engine = { path = "vendor/deckcraft/crates/engine" }
+pdfcraft-ui-egui = { path = "vendor/pdfcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
+pdfcraft-engine = { path = "vendor/pdfcraft/crates/engine" }
+pdfcraft-print = { path = "vendor/pdfcraft/crates/print" }
+pdfcraft-platform = { path = "vendor/pdfcraft/crates/platform" }
+craft-quit = { git = "https://github.com/storytold/craft-libs", rev = "c5a1cbfb5f9049f9270955caffb5bee5997aebf7", features = ["egui"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+fmv-macos-events = "=0.1.0"
+winit = { version = "0.30", default-features = false }
+objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSWindow", "NSResponder", "NSGraphicsContext", "NSPasteboard"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSThread", "NSObject", "NSString"] }
+
+[[test]]
+name = "native_app_menu"
+harness = false
+
+[patch.crates-io]
+hayro-interpret = { path = "vendor/pdfcraft/vendor/hayro-interpret" }
+hayro = { path = "vendor/pdfcraft/vendor/hayro" }
+hayro-syntax = { path = "vendor/pdfcraft/vendor/hayro-syntax" }
+hayro-cmap = { path = "vendor/pdfcraft/vendor/hayro-cmap" }
+hayro-postscript = { path = "vendor/pdfcraft/vendor/hayro-postscript" }
+hayro-jbig2 = { path = "vendor/pdfcraft/vendor/hayro-jbig2" }
+lopdf = { path = "vendor/pdfcraft/vendor/lopdf" }
+vello_common = { path = "vendor/pdfcraft/vendor/vello_common" }
+vello_cpu = { path = "vendor/pdfcraft/vendor/vello_cpu" }
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }
+ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-wgpu = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_kittest = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_demo_lib = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_inspection = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+strip = "symbols"
