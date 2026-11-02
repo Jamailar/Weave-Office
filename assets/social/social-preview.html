@@ -1,0 +1,89 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1280px;height:640px;overflow:hidden;font-family:Inter,"Noto Sans SC",sans-serif;color:#1d2330;
+background:radial-gradient(900px 500px at 0% 0%,#eef4ff 0%,transparent 60%),radial-gradient(700px 500px at 100% 100%,#fff1ea 0%,transparent 60%),#f7f8fa;position:relative}
+.grid{position:absolute;inset:0;background-image:linear-gradient(#e7eaf0 1px,transparent 1px),linear-gradient(90deg,#e7eaf0 1px,transparent 1px);background-size:32px 32px;opacity:.55;mask-image:linear-gradient(90deg,#000 0%,transparent 55%)}
+.left{position:absolute;left:80px;top:96px;width:560px}
+.brand{display:flex;align-items:center;gap:22px}
+.icon{width:104px;height:104px;border-radius:24px;overflow:hidden;box-shadow:0 10px 30px rgba(30,40,70,.18),0 0 0 1px rgba(0,0,0,.05)}
+.icon img{width:100%;height:100%;object-fit:cover;transform:scale(1.12)}
+h1{font-family:Inter;font-weight:800;font-size:56px;letter-spacing:-1.5px;line-height:1}
+.oss{display:inline-block;margin-top:10px;font:600 15px Inter;color:#1a7f5a;background:#e3f5ec;border-radius:999px;padding:4px 12px;letter-spacing:.3px}
+.tag{margin-top:44px;font-family:"Noto Sans SC";font-weight:900;font-size:46px;letter-spacing:1px;line-height:1.25}
+.tag em{font-style:normal;background:linear-gradient(90deg,#2f6bff,#16a37a 45%,#f08a24 75%,#ec5a5a);-webkit-background-clip:text;color:transparent}
+.sub{margin-top:18px;font-family:"Noto Sans SC";font-size:22px;color:#4a5263;line-height:1.6}
+.chips{margin-top:30px;display:flex;flex-wrap:wrap;gap:10px;width:540px}
+.chip{font:600 15px Inter,"Noto Sans SC";padding:7px 13px;border-radius:9px;background:#fff;border:1px solid #e1e5ec;color:#3b4252;display:flex;align-items:center;gap:7px}
+.chip i{width:9px;height:9px;border-radius:3px;display:inline-block}
+/* window */
+.win{position:absolute;right:56px;top:70px;width:590px;height:500px;background:#fff;border-radius:16px;box-shadow:0 30px 70px rgba(30,40,70,.18),0 0 0 1px rgba(0,0,0,.06);overflow:hidden}
+.bar{height:44px;background:#eef0f3;display:flex;align-items:flex-end;padding-left:14px;gap:4px;position:relative}
+.lights{position:absolute;left:16px;top:16px;display:flex;gap:7px}.lights b{width:12px;height:12px;border-radius:50%}
+.tabs{margin-left:72px;display:flex;gap:3px}
+.t{height:32px;padding:0 12px;border-radius:8px 8px 0 0;font:500 12.5px Inter,"Noto Sans SC";color:#5b6273;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.t.on{background:#fff;color:#1d2330}
+.t i{width:10px;height:12px;border-radius:2px}
+.rib{height:40px;border-bottom:1px solid #eceef2;display:flex;align-items:center;gap:18px;padding:0 18px;font:500 12.5px "Noto Sans SC";color:#6b7385}
+.rib .a{color:#1d2330;font-weight:700;border-bottom:2px solid #2f6bff;padding-bottom:9px;margin-top:11px}
+.body{display:flex;height:416px}
+.side{width:150px;background:#fafbfc;border-right:1px solid #eef0f3;padding:14px 12px;font:12px "Noto Sans SC";color:#6b7385;line-height:2}
+.side .h{font-weight:700;color:#3b4252}
+.side .s{background:#e8efff;color:#2f6bff;border-radius:5px;padding:0 6px;margin:0 -6px}
+.doc{flex:1;padding:22px 26px;font-family:"Noto Sans SC"}
+.doc h2{font-size:22px;font-weight:700;margin-bottom:10px}
+.doc p{font-size:13px;color:#4a5263;line-height:1.75}
+.doc .md{color:#a0a7b4}
+.code{margin-top:14px;background:#f6f7f9;border-radius:8px;padding:12px 14px;font:500 12.5px "JetBrains Mono";line-height:1.7;color:#3b4252}
+.k{color:#c0397a}.s1{color:#1a7f5a}.n{color:#c46a14}.c{color:#9aa1ad}
+.mini{display:flex;gap:10px;margin-top:14px}
+.card{flex:1;height:86px;border-radius:9px;border:1px solid #eceef2;padding:10px;font:600 11.5px Inter,"Noto Sans SC";color:#5b6273;position:relative;overflow:hidden}
+.bars{position:absolute;left:10px;right:10px;bottom:10px;height:44px;display:flex;align-items:flex-end;gap:5px}
+.bars span{flex:1;border-radius:3px 3px 0 0}
+.slide{position:absolute;left:10px;right:10px;bottom:10px;top:30px;border-radius:5px;background:linear-gradient(135deg,#ffb26b,#f0703c)}
+.pdf{position:absolute;left:10px;right:10px;bottom:10px;top:30px;border-radius:5px;background:repeating-linear-gradient(#fff 0 7px,#eef0f3 7px 9px);border:1px solid #f3c7c7}
+.term{position:absolute;right:30px;bottom:30px;width:400px;background:#1d2330;border-radius:12px;padding:14px 16px;font:500 13px "JetBrains Mono";color:#d8dee9;box-shadow:0 20px 40px rgba(20,25,40,.35);line-height:1.65}
+.term .p{color:#7ee2b0}.term .g{color:#8a93a6}
+</style></head><body><div class="grid"></div>
+<div class="left">
+ <div class="brand"><div class="icon"><img src="../app-icon/weave-office.png"></div><div><h1>Weave Office</h1><span class="oss">OPEN SOURCE · RUST</span></div></div>
+ <div class="tag">一个窗口，<em>所有文档</em></div>
+ <div class="sub">文字、表格、演示、PDF、Markdown、代码与富文本，<br>在同一条文件标签栏里打开、编辑、保存。</div>
+ <div class="chips">
+  <span class="chip"><i style="background:#2f6bff"></i>文字</span>
+  <span class="chip"><i style="background:#16a37a"></i>表格</span>
+  <span class="chip"><i style="background:#f08a24"></i>演示</span>
+  <span class="chip"><i style="background:#ec5a5a"></i>PDF</span>
+  <span class="chip"><i style="background:#7c5cff"></i>Markdown</span>
+  <span class="chip"><i style="background:#3b4252"></i>代码</span>
+  <span class="chip"><i style="background:#d94f9a"></i>富文本</span>
+  <span class="chip"><i style="background:#8a93a6"></i>AI 命令行</span>
+ </div>
+</div>
+<div class="win">
+ <div class="bar"><div class="lights"><b style="background:#ff5f57"></b><b style="background:#febc2e"></b><b style="background:#28c840"></b></div>
+  <div class="tabs">
+   <div class="t on"><i style="background:#7c5cff"></i>笔记.md</div>
+   <div class="t"><i style="background:#2f6bff"></i>合同.docx</div>
+   <div class="t"><i style="background:#16a37a"></i>报价.xlsx</div>
+   <div class="t"><i style="background:#f08a24"></i>路演.pptx</div>
+   <div class="t"><i style="background:#ec5a5a"></i>发票.pdf</div>
+  </div></div>
+ <div class="rib"><span class="a">开始</span><span>插入</span><span>视图</span><span>大纲</span><span>标签</span></div>
+ <div class="body">
+  <div class="side"><div class="h">项目笔记</div><div class="s">笔记.md</div><div>周报.md</div><div>config.json</div><div>deploy.sh</div><div class="h" style="margin-top:6px">大纲</div><div>· 本周目标</div><div>· 数据</div></div>
+  <div class="doc">
+   <h2>本周目标</h2>
+   <p>把七种文档放进<b>同一个工作区</b>，共用字体、<span class="md">[[</span>自动保存<span class="md">]]</span>与功能区。</p>
+   <div class="code"><span class="c"># config.json</span><br>{ <span class="k">"autosave"</span>: <span class="n">true</span>, <span class="k">"theme"</span>: <span class="s1">"light"</span> }</div>
+   <div class="mini">
+    <div class="card">报价.xlsx<div class="bars"><span style="height:40%;background:#9fdcc5"></span><span style="height:70%;background:#5cc49c"></span><span style="height:55%;background:#9fdcc5"></span><span style="height:95%;background:#16a37a"></span></div></div>
+    <div class="card">路演.pptx<div class="slide"></div></div>
+    <div class="card">发票.pdf<div class="pdf"></div></div>
+   </div>
+  </div>
+ </div>
+</div>
+<div class="term"><span class="p">$</span> weave-office set 报价.xlsx /Sheet1/B2 value=9<br><span class="g">{"ok":true,"data":{"value":9}}</span></div>
+</body></html>
