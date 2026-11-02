@@ -2,13 +2,14 @@
 //! No host background is drawn here: it must not conceal an editor that skipped painting.
 use eframe::egui::{self, epaint::Shape};
 use serde_json::json;
-use weave_office::{editor::Editor, host::Host};
+use weave_office::{editor::Editor, font_set::FontSet, host::Host};
 use weave_workspace::{DocumentKind, TabId};
 
 struct PaintRun {
     ctx: egui::Context,
     host: Host,
     mounted: Option<TabId>,
+    fonts: FontSet,
     frame: u64,
 }
 impl PaintRun {
@@ -20,6 +21,7 @@ impl PaintRun {
             ctx,
             host: Host::default(),
             mounted: None,
+            fonts: FontSet::new(egui::FontDefinitions::default()),
             frame: 0,
         }
     }
@@ -27,11 +29,12 @@ impl PaintRun {
         if self.mounted == Some(id) {
             return;
         }
+        self.fonts
+            .capture_tab(&self.ctx, &mut self.host, self.mounted);
         if let Some(old) = self.mounted {
             let doc = self.host.documents.get_mut(&old).unwrap();
             doc.editor.deactivate(&self.ctx).unwrap();
             doc.memory = self.ctx.memory(Clone::clone);
-            doc.fonts = Some(self.ctx.fonts(|fonts| fonts.definitions().clone()));
         }
         let options = self.ctx.options(Clone::clone);
         let doc = &self.host.documents[&id];
@@ -39,7 +42,6 @@ impl PaintRun {
             *memory = doc.memory.clone();
             memory.options = options;
         });
-        self.ctx.set_fonts(doc.fonts.clone().unwrap_or_default());
         self.host.workspace.activate(id);
         self.mounted = Some(id);
     }
@@ -54,9 +56,11 @@ impl PaintRun {
             focused: true,
             ..Default::default()
         };
-        let editor = &mut self.host.active_mut().unwrap().editor;
+        let (host, fonts, mounted) = (&mut self.host, &mut self.fonts, self.mounted);
         let output = self.ctx.run_ui(input, |ui| {
             // Match eframe's per-pass order. Font preparation must precede all shell text.
+            fonts.sync(ui.ctx(), host, mounted, None);
+            let editor = &mut host.active_mut().unwrap().editor;
             editor.logic(ui.ctx());
             weave_office::ui_fonts::UiFonts::load().install(ui.ctx());
             ui.ctx()

@@ -91,6 +91,8 @@ pub struct WeaveApp {
     allow_exit: bool,
     settings: Settings,
     ui_font: Option<crate::ui_fonts::UiFonts>,
+    /// One font set for all open editors; see [`crate::font_set`].
+    fonts: crate::font_set::FontSet,
     tab_scroll: f32,
     reveal_tab: Option<TabId>,
     control_click: bool,
@@ -132,6 +134,7 @@ impl WeaveApp {
         if let Some(font) = &ui_font {
             font.apply(&mut shell_fonts);
         }
+        let fonts = crate::font_set::FontSet::new(shell_fonts.clone());
         cc.egui_ctx.set_fonts(shell_fonts);
         Self {
             _native_menu: crate::native_file_panel::install_app_menu(&cc.egui_ctx),
@@ -155,6 +158,7 @@ impl WeaveApp {
             allow_exit: false,
             settings,
             ui_font,
+            fonts,
             tab_scroll: 0.0,
             reveal_tab: None,
             control_click: false,
@@ -260,6 +264,14 @@ impl WeaveApp {
             ctx.request_repaint_after(wait);
         }
     }
+    fn capture_fonts(&mut self, ctx: &egui::Context) {
+        self.fonts.capture_tab(ctx, &mut self.host, self.mounted);
+    }
+    /// Keep the union of every open editor's fonts installed, before any text is laid out.
+    fn sync_fonts(&mut self, ctx: &egui::Context) {
+        self.fonts
+            .sync(ctx, &mut self.host, self.mounted, self.ui_font.as_ref());
+    }
     fn install_shell_font(&self, ctx: &egui::Context) {
         if let Some(font) = &self.ui_font {
             font.install(ctx);
@@ -278,6 +290,8 @@ impl WeaveApp {
         if next == self.mounted {
             return Ok(());
         }
+        // A change the leaving editor applied this pass is still its own.
+        self.capture_fonts(ctx);
         if let Some(old) = self.mounted {
             if let Some(doc) = self.host.documents.get_mut(&old) {
                 if let Err(error) = doc.editor.deactivate(ctx) {
@@ -286,8 +300,8 @@ impl WeaveApp {
                     self.close_prompt = None;
                     return Err(error);
                 }
+                // A font change it queued stays in its Memory and lands when it is back.
                 doc.memory = ctx.memory(|m| m.clone());
-                doc.fonts = Some(ctx.fonts(|f| f.definitions().clone()));
             }
         }
         let options = ctx.options(|options| options.clone());
@@ -297,15 +311,14 @@ impl WeaveApp {
                     *m = doc.memory.clone();
                     m.options = options;
                 });
-                ctx.set_fonts(doc.fonts.clone().unwrap_or_default());
             }
         } else {
             ctx.memory_mut(|m| {
                 *m = egui::Memory::default();
                 m.options = options;
             });
-            ctx.set_fonts(egui::FontDefinitions::default());
         }
+        // Fonts stay: the installed set already has every open editor's families.
         self.mounted = next;
         self.reveal_tab = next;
         ctx.request_repaint();
@@ -1762,6 +1775,7 @@ impl eframe::App for WeaveApp {
         if let Err(error) = self.mount_active(ctx) {
             self.error = Some(error);
         }
+        self.sync_fonts(ctx);
         self.host.poll_background(ctx);
         self.receive_generated();
         #[cfg(target_os = "macos")]
@@ -1807,6 +1821,7 @@ impl eframe::App for WeaveApp {
         if let Err(error) = self.mount_active(&ctx) {
             self.error = Some(error);
         }
+        self.sync_fonts(&ctx);
         self.install_shell_font(&ctx);
         self.apply_weave_style(&ctx);
         // The host owns a complete opaque surface, including initialization/error
@@ -3027,6 +3042,7 @@ mod tests {
             allow_exit: false,
             settings: Settings::default(),
             ui_font: None,
+            fonts: crate::font_set::FontSet::new(egui::FontDefinitions::default()),
             tab_scroll: 0.0,
             reveal_tab: None,
             control_click: false,

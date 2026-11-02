@@ -5,6 +5,7 @@ pub mod commands;
 pub mod dialog;
 pub mod editor;
 pub mod file_dialog;
+pub mod font_set;
 pub mod host;
 pub mod icons;
 pub mod language;
