@@ -22,7 +22,6 @@ impl Editor {
         let mut app = pdfcraft_ui_egui::PdfCraftApp::new();
         app.language = language::current().code().into();
         app.enable_hosted();
-        app.set_host_header_prefix(Some(Box::new(crate::chrome::toolbar)));
         app.hosted_open_bytes_with_password(name, bytes, password)?;
         Ok(Self::Pdf(Box::new(app)))
     }
@@ -49,7 +48,6 @@ impl Editor {
                 let clip = clipboard.clone();
                 let mut services = wordcraft_ui_egui::Services {
                     clipboard_text: Some(Box::new(move || clip.text())),
-                    header_prefix: Some(Box::new(crate::chrome::toolbar)),
                     ..Default::default()
                 };
                 let clip = clipboard.clone();
@@ -88,7 +86,6 @@ impl Editor {
                 let clip = clipboard.clone();
                 let mut services = gridcraft_ui_egui::Services {
                     paste_text: Some(Box::new(move || clip.text())),
-                    header_prefix: Some(Box::new(crate::chrome::toolbar)),
                     ..Default::default()
                 };
                 let clip = clipboard.clone();
@@ -151,7 +148,6 @@ impl Editor {
                     session = deckcraft_engine::Session::with_new();
                 }
                 let mut services = deckcraft_ui_egui::Services::default();
-                services.header_prefix = Some(Box::new(crate::chrome::toolbar));
                 let clip = clipboard.clone();
                 services.clipboard_html = Some(Box::new(move || clip.html()));
                 let clip = clipboard.clone();
@@ -180,7 +176,6 @@ impl Editor {
                 let mut app = pdfcraft_ui_egui::PdfCraftApp::new();
                 app.language = language::current().code().into();
                 app.enable_hosted();
-                app.set_host_header_prefix(Some(Box::new(crate::chrome::toolbar)));
                 if let Some(path) = path {
                     app.hosted_open(path)?;
                 } else {
@@ -243,13 +238,68 @@ impl Editor {
             app.hosted_prepare_close();
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// Draw the editor under the ribbon tab row the host draws for it. Returns the commands
+    /// of the host's file controls in that row.
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> Vec<crate::chrome::Command> {
+        let commands = self.ribbon_row(ui);
         match self {
             Self::Word(a) => a.hosted_ui(ui),
             Self::Sheet(a) => a.hosted_ui(ui),
             Self::Slides(a) => a.hosted_ui(ui),
             Self::Pdf(a) => a.hosted_ui(ui),
         }
+        commands
+    }
+    /// The editor's ribbon tabs, as the host's tab row shows them.
+    pub fn ribbon_tabs(&mut self, ctx: &egui::Context) -> weave_ribbon::Tabs {
+        self.ribbon().ribbon_tabs(ctx)
+    }
+    /// What a click on the host's tab row does.
+    pub fn ribbon_event(&mut self, event: weave_ribbon::Event) {
+        self.ribbon().ribbon_event(event);
+    }
+    fn ribbon(&mut self) -> &mut dyn weave_ribbon::HostedRibbon {
+        match self {
+            Self::Word(a) => a.as_mut(),
+            Self::Sheet(a) => a.as_mut(),
+            Self::Slides(a) => a.as_mut(),
+            Self::Pdf(a) => a.as_mut(),
+        }
+    }
+    /// One tab row for every editor: the host's file controls, the editor's tabs, and the
+    /// editor's own controls at the right end. The editor draws the open tab's commands below.
+    fn ribbon_row(&mut self, ui: &mut egui::Ui) -> Vec<crate::chrome::Command> {
+        let ctx = ui.ctx().clone();
+        let ribbon = self.ribbon();
+        let tabs = ribbon.ribbon_tabs(&ctx);
+        let (can_undo, can_redo) = ribbon.undo_redo();
+        let mut commands = Vec::new();
+        let mut row = weave_ribbon::Response::default();
+        egui::Panel::top("weave-ribbon-tabs")
+            .exact_size(crate::theme::RIBBON_TABS_HEIGHT)
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(8, 0)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    commands = crate::chrome::toolbar(ui, can_undo, can_redo);
+                    ui.add_space(6.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ribbon.ribbon_trailing(ui);
+                        ui.add_space(8.0);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            row = weave_ribbon::strip(ui, &tabs);
+                        });
+                    });
+                });
+            });
+        if let Some(event) = row.event {
+            ribbon.ribbon_event(event);
+        }
+        ribbon.ribbon_tab_rects(row.rects);
+        commands
     }
     pub fn raw_input(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         if let Self::Slides(app) = self {

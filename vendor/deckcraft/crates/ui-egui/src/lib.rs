@@ -216,6 +216,8 @@ struct InputTarget {
 
 pub struct SlideApp {
     pub(crate) hosted: bool,
+    /// Set when the host draws the ribbon's tab row: where it drew each tab this frame.
+    pub(crate) host_tabs: Option<Vec<(String, egui::Rect)>>,
     hosted_zh_hans: bool,
     host_dispatch: bool,
     host_commands: Vec<(String, serde_json::Value)>,

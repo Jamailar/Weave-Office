@@ -1,0 +1,11 @@
+[package]
+name = "weave-ribbon"
+version = "0.1.0"
+edition = "2024"
+description = "The ribbon tab row every Weave Office editor shares: the host draws it, editors describe their tabs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+egui = { version = "0.37", default-features = false }

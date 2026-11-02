@@ -1838,6 +1838,7 @@ impl eframe::App for WeaveApp {
         #[cfg(not(target_os = "macos"))]
         let _ = (frame, bar);
         let blocked = self.host_dialog_open();
+        let mut row_commands = Vec::new();
         ui.add_enabled_ui(!self.blocking_dialog_open(), |ui| {
             if self.mounted != self.host.workspace.active() {
                 egui::CentralPanel::default()
@@ -1846,9 +1847,11 @@ impl eframe::App for WeaveApp {
                 ctx.request_repaint();
             } else if let Some(doc) = self.host.active_mut() {
                 if blocked {
-                    frozen_editor_input(&ctx, || doc.editor.ui(ui));
+                    frozen_editor_input(&ctx, || {
+                        row_commands = doc.editor.ui(ui);
+                    });
                 } else {
-                    doc.editor.ui(ui);
+                    row_commands = doc.editor.ui(ui);
                 }
             } else {
                 if blocked {
@@ -1859,6 +1862,7 @@ impl eframe::App for WeaveApp {
             }
         });
         self.receive_sheet_transfers();
+        self.dispatch_requests(&ctx, row_commands);
         self.handle_editor_requests(&ctx);
         self.receive_file_requests();
         self.receive_generated();

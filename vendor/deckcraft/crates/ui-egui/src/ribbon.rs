@@ -117,6 +117,40 @@ fn contextual(app: &SlideApp) -> Vec<&'static str> {
     v
 }
 
+#[cfg(feature = "host-ribbon")]
+impl weave_ribbon::HostedRibbon for SlideApp {
+    fn ribbon_tabs(&self, ctx: &egui::Context) -> weave_ribbon::Tabs {
+        let tab = |name: &str, contextual: bool| weave_ribbon::Tab::new(name, crate::localization::tr(ctx, name)).contextual(contextual);
+        weave_ribbon::Tabs {
+            tabs: TABS.iter().map(|name| tab(name, false)).chain(contextual(self).into_iter().map(|name| tab(name, true))).collect(),
+            active: Some(self.ui.tab.clone()),
+        }
+    }
+
+    /// The same as a click on the editor's own tab row.
+    fn ribbon_event(&mut self, event: weave_ribbon::Event) {
+        match event {
+            weave_ribbon::Event::Clicked(tab) => {
+                if self.ui.tab == tab {
+                    self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed;
+                } else {
+                    self.ui.tab = tab;
+                    self.ui.ribbon_collapsed = false;
+                }
+            }
+            weave_ribbon::Event::DoubleClicked(_) => self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed,
+        }
+    }
+
+    fn undo_redo(&self) -> (bool, bool) {
+        (deckcraft_engine::cmd::can_undo(&self.session).is_ok(), deckcraft_engine::cmd::can_redo(&self.session).is_ok())
+    }
+
+    fn ribbon_tab_rects(&mut self, rects: Vec<(String, Rect)>) {
+        self.host_tabs = Some(rects);
+    }
+}
+
 const TABS: [&str; 10] = ["Home", "Insert", "Draw", "Design", "Transitions", "Animations", "Slide Show", "Record", "Review", "View"];
 
 /// Tab row and the ribbon card.
@@ -126,7 +160,18 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     if !TABS.contains(&app.ui.tab.as_str()) && !ctx_tabs.contains(&app.ui.tab.as_str()) {
         app.ui.tab = "Home".into();
     }
-    let tab_height = if app.hosted { 32.0 } else { 28.0 };
+    // A host that draws the tab row leaves only the open tab's card to this panel.
+    let host_tabs = app.host_tabs.is_some();
+    if host_tabs && app.ui.ribbon_collapsed {
+        return;
+    }
+    let tab_height = if host_tabs {
+        0.0
+    } else if app.hosted {
+        32.0
+    } else {
+        28.0
+    };
     let h = tab_height
         + if app.ui.ribbon_collapsed {
             4.0
@@ -141,7 +186,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
         // PowerPoint.
         let mut x = rect.min.x + 12.0;
         let y = rect.min.y + if app.hosted { 4.0 } else { 2.0 };
-        if app.hosted {
+        if app.hosted && !host_tabs {
             let can_undo = deckcraft_engine::cmd::can_undo(&app.session).is_ok();
             let can_redo = deckcraft_engine::cmd::can_redo(&app.session).is_ok();
             if let Some(prefix) = app.services.header_prefix.as_mut() {
@@ -169,52 +214,56 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             }
             x += w + 2.0;
         }
-        let tab_rect = Rect::from_min_size(pos2(x, y), vec2((rect.max.x - x).max(0.0), 26.0));
-        let mut tab_ui = ui.new_child(egui::UiBuilder::new().max_rect(tab_rect));
-        egui::ScrollArea::horizontal().id_salt("ribbon_tabs").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(
-            &mut tab_ui,
-            |ui| {
-                let mut x = ui.cursor().min.x;
-                let start_x = x;
-                let all: Vec<(&str, bool)> = TABS.iter().map(|s| (*s, false)).chain(ctx_tabs.iter().map(|s| (*s, true))).collect();
-                for (name, contextual) in all {
-                    let font = theme::font(13.0);
-                    let shown = crate::localization::tr(ui.ctx(), name);
-                    let w = ui.fonts_mut(|f| f.layout_no_wrap(shown.to_string(), font.clone(), t.text).size().x) + 18.0;
-                    let r = Rect::from_min_size(pos2(x, y), vec2(w, 24.0));
-                    let resp = ui.interact(r, ui.scope_id().with(("tab", name)), Sense::click());
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, shown));
-                    let active = app.ui.tab == name;
-                    if resp.hovered() && !active {
-                        ui.painter().rect_filled(r.shrink2(vec2(2.0, 2.0)), CornerRadius::same(4), t.hover);
-                    }
-                    let col = if contextual { t.contextual } else { t.text };
-                    let f = if active { theme::bold(13.0) } else { font };
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, shown, f, col);
-                    if active {
-                        let uw = (w - 20.0).max(16.0);
-                        ui.painter().rect_filled(
-                            Rect::from_center_size(pos2(r.center().x, r.max.y - 1.0), vec2(uw, 3.0)),
-                            CornerRadius::same(1),
-                            t.accent,
-                        );
-                    }
-                    if resp.clicked() {
-                        if active {
-                            app.ui.ribbon_collapsed = !app.ui.ribbon_collapsed;
-                        } else {
-                            app.ui.tab = name.to_string();
-                            app.ui.ribbon_collapsed = false;
+        if host_tabs {
+            // The tab row is the host's.
+        } else {
+            let tab_rect = Rect::from_min_size(pos2(x, y), vec2((rect.max.x - x).max(0.0), 26.0));
+            let mut tab_ui = ui.new_child(egui::UiBuilder::new().max_rect(tab_rect));
+            egui::ScrollArea::horizontal().id_salt("ribbon_tabs").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(
+                &mut tab_ui,
+                |ui| {
+                    let mut x = ui.cursor().min.x;
+                    let start_x = x;
+                    let all: Vec<(&str, bool)> = TABS.iter().map(|s| (*s, false)).chain(ctx_tabs.iter().map(|s| (*s, true))).collect();
+                    for (name, contextual) in all {
+                        let font = theme::font(13.0);
+                        let shown = crate::localization::tr(ui.ctx(), name);
+                        let w = ui.fonts_mut(|f| f.layout_no_wrap(shown.to_string(), font.clone(), t.text).size().x) + 18.0;
+                        let r = Rect::from_min_size(pos2(x, y), vec2(w, 24.0));
+                        let resp = ui.interact(r, ui.scope_id().with(("tab", name)), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, shown));
+                        let active = app.ui.tab == name;
+                        if resp.hovered() && !active {
+                            ui.painter().rect_filled(r.shrink2(vec2(2.0, 2.0)), CornerRadius::same(4), t.hover);
                         }
+                        let col = if contextual { t.contextual } else { t.text };
+                        let f = if active { theme::bold(13.0) } else { font };
+                        ui.painter().text(r.center(), Align2::CENTER_CENTER, shown, f, col);
+                        if active {
+                            let uw = (w - 20.0).max(16.0);
+                            ui.painter().rect_filled(
+                                Rect::from_center_size(pos2(r.center().x, r.max.y - 1.0), vec2(uw, 3.0)),
+                                CornerRadius::same(1),
+                                t.accent,
+                            );
+                        }
+                        if resp.clicked() {
+                            if active {
+                                app.ui.ribbon_collapsed = !app.ui.ribbon_collapsed;
+                            } else {
+                                app.ui.tab = name.to_string();
+                                app.ui.ribbon_collapsed = false;
+                            }
+                        }
+                        if resp.double_clicked() {
+                            app.ui.ribbon_collapsed = !app.ui.ribbon_collapsed;
+                        }
+                        x += w + 2.0;
                     }
-                    if resp.double_clicked() {
-                        app.ui.ribbon_collapsed = !app.ui.ribbon_collapsed;
-                    }
-                    x += w + 2.0;
-                }
-                ui.allocate_space(vec2(x - start_x, 26.0));
-            },
-        );
+                    ui.allocate_space(vec2(x - start_x, 26.0));
+                },
+            );
+        }
         if app.ui.ribbon_collapsed {
             return;
         }

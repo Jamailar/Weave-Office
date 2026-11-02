@@ -155,6 +155,7 @@ impl WordApp {
         let WordApp {
             // App-wide.
             hosted: _,
+            host_tabs: _,
             host_commands: _,
             hosted_saving: _,
             hosted_save_point: _,

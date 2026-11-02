@@ -29,6 +29,7 @@ impl SheetApp {
     pub fn new(session: Session, services: Services) -> SheetApp {
         SheetApp {
             hosted: false,
+            host_tabs: None,
             host_dispatch: false,
             host_commands: Vec::new(),
             session,

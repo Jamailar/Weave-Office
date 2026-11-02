@@ -83,6 +83,7 @@ impl WordApp {
         } = window_ui::WindowUi::new(session.document_id());
         WordApp {
             hosted: false,
+            host_tabs: None,
             host_commands: Vec::new(),
             hosted_saving: false,
             hosted_save_point: None,

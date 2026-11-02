@@ -13,6 +13,9 @@ default = ["updater"]
 # The editor's own release check and update prompt. An embedding host that owns releases turns
 # default features off to leave out the updater and its network stack.
 updater = ["dep:craft-update"]
+# An embedding host draws the ribbon's tab row (`weave_ribbon::HostedRibbon`); this crate draws
+# only the open tab's commands.
+host-ribbon = ["dep:weave-ribbon"]
 
 [dependencies]
 deckcraft-geom = { workspace = true }
@@ -26,6 +29,7 @@ deckcraft-engine = { workspace = true }
 deckcraft-media = { workspace = true }
 egui = { workspace = true, features = ["default_fonts", "monochrome_emoji_fonts"] }
 craft-ui = { workspace = true }
+weave-ribbon = { path = "../../../../crates/ribbon", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

@@ -19,6 +19,9 @@ updater = ["dep:craft-update"]
 # Every interface translation; without it only Simplified Chinese is embedded (English is built in).
 all-locales = []
 shared-font-assets = ["dep:weave-font-assets", "pdfcraft-fonts/shared-font-assets"]
+# An embedding host draws the tab row (`weave_ribbon::HostedRibbon`): the Read/Edit/Comments/
+# Pages switcher of the hosted editor.
+host-ribbon = ["dep:weave-ribbon"]
 
 [dependencies]
 craft-ui = { workspace = true }
@@ -58,6 +61,7 @@ unicode-bidi = "0.3"
 # that put fallback faces on the interface's baseline (#1676); the same skrifa egui uses.
 skrifa = "0.44"
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
+weave-ribbon = { path = "../../../../crates/ribbon", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 craft-update = { workspace = true, optional = true }

@@ -42,6 +42,7 @@ impl SlideApp {
         let audio_out = services.audio_out.take();
         SlideApp {
             hosted: false,
+            host_tabs: None,
             hosted_zh_hans: false,
             host_dispatch: false,
             host_commands: Vec::new(),

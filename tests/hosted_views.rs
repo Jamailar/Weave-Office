@@ -44,6 +44,16 @@ fn mount(
 }
 
 fn render(ctx: &egui::Context, host: &mut Host, fonts: &mut FontSet, frame: u64) -> usize {
+    render_tree(ctx, host, fonts, frame).len()
+}
+
+/// Render one frame; each accessible node's label and selected state.
+fn render_tree(
+    ctx: &egui::Context,
+    host: &mut Host,
+    fonts: &mut FontSet,
+    frame: u64,
+) -> Vec<(String, Option<bool>)> {
     let mut input = raw(frame);
     host.active_mut()
         .expect("active view")
@@ -66,7 +76,17 @@ fn render(ctx: &egui::Context, host: &mut Host, fonts: &mut FontSet, frame: u64)
         .platform_output
         .accesskit_update
         .as_ref()
-        .map_or(0, |tree| tree.nodes.len());
+        .map_or_else(Vec::new, |tree| {
+            tree.nodes
+                .iter()
+                .map(|(_, node)| {
+                    (
+                        node.label().unwrap_or_default().to_owned(),
+                        node.is_selected(),
+                    )
+                })
+                .collect()
+        });
     let _ = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
     output.drop_without_applying_deltas();
     nodes
@@ -128,5 +148,57 @@ fn every_hosted_view_renders_with_accessibility_after_rapid_mixed_tab_switches()
             ctx.fonts(|fonts| weave_office::font_set::same(fonts.definitions(), &installed)),
             "switching to {id:?} changed the fonts"
         );
+    }
+}
+
+/// The host draws one tab row for every editor: each editor's tabs appear in it once (the
+/// editor no longer draws its own row), and a click on a tab opens it.
+#[test]
+fn the_host_draws_every_editors_tab_row_once() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.run_ui(raw(0), |_ui| {}).drop_without_applying_deltas();
+    let mut host = Host::default();
+    let mut fonts = FontSet::new(egui::FontDefinitions::default());
+    let mut mounted = None;
+    let mut frame = 1;
+    for kind in [
+        DocumentKind::Text,
+        DocumentKind::Spreadsheet,
+        DocumentKind::Presentation,
+        DocumentKind::Pdf,
+    ] {
+        let id = host.new_document(kind).expect("create view");
+        mount(&ctx, &mut host, &mut fonts, &mut mounted, id);
+        for _ in 0..3 {
+            render(&ctx, &mut host, &mut fonts, frame);
+            frame += 1;
+        }
+        let editor = &mut host.documents.get_mut(&id).unwrap().editor;
+        let tabs = editor.ribbon_tabs(&ctx);
+        assert!(tabs.tabs.len() >= 4, "{kind:?} shows its tabs: {tabs:?}");
+        let active = tabs.active.clone().expect("a tab is open");
+        let label = &tabs.tabs.iter().find(|t| t.id == active).unwrap().label;
+        let nodes = render_tree(&ctx, &mut host, &mut fonts, frame);
+        frame += 1;
+        let drawn: Vec<_> = nodes.iter().filter(|(name, _)| name == label).collect();
+        assert_eq!(
+            drawn.len(),
+            1,
+            "{kind:?}: the open tab {label:?} is drawn once: {drawn:?}"
+        );
+        // Open another tab, as a click on the row does.
+        let other = tabs
+            .tabs
+            .iter()
+            .find(|t| t.id != active && !t.contextual)
+            .unwrap()
+            .id
+            .clone();
+        let editor = &mut host.documents.get_mut(&id).unwrap().editor;
+        editor.ribbon_event(weave_ribbon::Event::Clicked(other.clone()));
+        if kind != DocumentKind::Pdf || other == "read" || other == "edit" {
+            assert_eq!(editor.ribbon_tabs(&ctx).active, Some(other), "{kind:?}");
+        }
     }
 }

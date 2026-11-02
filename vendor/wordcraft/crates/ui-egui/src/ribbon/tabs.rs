@@ -22,7 +22,7 @@ pub(super) fn reading_toolbar(app: &mut WordApp, ui: &mut Ui, t: Tokens) {
         .frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(12, 6)).stroke(Stroke::new(1.0, t.border)))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                if app.hosted {
+                if app.hosted && app.host_tabs.is_none() {
                     let can_undo = app.session.can_undo();
                     let can_redo = app.session.can_redo();
                     if let Some(prefix) = app.services.header_prefix.as_mut() {

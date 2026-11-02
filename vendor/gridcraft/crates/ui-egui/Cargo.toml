@@ -26,6 +26,7 @@ skrifa = { workspace = true }
 web-time = { workspace = true }
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
 weave-system-fonts = { path = "../../../../crates/system-fonts", optional = true }
+weave-ribbon = { path = "../../../../crates/ribbon", optional = true }
 
 [features]
 default = ["updater"]
@@ -35,6 +36,9 @@ updater = ["dep:craft-update"]
 shared-font-assets = ["dep:weave-font-assets"]
 # An embedding host's one scan of the installed fonts, instead of this crate's own.
 shared-system-fonts = ["dep:weave-system-fonts"]
+# An embedding host draws the ribbon's tab row (`weave_ribbon::HostedRibbon`); this crate draws
+# only the open tab's commands.
+host-ribbon = ["dep:weave-ribbon"]
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
 # `desktop_theme.rs`). Already in the tree, with these features, through egui's own
