@@ -3,22 +3,24 @@ use super::{SlideApp, json, media, monotonic_secs, theme};
 impl SlideApp {
     /// Install fonts before the host lays out its header whenever possible. egui applies them
     /// immediately when this pass has not used its atlas; otherwise they wait for the next pass.
-    pub(super) fn prepare_interface_fonts(&mut self, ctx: &egui::Context) -> bool {
+    pub(crate) fn prepare_interface_fonts(&mut self, ctx: &egui::Context) -> bool {
         if self.styled {
             return true;
         }
         let definitions = theme::font_definitions(&self.ui_fonts.faces);
-        // A host may prepend its own fallback face. That does not invalidate our installed
-        // families, and replacing it on every replay would keep queuing another font change.
+        // A host may prepend its own faces, or merge these families with other editors' and
+        // keep its own order of the shared fallbacks. Each of our faces being in each family is
+        // what layout needs. Requiring our order as well made a host's merged set look missing
+        // on every pass: the editor reinstalled its set, the host merged it back, and every
+        // frame was discarded with its input (no click or key ever reached the editor). For the
+        // same reason a face counts by its bytes, not its tweak: a host may keep another
+        // editor's copy of a shared face that sits on the baseline as a fallback.
         let installed = |ctx: &egui::Context| {
             ctx.fonts(|fonts| {
                 let current = fonts.definitions();
-                definitions.font_data.iter().all(|(name, data)| current.font_data.get(name) == Some(data))
+                definitions.font_data.iter().all(|(name, data)| current.font_data.get(name).is_some_and(|have| same_face(have, data)))
                     && definitions.families.iter().all(|(family, names)| {
-                        current.families.get(family).is_some_and(|current_names| {
-                            let mut remaining = current_names.iter();
-                            names.iter().all(|name| remaining.any(|current_name| current_name == name))
-                        })
+                        current.families.get(family).is_some_and(|current_names| names.iter().all(|name| current_names.contains(name)))
                     })
             })
         };
@@ -144,4 +146,9 @@ impl SlideApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(15));
         }
     }
+}
+
+/// The same font file and face, whatever its tweak.
+fn same_face(have: &egui::FontData, want: &egui::FontData) -> bool {
+    have.index == want.index && (std::ptr::eq(have.bytes(), want.bytes()) || have.bytes() == want.bytes())
 }
