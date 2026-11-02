@@ -285,6 +285,19 @@ GUI 截图为 `weave-font-dialog-georgia-final-20261102.png`、`weave-font-dialo
 
 架构审计同时纠正完成度：已统一的是宿主窗口/标签、设置、文件身份和应用操作。字体字节共享不等于 FontDb/发现/缓存共享；保存路由统一不等于序列化后的原子落盘统一。原编辑器自动恢复被禁用后，宿主自动保存与异常退出恢复尚未接上；重复 craft-libs revision、部分渲染/字体依赖也未收拢。它们已写入 PLAN，不能将“底层全部合并”标为完成。
 
+## 2026-11-02：依赖融合与体积
+
+五个合并到 main 的改动（#2–#6）收拢了四个编辑器的重复依赖，不改变文档引擎：craft-libs 统一到 `c5a1cbf`；宿主构建关闭四个编辑器的 `updater` feature；WordCraft、DeckCraft、hayro-interpret 对齐 egui 的 skrifa 0.44 / harfrust 0.12；hayro 移植到共用的 vello_cpu 0.2 并保留 PdfCraft 的混合与描边修复；宿主只嵌入简体中文界面翻译。
+
+| 状态 | Linux x86_64 release 二进制（字节） |
+| --- | --- |
+| 融合前 | 273,319,392 |
+| craft-libs、更新器、字体栈 | 268,130,128 |
+| PDF 渲染改用 vello_cpu 0.2 | 267,530,704 |
+| 只嵌入简体中文翻译 | 257,736,016 |
+
+合计减少 15,583,376 字节（5.7%），其中约 102 MB 为字体数据。测量在云端 Linux 上进行，不是 macOS 安装包；`.app` 体积需本机重新打包后记录。宿主回归 82 项（68 library、5 host integration、1 hosted views、2 paint continuity、2 shared fonts、4 互操作）在第 4、第 5 步后各通过一次；pdfcraft-render 483 项、hayro 11 项、vello_common 描边 3 项通过。二进制中核对过 Word/PDF 简体中文词条仍在、其他语言已移除。尚未做 macOS GUI 复验。
+
 ## 继续验收的重点
 
 1. PDF 复杂正文与字体、图片自由缩放/裁剪等更多原生回放；已有正文、图片及页面旋转/插入/删除撤销样本不代表全部 PDF 兼容。
