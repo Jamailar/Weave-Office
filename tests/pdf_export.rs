@@ -1,14 +1,14 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use serde_json::json;
 use weave_office::{
-    editor::Editor,
+    editor::{Clipboard, Editor},
     output::{PdfPurpose, pdf_bytes},
 };
 use weave_workspace::DocumentKind;
 
 fn editor(kind: DocumentKind) -> Editor {
-    Editor::create(kind, None, &Rc::new(RefCell::new(None))).expect("create hosted editor")
+    Editor::create(kind, None, &Clipboard::default()).expect("create hosted editor")
 }
 
 fn reopen(bytes: Vec<u8>) -> pdfcraft_engine::Session {
