@@ -2099,6 +2099,7 @@ dependencies = [
  "skrifa",
  "sys-locale",
  "toml",
+ "weave-font-assets",
  "web-sys",
  "web-time",
  "zbus",
@@ -5713,6 +5714,10 @@ dependencies = [
  "once_cell",
  "pkg-config",
 ]
+
+[[package]]
+name = "weave-font-assets"
+version = "0.1.0"
 
 [[package]]
 name = "web-sys"
