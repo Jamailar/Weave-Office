@@ -17,6 +17,8 @@ use weave_workspace::{DocumentKind, TabId};
 #[derive(Clone)]
 enum Action {
     New(DocumentKind),
+    /// A new code or data file whose language follows the extension.
+    NewText(&'static str),
     OpenDialog,
     Open(PathBuf),
     /// Finder/file-drop input waits for the active editor's modal, without blocking its
@@ -684,6 +686,7 @@ impl WeaveApp {
             processed_action = true;
             let result: Result<(), String> = match action {
                 Action::New(kind) => self.host.new_document(kind).map(|_| ()),
+                Action::NewText(extension) => self.host.new_text_file(extension).map(|_| ()),
                 Action::OpenDialog => {
                     self.choose_file(
                         FileDialogMode::Open { multiple: true },
@@ -1492,8 +1495,11 @@ impl WeaveApp {
         }
         if self.new_picker {
             if let Some(anchor) = self.new_anchor {
-                if let Some(kind) = crate::new_document::show(ctx, anchor, &mut self.new_picker) {
-                    self.actions.push_back(Action::New(kind));
+                if let Some(choice) = crate::new_document::show(ctx, anchor, &mut self.new_picker) {
+                    self.actions.push_back(match choice.extension {
+                        Some(extension) => Action::NewText(extension),
+                        None => Action::New(choice.kind),
+                    });
                 }
             }
         }

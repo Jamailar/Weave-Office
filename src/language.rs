@@ -143,6 +143,7 @@ pub fn tr(text: &str) -> &str {
         "{stem}-导出.pdf" => "{stem}-export.pdf",
         "笔记" => "Note",
         "文本" => "Text",
+        "文本与代码" => "Text & code",
         "纯文本" => "Plain Text",
         _ => text,
     }

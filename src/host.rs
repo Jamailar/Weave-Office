@@ -211,7 +211,28 @@ impl Host {
         self.documents.get_mut(&self.workspace.active()?)
     }
     pub fn new_document(&mut self, kind: DocumentKind) -> Result<TabId, String> {
+        self.new_untitled(kind, None)
+    }
+
+    /// A new, unsaved code or data file. `extension` (such as `json`) picks its syntax
+    /// highlighting and becomes the extension of its untitled name, which Save As keeps.
+    pub fn new_text_file(&mut self, extension: &str) -> Result<TabId, String> {
+        let extension = extension.trim_start_matches('.');
+        if extension.is_empty() || !extension.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(format!("不支持的扩展名：{extension}"));
+        }
+        self.new_untitled(DocumentKind::PlainText, Some(extension))
+    }
+
+    fn new_untitled(
+        &mut self,
+        kind: DocumentKind,
+        extension: Option<&str>,
+    ) -> Result<TabId, String> {
         let mut editor = Editor::create(kind, None, &self.clipboard)?;
+        if let (Some(extension), Editor::TextFile(app)) = (extension, &mut editor) {
+            app.set_language_for(&format!("untitled.{extension}"));
+        }
         let file_services = self.install_services(&mut editor);
         self.untitled = self.untitled.saturating_add(1);
         let label = crate::language::tr(match kind {
@@ -226,9 +247,15 @@ impl Host {
             .workspace
             .add(
                 kind,
-                crate::language::tr("未命名{kind}{number}")
-                    .replace("{kind}", label)
-                    .replace("{number}", &self.untitled.to_string()),
+                {
+                    let title = crate::language::tr("未命名{kind}{number}")
+                        .replace("{kind}", label)
+                        .replace("{number}", &self.untitled.to_string());
+                    match extension {
+                        Some(extension) => format!("{title}.{extension}"),
+                        None => title,
+                    }
+                },
                 None,
             )
             .ok_or("标签标识已耗尽")?;

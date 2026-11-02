@@ -49,7 +49,94 @@ pub fn button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     response.on_hover_text(tr("新建文件"))
 }
 
-pub fn show(ctx: &egui::Context, anchor: Anchor, open: &mut bool) -> Option<DocumentKind> {
+/// One tile of the picker: a document kind, and for code and data files the extension that
+/// picks the new file's language and its default file name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Choice {
+    pub kind: DocumentKind,
+    pub label: &'static str,
+    pub extension: Option<&'static str>,
+}
+
+const fn office(kind: DocumentKind, label: &'static str) -> Choice {
+    Choice {
+        kind,
+        label,
+        extension: None,
+    }
+}
+
+const fn code(label: &'static str, extension: &'static str) -> Choice {
+    Choice {
+        kind: DocumentKind::PlainText,
+        label,
+        extension: Some(extension),
+    }
+}
+
+/// The picker's groups, in order. Labels are Chinese source strings, translated when drawn.
+pub fn groups() -> Vec<(&'static str, Vec<Choice>)> {
+    vec![
+        (
+            tr("Office 文档"),
+            vec![
+                office(DocumentKind::Text, "文字"),
+                office(DocumentKind::Presentation, "演示"),
+                office(DocumentKind::Spreadsheet, "表格"),
+                office(DocumentKind::Pdf, "PDF"),
+            ],
+        ),
+        (
+            tr("文本与代码"),
+            vec![
+                office(DocumentKind::Markdown, "Markdown"),
+                office(DocumentKind::PlainText, "纯文本"),
+                code("JSON", "json"),
+                code("YAML", "yaml"),
+                code("Python", "py"),
+                code("JavaScript", "js"),
+                code("Shell", "sh"),
+                code("SQL", "sql"),
+            ],
+        ),
+    ]
+}
+
+fn tile(ui: &mut egui::Ui, entry: &Choice) -> bool {
+    let label = tr(entry.label);
+    let (rect, response) = ui.allocate_exact_size(vec2(73.5, 82.0), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+    if response.hovered() || response.has_focus() {
+        ui.painter()
+            .rect_filled(rect, 6, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect,
+            6,
+            Stroke::new(1.0, ui.visuals().selection.bg_fill),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let icon = Rect::from_center_size(
+        Pos2::new(rect.center().x, rect.top() + 26.0),
+        vec2(40.0, 40.0),
+    );
+    match entry.extension {
+        Some(extension) => icons::text_document(ui.painter(), icon, extension),
+        None => icons::document(ui.painter(), icon, entry.kind),
+    }
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.top() + 64.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(12.5),
+        ui.visuals().text_color(),
+    );
+    response.clicked()
+}
+
+pub fn show(ctx: &egui::Context, anchor: Anchor, open: &mut bool) -> Option<Choice> {
     let mut selected = None;
     let visuals = &crate::theme::style(ctx).visuals;
     let frame = egui::Frame::new()
@@ -84,73 +171,23 @@ pub fn show(ctx: &egui::Context, anchor: Anchor, open: &mut bool) -> Option<Docu
         ui.set_width(312.0);
         ui.label(egui::RichText::new(tr("新建")).size(22.0).strong());
         ui.add_space(20.0);
-        let groups: [(&str, &[(DocumentKind, &str)]); 2] = [
-            (
-                tr("Office 文档"),
-                &[
-                    (DocumentKind::Text, tr("文字")),
-                    (DocumentKind::Presentation, tr("演示")),
-                    (DocumentKind::Spreadsheet, tr("表格")),
-                    (DocumentKind::Pdf, "PDF"),
-                ],
-            ),
-            (
-                tr("文本"),
-                &[
-                    (DocumentKind::Markdown, "Markdown"),
-                    (DocumentKind::PlainText, tr("纯文本")),
-                ],
-            ),
-        ];
-        for (index, (title, kinds)) in groups.into_iter().enumerate() {
+        for (index, (title, entries)) in groups().into_iter().enumerate() {
             if index > 0 {
                 ui.add_space(14.0);
             }
             ui.label(egui::RichText::new(title).size(13.0).strong());
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                for &(kind, label) in kinds {
-                    let (rect, response) =
-                        ui.allocate_exact_size(vec2(73.5, 82.0), egui::Sense::click());
-                    response
-                        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
-                    if response.hovered() || response.has_focus() {
-                        ui.painter().rect_filled(
-                            rect,
-                            6,
-                            ui.visuals().widgets.hovered.weak_bg_fill,
-                        );
+            for row in entries.chunks(4) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for entry in row {
+                        if tile(ui, entry) {
+                            selected = Some(*entry);
+                            ui.close();
+                        }
                     }
-                    if response.has_focus() {
-                        ui.painter().rect_stroke(
-                            rect,
-                            6,
-                            Stroke::new(1.0, ui.visuals().selection.bg_fill),
-                            egui::StrokeKind::Inside,
-                        );
-                    }
-                    icons::document(
-                        ui.painter(),
-                        Rect::from_center_size(
-                            Pos2::new(rect.center().x, rect.top() + 26.0),
-                            vec2(40.0, 40.0),
-                        ),
-                        kind,
-                    );
-                    ui.painter().text(
-                        Pos2::new(rect.center().x, rect.top() + 64.0),
-                        egui::Align2::CENTER_CENTER,
-                        label,
-                        egui::FontId::proportional(12.5),
-                        ui.visuals().text_color(),
-                    );
-                    if response.clicked() {
-                        selected = Some(kind);
-                        ui.close();
-                    }
-                }
-            });
+                });
+            }
         }
     });
     selected

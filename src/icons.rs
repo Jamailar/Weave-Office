@@ -246,6 +246,44 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
     }
 }
 
+/// Paint a code or data file icon: a colored page with a short white tag, such as `{ }` for
+/// JSON. Unknown extensions fall back to the plain text icon.
+pub fn text_document(painter: &Painter, rect: Rect, extension: &str) {
+    let (base, fold, tag) = match extension {
+        "json" => ((196, 132, 22), (240, 200, 120), "{ }"),
+        "yaml" | "yml" => ((180, 62, 92), (232, 158, 178), "YML"),
+        "py" => ((52, 102, 168), (150, 186, 232), "PY"),
+        "js" => ((168, 140, 18), (232, 214, 120), "JS"),
+        "sh" => ((44, 120, 72), (140, 202, 160), "SH"),
+        "sql" => ((24, 128, 140), (124, 200, 208), "SQL"),
+        _ => return document(painter, rect, DocumentKind::PlainText),
+    };
+    let rgb = |(r, g, b): (u8, u8, u8)| Color32::from_rgb(r, g, b);
+    let c = Canvas {
+        painter,
+        rect,
+        stroke: Stroke::NONE,
+    };
+    c.fill(
+        &[
+            (4.5, 1.5),
+            (12.0, 1.5),
+            (16.0, 5.5),
+            (16.0, 18.5),
+            (4.5, 18.5),
+        ],
+        rgb(base),
+    );
+    c.fill(&[(12.0, 1.5), (12.0, 5.5), (16.0, 5.5)], rgb(fold));
+    painter.text(
+        c.p(10.25, 12.2),
+        egui::Align2::CENTER_CENTER,
+        tag,
+        egui::FontId::proportional((rect.height() * 0.24).max(6.0)),
+        Color32::WHITE,
+    );
+}
+
 /// Paint a colored document icon. Its white marks remain legible on light and dark UI.
 pub fn document(painter: &Painter, rect: Rect, kind: DocumentKind) {
     let (base, fold) = match kind {
