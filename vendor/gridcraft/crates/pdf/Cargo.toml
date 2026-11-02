@@ -10,3 +10,11 @@ readme = "README.md"
 workspace = true
 
 [dependencies]
+craft-pdf = { git = "https://github.com/storytold/craft-libs", rev = "c5a1cbfb5f9049f9270955caffb5bee5997aebf7", version = "=0.1.0", default-features = false, features = ["write"], optional = true }
+skrifa = { workspace = true, optional = true }
+weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
+
+[features]
+# Write through the PDF engine the other editors share, with embedded fonts (an embedding host's
+# choice: it brings in the shared font bytes). Without it the crate stays dependency-free.
+shared-pdf = ["dep:craft-pdf", "dep:skrifa", "dep:weave-font-assets"]

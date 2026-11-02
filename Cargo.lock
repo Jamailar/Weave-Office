@@ -2841,6 +2841,11 @@ dependencies = [
 [[package]]
 name = "gridcraft-pdf"
 version = "0.14.2"
+dependencies = [
+ "craft-pdf",
+ "skrifa 0.44.0",
+ "weave-font-assets",
+]
 
 [[package]]
 name = "gridcraft-ui-egui"
@@ -7840,6 +7845,7 @@ dependencies = [
  "eframe",
  "fmv-macos-events",
  "gridcraft-engine",
+ "gridcraft-pdf",
  "gridcraft-ui-egui",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",

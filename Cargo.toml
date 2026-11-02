@@ -29,6 +29,8 @@ wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
 wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }
 gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "shared-system-fonts"] }
 gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
+# Spreadsheet PDF export and printing through the shared PDF engine, with embedded fonts.
+gridcraft-pdf = { path = "vendor/gridcraft/crates/pdf", features = ["shared-pdf"] }
 deckcraft-ui-egui = { path = "vendor/deckcraft/crates/ui-egui", default-features = false }
 deckcraft-engine = { path = "vendor/deckcraft/crates/engine" }
 pdfcraft-ui-egui = { path = "vendor/pdfcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
