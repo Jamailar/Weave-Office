@@ -222,6 +222,7 @@ pub fn show(app: &mut TextApp, ui: &mut Ui) {
     egui::CentralPanel::no_frame()
         .frame(egui::Frame::NONE.fill(background))
         .show(ui, |ui| editor(app, ui));
+    crate::palette::show(app, &ui.ctx().clone());
 }
 
 fn tr<'a>(app: &TextApp, text: &'a str) -> &'a str {
@@ -266,6 +267,14 @@ fn shortcuts(app: &mut TextApp, ui: &mut Ui) {
                 false
             }
         };
+        key(
+            cmd | shift,
+            Key::P,
+            "palette.commands",
+            json!({}),
+            &mut commands,
+        );
+        key(cmd | alt, Key::O, "palette.files", json!({}), &mut commands);
         key(
             cmd | shift,
             Key::F,
@@ -870,6 +879,23 @@ fn command_bar(app: &mut TextApp, ui: &mut Ui) {
                 tr(app, "实际大小"),
                 "",
                 "view.zoomReset",
+                json!({}),
+            );
+            separator(ui);
+            button(
+                ui,
+                &mut clicked,
+                tr(app, "命令面板"),
+                "⇧⌘P",
+                "palette.commands",
+                json!({}),
+            );
+            button(
+                ui,
+                &mut clicked,
+                tr(app, "快速打开"),
+                "⌥⌘O",
+                "palette.files",
                 json!({}),
             );
         }

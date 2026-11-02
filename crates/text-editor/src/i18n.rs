@@ -93,6 +93,13 @@ pub fn tr(zh: bool, text: &str) -> &str {
         "文件夹里的笔记还没有 #标签" => "No #tags in this folder's notes yet",
         "还没有笔记链接到这里" => "No notes link here yet",
         "未知侧栏" => "Unknown sidebar pane",
+        "语言：" => "Language: ",
+        "输入命令…" => "Type a command…",
+        "输入文件名…" => "Type a file name…",
+        "没有匹配的命令" => "No matching commands",
+        "没有匹配的文件" => "No matching files",
+        "命令面板" => "Command palette",
+        "快速打开" => "Quick open",
         _ => text,
     }
 }
