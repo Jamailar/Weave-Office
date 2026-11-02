@@ -4,6 +4,12 @@
 use super::tests::test_app;
 use super::*;
 
+const SHEET_BOLD: &str = if cfg!(target_os = "macos") {
+    "粗体 (⌘B)"
+} else {
+    "粗体 (Ctrl+B)"
+};
+
 struct Running {
     app: WeaveApp,
     ctx: egui::Context,
@@ -243,7 +249,7 @@ fn a_presentation_made_next_to_another_document_takes_clicks_and_typing() {
 fn every_editors_ribbon_buttons_take_clicks_next_to_a_presentation() {
     for (kind, label) in [
         (DocumentKind::Text, "居中"),
-        (DocumentKind::Spreadsheet, "粗体 (Ctrl+B)"),
+        (DocumentKind::Spreadsheet, SHEET_BOLD),
     ] {
         let (mut running, id) = Running::after(&[DocumentKind::Presentation], kind);
         assert_eq!(running.editor(id).history_available(), (false, false));
@@ -257,8 +263,13 @@ fn every_editors_ribbon_buttons_take_clicks_next_to_a_presentation() {
         );
     }
     let (mut running, id) = Running::after(&[DocumentKind::Presentation], DocumentKind::Pdf);
+    let rotate_label = if cfg!(target_os = "macos") {
+        "顺时针旋转视图 (⇧⌘+)"
+    } else {
+        "顺时针旋转视图 (Ctrl+Shift++)"
+    };
     let button = running
-        .widget("顺时针旋转视图 (Ctrl+Shift++)")
+        .widget(rotate_label)
         .expect("PDF shows Rotate View");
     running.click(button.center());
     let crate::editor::Editor::Pdf(pdf) = running.editor(id) else {
@@ -306,7 +317,7 @@ fn a_spreadsheets_ribbon_takes_clicks_after_switching_back_from_a_new_presentati
     running.idle(20);
     assert_eq!(running.app.mounted, Some(sheet));
     assert_eq!(running.idle(5), 1, "frames keep being replayed");
-    let button = running.widget("粗体 (Ctrl+B)").expect("Bold");
+    let button = running.widget(SHEET_BOLD).expect("Bold");
     running.click(button.center());
     assert!(running.editor(sheet).history_available().0);
 }
