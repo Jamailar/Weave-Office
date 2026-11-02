@@ -15,6 +15,8 @@ mod dib;
 mod emf;
 mod geom;
 mod place;
+#[cfg(feature = "shared-metafile")]
+mod shared;
 mod wmf;
 
 #[cfg(test)]
@@ -129,6 +131,15 @@ pub(crate) struct Frame {
 
 /// Parses a WMF (placeable or plain) or EMF file.
 pub fn parse(bytes: &[u8]) -> Result<Picture, Error> {
+    #[cfg(feature = "shared-metafile")]
+    return shared::parse(bytes);
+    #[cfg(not(feature = "shared-metafile"))]
+    own_parse(bytes)
+}
+
+/// This crate's own reader (the one an embedding host replaces with the shared one).
+#[cfg_attr(feature = "shared-metafile", allow(dead_code))]
+fn own_parse(bytes: &[u8]) -> Result<Picture, Error> {
     let b = Bytes(bytes);
     let (cv, frame) = if emf::is_emf(b) {
         emf::parse(b)?
@@ -142,6 +153,14 @@ pub fn parse(bytes: &[u8]) -> Result<Picture, Error> {
 
 /// True when the bytes start like a WMF (placeable or plain header) or an EMF.
 pub fn is_metafile(bytes: &[u8]) -> bool {
+    #[cfg(feature = "shared-metafile")]
+    return shared::is_metafile(bytes);
+    #[cfg(not(feature = "shared-metafile"))]
+    own_is_metafile(bytes)
+}
+
+#[cfg_attr(feature = "shared-metafile", allow(dead_code))]
+fn own_is_metafile(bytes: &[u8]) -> bool {
     let b = Bytes(bytes);
     emf::is_emf(b) || wmf::is_wmf(b)
 }

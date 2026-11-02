@@ -7867,6 +7867,7 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-fonts",
+ "wordcraft-metafile",
  "wordcraft-ui-egui",
 ]
 
@@ -8468,6 +8469,7 @@ dependencies = [
 name = "wordcraft-metafile"
 version = "0.13.2"
 dependencies = [
+ "deckcraft-metafile",
  "kurbo 0.13.1",
  "thiserror 2.0.21",
 ]

@@ -11,3 +11,8 @@ workspace = true
 [dependencies]
 kurbo = { workspace = true }
 thiserror = { workspace = true }
+# Presentation's reader, shared by an embedding host instead of this crate's own.
+deckcraft-metafile = { path = "../../../deckcraft/crates/metafile", optional = true }
+
+[features]
+shared-metafile = ["dep:deckcraft-metafile"]

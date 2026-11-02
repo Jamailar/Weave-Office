@@ -1223,6 +1223,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
+name = "deckcraft-metafile"
+version = "0.13.1"
+dependencies = [
+ "image",
+ "kurbo",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6827,6 +6836,7 @@ dependencies = [
 name = "wordcraft-metafile"
 version = "0.13.2"
 dependencies = [
+ "deckcraft-metafile",
  "kurbo",
  "thiserror 2.0.21",
 ]

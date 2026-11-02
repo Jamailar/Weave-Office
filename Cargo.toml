@@ -27,6 +27,8 @@ pdfcraft-fonts = { path = "vendor/pdfcraft/crates/fonts", features = ["shared-fo
 wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets"] }
 wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
 wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }
+# Document reads WMF/EMF pictures with Presentation's reader: one metafile parser in the app.
+wordcraft-metafile = { path = "vendor/wordcraft/crates/metafile", features = ["shared-metafile"] }
 gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "shared-system-fonts"] }
 gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
 # Spreadsheet PDF export and printing through the shared PDF engine, with embedded fonts.
