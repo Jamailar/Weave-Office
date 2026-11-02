@@ -11,6 +11,7 @@ pub mod file;
 mod i18n;
 pub mod layout;
 pub mod markdown;
+pub mod palette;
 pub mod sidebar;
 pub mod syntax;
 mod ui;
@@ -70,6 +71,7 @@ pub struct TextApp {
     wrap: bool,
     line_numbers: bool,
     sidebar: sidebar::Sidebar,
+    palette: Option<palette::Palette>,
     font_size: f32,
     ribbon_tab: Option<String>,
     find: Find,
@@ -115,6 +117,7 @@ impl TextApp {
             wrap: kind == Kind::Markdown,
             line_numbers: kind == Kind::PlainText,
             sidebar: Default::default(),
+            palette: None,
             font_size: if kind == Kind::Markdown { 15.0 } else { 13.0 },
             ribbon_tab: Some("home".into()),
             find: Find::default(),
@@ -566,6 +569,8 @@ impl TextApp {
                     sidebar::set_pane(self, pane);
                 }
             }
+            "palette.commands" => palette::open(self, palette::Mode::Commands),
+            "palette.files" => palette::open(self, palette::Mode::Files),
             "edit.searchFolder" => {
                 if let Some(query) = params.get("query").and_then(Value::as_str) {
                     sidebar::set_query(self, query.to_owned());
@@ -748,7 +753,8 @@ impl TextApp {
     }
 
     pub fn hosted_blocks_host_navigation(&self) -> bool {
-        false
+        // The palette owns the keyboard while it is open.
+        self.palette.is_some()
     }
 }
 

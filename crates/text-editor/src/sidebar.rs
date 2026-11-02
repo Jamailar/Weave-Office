@@ -718,7 +718,7 @@ pub fn pane(app: &mut TextApp, ui: &mut Ui) {
     }
 }
 
-fn ensure_folder(app: &mut TextApp) -> bool {
+pub(crate) fn ensure_folder(app: &mut TextApp) -> bool {
     let Some(root) = app.path.as_deref().and_then(root_for) else {
         return false;
     };
