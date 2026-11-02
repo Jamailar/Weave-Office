@@ -306,6 +306,7 @@ pub mod credits;
 #[cfg(test)]
 mod font_dialog_tests;
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(all(not(target_arch = "wasm32"), not(feature = "updater")), path = "dialogs/updates_ui_off.rs")]
 pub(super) mod updates_ui;
 
 #[cfg(test)]

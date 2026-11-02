@@ -8,7 +8,7 @@
 
 /// GridCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "updater"))]
 pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
     icon_png: Some(include_bytes!("../../../assets/app-icon/hicolor/128x128/apps/ai.storyteller.gridcraft.png")),
     accent: Some([0x1f, 0x9d, 0x55]),
@@ -50,6 +50,7 @@ pub mod tabs;
 pub mod text_box;
 pub mod theme;
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(all(not(target_arch = "wasm32"), not(feature = "updater")), path = "updates_ui_off.rs")]
 mod updates_ui;
 pub mod widgets;
 mod window_ui;

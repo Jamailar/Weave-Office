@@ -27,6 +27,10 @@ web-time = { workspace = true }
 weave-font-assets = { path = "../../../../crates/font-assets", optional = true }
 
 [features]
+default = ["updater"]
+# The editor's own release check and update prompt. An embedding host that owns releases turns
+# default features off to leave out the updater and its network stack.
+updater = ["dep:craft-update"]
 shared-font-assets = ["dep:weave-font-assets"]
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
@@ -41,7 +45,7 @@ epaint_default_fonts = { workspace = true }
 gridcraft-xlsx = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-craft-update = { workspace = true }
+craft-update = { workspace = true, optional = true }
 # The desktop's preferred language for the first-run interface language.
 sys-locale = { workspace = true }
 craft-window = { workspace = true }

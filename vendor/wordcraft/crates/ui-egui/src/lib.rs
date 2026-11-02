@@ -21,7 +21,7 @@ macro_rules! bundled_font {
 
 /// WordCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "updater"))]
 pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
     icon_png: Some(include_bytes!("../../../assets/app-icon/hicolor/128x128/apps/ai.storyteller.wordcraft.png")),
     accent: Some([0x3f, 0x5f, 0xe0]),
@@ -86,6 +86,7 @@ pub mod table_pen;
 pub mod table_resize;
 pub mod table_ruler;
 pub mod theme;
+#[cfg_attr(all(not(target_arch = "wasm32"), not(feature = "updater")), path = "updates_ui_off.rs")]
 pub mod updates_ui;
 pub mod widgets;
 pub mod window_close;
