@@ -1,113 +1,130 @@
 <p align="center">
-  <img src="assets/social/social-preview.png" alt="Weave Office:一个窗口，所有文档" width="100%">
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <img src="assets/social/social-preview.en.png" alt="Weave Office: one app for every document, built for AI agents" width="100%">
 </p>
 
 <h1 align="center">Weave Office</h1>
 
 <p align="center">
-  <b>一个窗口，所有文档。</b><br>
-  用 Rust 写的开源桌面办公应用：文字、表格、演示、PDF、Markdown、代码与富文本，<br>
-  在同一条文件标签栏里打开、编辑、保存；还有一套给 AI 和脚本用的命令行。
+  <b>One app for every document. Built for AI agents.</b><br>
+  An open-source desktop office suite written in Rust: documents, spreadsheets, slides, PDF, Markdown, code and rich text,<br>
+  opened, edited and saved in one row of file tabs. The same binary is a command line that AI agents call directly.
 </p>
 
 <p align="center">
-  <a href="#功能">功能</a> ·
-  <a href="#命令行给-ai-和脚本用">命令行</a> ·
-  <a href="#从源码构建">构建</a> ·
-  <a href="#项目结构">项目结构</a> ·
-  <a href="#文档">文档</a>
+  <img alt="Rust 1.95" src="https://img.shields.io/badge/Rust-1.95-orange?logo=rust">
+  <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple">
+  <img alt="UI: egui" src="https://img.shields.io/badge/UI-egui-4b8bbe">
+  <img alt="AI-friendly CLI" src="https://img.shields.io/badge/AI--friendly-CLI%20%2B%20JSON-7c5cff">
+  <img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-yellow">
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#command-line-for-ai-agents-and-scripts">Command line</a> ·
+  <a href="#build-from-source">Build</a> ·
+  <a href="#project-layout">Layout</a> ·
+  <a href="#documentation">Docs</a>
 </p>
 
 > [!NOTE]
-> 项目仍在积极开发中，还不是可以日常替代成熟办公套件的版本。复杂文档的格式保真、输入法和部分高级流程仍在打磨，当前进度和已知问题见[验收记录](docs/acceptance.md)。
+> Weave Office is under active development and is not yet a day-to-day replacement for a mature office suite. Fidelity on complex documents, input methods and some advanced workflows are still being polished. See the [acceptance log](docs/acceptance.md) (Chinese) for current status and known issues.
 
-## 为什么做 Weave Office
+## Why Weave Office
 
-我们每天在 Word、Excel、PowerPoint、PDF 阅读器、Markdown 笔记和代码编辑器之间来回切换，每个应用都有自己的窗口、菜单、设置和保存逻辑。Weave Office 想把它们收进**一个真正的应用**：
+Two things set it apart: it is **all-in-one**, and it is **AI-friendly**.
 
-- **一条文件标签栏**：合同、报价表、路演稿、发票 PDF、笔记和配置文件可以混排在同一行，同类文件也能开多个；切走再切回，光标、选区、滚动、缩放、撤销历史和未保存内容都还在。
-- **一套公共系统**：新建、打开、保存、另存为、关闭、退出、最近文件、自动保存、打印和弹窗都由同一个宿主管理，而不是四个 App 各管各的。
-- **共用底层**：字体、整形、光栅化、PDF 输出、图元文件解析等底层能力只保留一份，安装包更小，各编辑器表现也更一致。
+Most of us bounce between a word processor, a spreadsheet, a slide tool, a PDF reader, a Markdown notes app and a code editor every day, each with its own window, menus, settings and save logic. Weave Office puts them into **one real application**:
 
-## 功能
+- **One row of file tabs.** A contract, a quote, a pitch deck, a PDF invoice, your notes and a config file sit side by side, and you can open several of the same kind. Switch away and back, and the caret, selection, scroll position, zoom, undo history and unsaved changes are all still there.
+- **One set of shared systems.** New, open, save, save as, close, quit, recent files, autosave, printing and dialogs are handled by one host, not by four apps each doing it their own way.
+- **AI can call it directly.** The app binary is also a command line. An AI agent can read, change and export documents by path without opening a window, and gets JSON back (see [Command line](#command-line-for-ai-agents-and-scripts)).
+- **One shared foundation.** Fonts, text shaping, rasterization, PDF output and metafile parsing exist once, so the download is smaller and the editors behave consistently.
 
-### 文档格式一览
+## Features
 
-| 类型 | 打开 | 新建时保存为 | 编辑器 |
+### Formats at a glance
+
+| Kind | Opens | New files saved as | Editor |
 |---|---|---|---|
-| 文字 | `.docx` `.docm` `.doc` `.odt` `.rtf` | `.docx` | 基于 WordCraft 引擎 |
-| 表格 | `.xlsx` `.xlsm` `.xls` `.ods` `.csv` | `.xlsx` | 基于 GridCraft 引擎 |
-| 演示 | `.pptx` `.pptm` `.ppt` `.odp` | `.pptx` | 基于 DeckCraft 引擎 |
-| PDF | `.pdf` | `.pdf` | 基于 PdfCraft 引擎 |
-| Markdown | `.md` `.markdown` `.mdx` 等 | `.md` | 自研（`crates/text-editor`） |
-| 纯文本与代码 | 20 多种语言，以及内容是文本的未知扩展名 | `.txt` `.json` `.yaml` `.py` `.js` `.sh` `.sql` … | 自研（`crates/text-editor`） |
-| 富文本（HTML） | `.html` `.htm` `.xhtml` | `.html` | 自研（`crates/rich-editor`），开发中 |
+| Documents | `.docx` `.docm` `.doc` `.odt` `.rtf` | `.docx` | WordCraft engine |
+| Spreadsheets | `.xlsx` `.xlsm` `.xls` `.ods` `.csv` | `.xlsx` | GridCraft engine |
+| Presentations | `.pptx` `.pptm` `.ppt` `.odp` | `.pptx` | DeckCraft engine |
+| PDF | `.pdf` | `.pdf` | PdfCraft engine |
+| Markdown | `.md` `.markdown` `.mdx` and more | `.md` | Built in (`crates/text-editor`) |
+| Plain text and code | 20+ languages, plus unknown extensions whose content is text | `.txt` `.json` `.yaml` `.py` `.js` `.sh` `.sql` … | Built in (`crates/text-editor`) |
+| Rich text (HTML) | `.html` `.htm` `.xhtml` | `.html` | Built in (`crates/rich-editor`), in development |
 
-点击标签栏的 **＋** 打开新建面板，按「Office 文档」「文本与代码」「富文本」三组列出所有可新建的格式。
+The **＋** button on the tab bar opens the New panel, grouped into Office documents, Text and code, and Rich text.
 
-### 四合一办公：文字、表格、演示、PDF
+### Four office editors in one: documents, spreadsheets, slides, PDF
 
-- **文字**：段落与字符格式、样式、表格、图片、页眉页脚、分页；读取文档里的 WMF/EMF 图片；导出 PDF 与打印。
-- **表格**：多工作表、公式、单元格格式、边框与合并；中英文混排按基线对齐；导出 PDF（中文字体会嵌入）与 CSV。
-- **演示**：幻灯片、形状、文本框、图片、版式；放映与导出。
-- **PDF**：不只是阅读器。可以直接改已有正文和图片、添加文字与图片、批注（便笺、文本框、标记、形状和回复）、填写文字，以及插入、删除、重排、旋转、裁切、提取和拆分页面。能力边界见 [PDF 编辑能力](docs/pdf-capabilities.md)。
+- **Documents:** paragraph and character formatting, styles, tables, images, headers and footers, page breaks; WMF/EMF pictures; PDF export and printing.
+- **Spreadsheets:** multiple sheets, formulas, number formats, borders and merged cells; mixed Latin and CJK text aligned on a shared baseline; PDF export (with embedded CJK fonts) and CSV.
+- **Presentations:** slides, shapes, text boxes, images and layouts; slideshow and export.
+- **PDF:** a real editor, not just a viewer. Edit existing text and images, add text and images, annotate (notes, text boxes, markup, shapes and replies), fill in text, and insert, delete, reorder, rotate, crop, extract and split pages. See [PDF capabilities](docs/pdf-capabilities.md) (Chinese).
 
-四个编辑器整合在同一个进程里：
+All four run in a single process and share one host:
 
-- **统一功能区**：功能区标签行由宿主统一绘制，各编辑器只负责下方的命令，切换文件类型时操作逻辑一致。
-- **统一字体**：开放字体只打包一份，系统字体只扫描一次；四个编辑器共用一套界面字体，切换标签页不再重新装载字体。
-- **自动保存与崩溃恢复**：宿主定时把未保存的修改写入恢复目录，意外退出后重新启动即可找回。
-- **统一文件与弹窗**：打开、保存、文件夹选择等使用操作系统原生面板；确认、错误、设置、打印等由 Weave 自建，并且弹窗打开期间不会误切换或误关标签，外部打开的文件会排队等待。
-- **macOS 原生体验**：保留系统的红黄绿窗口按钮、圆角和阴影，标题栏里直接放文件标签；接入应用菜单、快捷键、Finder 打开文件和系统退出流程。
+- **Unified ribbon:** the host draws the ribbon's tab row for every editor; each editor draws only its own commands, so switching file types feels the same.
+- **Unified fonts:** open fonts ship once and system fonts are scanned once; all editors share one set of UI fonts, so switching tabs no longer reloads fonts.
+- **Autosave and crash recovery:** the host periodically writes unsaved changes to a recovery folder; after an unexpected quit, relaunch and get them back.
+- **Unified files and dialogs:** open, save and folder pickers use the native OS panels; confirmations, errors, settings and printing are Weave's own. While a dialog is open, tabs can't be switched or closed by accident, and files opened from outside wait in a queue.
+- **Native on macOS:** real traffic-light window buttons, rounded corners and shadow, with file tabs placed in the title bar; app menu, shortcuts, opening from Finder and the system quit flow are wired in.
 
-### Markdown：接近 Obsidian 的实时预览
+### Markdown with Obsidian-style live preview
 
-- **实时预览**：标题、粗体、链接等格式就地呈现，只有光标所在行才显示 `#`、`**`、`[]()` 这类标记；另有源码视图和阅读视图。
-- **笔记功能**：任务复选框、`[[双链]]`、反向链接、标签、大纲。
-- **左侧栏**：文件树、全文搜索、大纲、标签、反向链接。
-- **命令面板**（⇧⌘P）和**快速打开**（⌥⌘O）。
-- **插入工具**：图片、脚注、标注块（callout）、公式、属性（front matter）。
-- **专注模式**和**打字机滚动**。
-- 导出 PDF 和打印借用文字引擎的 Markdown 导入。
+- **Live preview:** headings, bold, links and more render in place; markers such as `#`, `**` and `[]()` appear only on the line you are editing. Source and reading views too.
+- **Notes features:** task checkboxes, `[[wikilinks]]`, backlinks, tags and outline.
+- **Sidebar:** file tree, full-text search, outline, tags and backlinks.
+- **Command palette** (⇧⌘P) and **quick open** (⌥⌘O).
+- **Insert tools:** images, footnotes, callouts, math and properties (front matter).
+- **Focus mode** and **typewriter scrolling**.
+- PDF export and printing go through the document engine's Markdown import.
 
-### 代码与纯文本编辑器
+### Code and plain-text editor
 
-- **语法高亮**：Rust、JavaScript、TypeScript、Python、Go、C/C++、C#、Java、Kotlin、Swift、PHP、Ruby、Lua、Shell、PowerShell、SQL、Dockerfile、Makefile、JSON、YAML、TOML、INI、HTML、CSS 等。
-- **编辑工具**：行号、查找替换、在文件夹中搜索、转到行、行操作（移动、复制、删除、合并），排序、去重、大小写转换、清理行尾空格、缩进转换，以及 **JSON 格式化**。
-- **保留编码**：按原来的编码（包括 GBK、UTF-16、带 BOM 的文件）和换行符写回；没有改动的文件保存后一个字节都不变。扩展名不认识但内容是文本的文件，也会按纯文本打开。
+- **Syntax highlighting:** Rust, JavaScript, TypeScript, Python, Go, C/C++, C#, Java, Kotlin, Swift, PHP, Ruby, Lua, Shell, PowerShell, SQL, Dockerfile, Makefile, JSON, YAML, TOML, INI, HTML, CSS and more.
+- **Editing tools:** line numbers, find and replace, search in folder, go to line, line commands (move, duplicate, delete, join), sort, de-duplicate, change case, trim trailing whitespace, convert indentation, and **JSON formatting**.
+- **Keeps your encoding:** files are written back in their original encoding (including GBK, UTF-16 and BOMs) and line endings; a file you didn't change is saved byte for byte. Files with an unknown extension but text content open as plain text.
 
-### 富文本编辑器（开发中）
+### Rich-text editor (in development)
 
-面向公众号排版这类场景的所见即所得 HTML 编辑器，体验对标 135 编辑器：
+A WYSIWYG HTML editor for laying out articles, in the spirit of WeChat article editors such as 135 Editor:
 
-- **打开任意 HTML 文件**，在**设计视图**（排好版的页面）和**源码视图**（HTML 源码，带高亮）之间切换，两边始终一致。
-- **保真**：不认识的标签、注释、`<head>`、`<script>`、`<style>` 原样保留；没改动的文件原样写回。
-- 自研 HTML 解析和 CSS 子集排版，不引入新的第三方依赖。
-- 路线图：设计视图直接编辑 → 样式库组件、一键换色、图片 → 复制到公众号 → 打磨。目前设计视图只读，编辑在源码视图里进行。
+- **Open any HTML file** and switch between the **design view** (the laid-out page) and the **source view** (highlighted HTML). Both always agree.
+- **Edit in the design view:** click to place the caret, drag or Shift-click to select, double-click for a word, triple-click for a paragraph, with input-method support. Copy carries HTML and plain text; paste keeps inline styles and drops scripts.
+- **Home tab:** paragraph style, size, bold, italic, underline, strikethrough, text and highlight colors, clear formatting, alignment, line spacing and first-line indent.
+- **Faithful:** unknown tags, comments, `<head>`, `<script>` and `<style>` are kept as is; an untouched file is written back unchanged; undo, saving and the source view all work on the same text.
+- Its own HTML parser and CSS-subset layout, with no new third-party dependencies.
+- Roadmap: component library, one-click recoloring and images → copy to WeChat → polish.
 
-### 命令行：给 AI 和脚本用
+### Command line for AI agents and scripts
 
-同一个可执行文件也是命令行工具：第一个参数是动词时不开窗口，直接在四个编辑器的引擎上读写文档。设计目标是让 AI 代理能可靠地操作办公文档。
+**This is the second pillar of Weave Office: it is AI-friendly.** The same executable is a command line. When the first argument is a verb, no window opens; it reads and writes documents directly on the four editors' engines. It is designed so AI agents can operate on office files reliably.
 
 ```sh
-weave-office create 报价.xlsx
-weave-office set 报价.xlsx /Sheet1/B2 value=1280
-weave-office add 合同.docx /body --type paragraph text="甲乙双方……"
-weave-office view 路演.pptx outline
-weave-office export 合同.docx 合同.pdf
-weave-office help agent      # 打印给 AI 读的完整使用说明
+weave-office create quote.xlsx
+weave-office set quote.xlsx /Sheet1/B2 value=1280
+weave-office add contract.docx /body --type paragraph text="Both parties agree…"
+weave-office view pitch.pptx outline
+weave-office export contract.docx contract.pdf
+weave-office help agent      # prints the full guide written for AI agents
 ```
 
-- 动词：`create` `info` `view` `get` `set` `add` `remove` `commands` `run` `batch` `export` `help`。
-- 按路径定位：`/body/p[3]`、`/Sheet1/A1:C10`、`/slide[2]/shape[1]`、`/page[4]`。
-- `--json` 输出统一的 `{"ok":…,"data"|"error":…}` 信封，错误带错误码、修改建议和最相近的候选命令。
-- `batch` 全部成功才写盘；保存先写临时文件再改名覆盖，文件要么是完整新版本，要么保持原样。
+- Verbs: `create` `info` `view` `get` `set` `add` `remove` `commands` `run` `batch` `export` `help`.
+- Address content by path: `/body/p[3]`, `/Sheet1/A1:C10`, `/slide[2]/shape[1]`, `/page[4]`.
+- `--json` returns one envelope, `{"ok":…,"data"|"error":…}`; errors carry a code, a suggested fix and the closest matching commands.
+- `batch` writes only if every step succeeds. Saves go to a temporary file that is then renamed over the original, so a file is either the complete new version or untouched.
 
-完整说明见 [docs/cli.md](docs/cli.md)。
+Full reference: [docs/cli.md](docs/cli.md) (Chinese); the agent guide is [crates/cli/AGENT.md](crates/cli/AGENT.md).
 
-## 从源码构建
+## Build from source
 
-需要 Rust 1.95.0（`rust-toolchain.toml` 已固定）和 Python 3。字体与翻译等大型构建输入放在外置盘上，用环境变量 `WEAVE_DEV_VOLUME` 指向它的挂载点：
+You need Rust 1.95.0 (pinned in `rust-toolchain.toml`) and Python 3. Large build inputs such as fonts and translations live on an external volume; point `WEAVE_DEV_VOLUME` at its mount point:
 
 ```sh
 export WEAVE_DEV_VOLUME=/Volumes/MyDrive
@@ -118,42 +135,44 @@ python3 scripts/prepare-i18n.py
 python3 scripts/cargo.py run --locked --offline
 ```
 
-构建输出写到 `$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/target`。只想试命令行，不需要准备字体：
+Build output goes to `$WEAVE_DEV_VOLUME/DevCache/WeaveOffice/target`. To try just the command line, no font preparation is needed:
 
 ```sh
 cargo run -p weave-cli --example weave -- help
 cargo test -p weave-cli
 ```
 
-打包 macOS `.app` 见[打包说明](packaging/README.md)，字体输入见[字体说明](docs/fonts.md)。
+For a macOS `.app` see the [packaging notes](packaging/README.md); for font inputs see [fonts](docs/fonts.md).
 
-## 项目结构
+## Project layout
 
 ```
-src/                  宿主：窗口、文件标签、功能区、弹窗、自动保存与恢复、编辑器适配
+src/                  Host: window, file tabs, ribbon, dialogs, autosave and recovery, editor adapters
 crates/
-  workspace/          文件类型、标签、未保存状态与保存顺序
-  ribbon/             宿主绘制的统一功能区
-  font-assets/        共享的开放字体
-  system-fonts/       系统字体只扫描一次
-  pdf-backend/        PDF 引擎适配
-  text-editor/        Markdown 与代码编辑器
-  rich-editor/        富文本（HTML）编辑器
-  cli/                命令行 weave-office <动词>
-vendor/               四个上游编辑器的固定快照（文字、表格、演示、PDF）
-integration/          早期集成实验，仅作参考
-packaging/ scripts/   打包与构建脚本
-tests/                宿主回归测试
+  workspace/          File kinds, tabs, dirty state and save ordering
+  ribbon/             The unified ribbon drawn by the host
+  font-assets/        Shared open fonts
+  system-fonts/       One system font scan for every editor
+  pdf-backend/        PDF engine adapter
+  text-editor/        Markdown and code editor
+  rich-editor/        Rich-text (HTML) editor
+  cli/                The command line, weave-office <verb>
+vendor/               Pinned snapshots of the four upstream editors
+integration/          Early integration experiments, kept for reference
+packaging/ scripts/   Packaging and build scripts
+tests/                Host regression tests
 ```
 
-## 文档
+## Documentation
 
-- [产品目标与实施规划](PLAN.md)
-- [验收记录](docs/acceptance.md)：自动测试、实际操作验证与剩余工作
-- [命令行](docs/cli.md) · [PDF 编辑能力](docs/pdf-capabilities.md) · [字体](docs/fonts.md) · [界面语言](docs/i18n.md)
-- [上游项目、固定版本与接手说明](vendor/README.md)
-- [应用图标](assets/app-icon/README.md) · [打包说明](packaging/README.md)
+Most project docs are currently in Chinese.
 
-## 致谢与许可
+- [Product goals and plan](PLAN.md)
+- [Acceptance log](docs/acceptance.md): automated tests, hands-on checks and remaining work
+- [Command line](docs/cli.md) · [PDF capabilities](docs/pdf-capabilities.md) · [Fonts](docs/fonts.md) · [UI languages](docs/i18n.md)
+- [Upstream projects, pinned versions and hand-off notes](vendor/README.md)
+- [App icon](assets/app-icon/README.md) · [Packaging](packaging/README.md)
 
-四种办公文档的编辑能力来自 [WordCraft](https://github.com/storytold/wordcraft)、[GridCraft](https://github.com/storytold/gridcraft)、[DeckCraft](https://github.com/storytold/deckcraft) 和 [PdfCraft](https://github.com/storytold/pdfcraft)，以固定快照形式放在 `vendor/` 下。上游源码以 MIT OR Apache-2.0 授权，各自的 LICENSE、NOTICE 和素材署名保留在对应目录中；Weave Office 使用自己的应用名称和图标。命令行的设计思路参考了 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)，不包含其代码。
+## Acknowledgements and license
+
+The four office editors are built on [WordCraft](https://github.com/storytold/wordcraft), [GridCraft](https://github.com/storytold/gridcraft), [DeckCraft](https://github.com/storytold/deckcraft) and [PdfCraft](https://github.com/storytold/pdfcraft), vendored as pinned snapshots under `vendor/`. The upstream source is licensed MIT OR Apache-2.0, and each upstream's LICENSE, NOTICE and asset attributions are kept in its directory; Weave Office uses its own name and icon. The command line's design draws on ideas from [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) and contains none of its code.
