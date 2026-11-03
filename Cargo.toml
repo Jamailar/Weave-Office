@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
+license = "MIT"
 
 [workspace]
 members = ["crates/workspace", "crates/cli", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon", "crates/text-editor", "crates/rich-editor"]
