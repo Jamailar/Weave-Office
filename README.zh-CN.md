@@ -19,6 +19,7 @@
   <img alt="平台 macOS" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-macOS-lightgrey?logo=apple">
   <img alt="UI egui" src="https://img.shields.io/badge/UI-egui-4b8bbe">
   <img alt="AI 友好的命令行" src="https://img.shields.io/badge/AI%20%E5%8F%8B%E5%A5%BD-CLI%20%2B%20JSON-7c5cff">
+  <a href="LICENSE"><img alt="许可证 MIT" src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-blue"></a>
   <img alt="状态 开发中" src="https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E5%BC%80%E5%8F%91%E4%B8%AD-yellow">
 </p>
 
@@ -173,4 +174,8 @@ tests/                宿主回归测试
 
 ## 致谢与许可
 
+Weave Office 以 [MIT 许可证](LICENSE) 开源。
+
 四种办公文档的编辑能力来自 [WordCraft](https://github.com/storytold/wordcraft)、[GridCraft](https://github.com/storytold/gridcraft)、[DeckCraft](https://github.com/storytold/deckcraft) 和 [PdfCraft](https://github.com/storytold/pdfcraft)，以固定快照形式放在 `vendor/` 下。上游源码以 MIT OR Apache-2.0 授权，各自的 LICENSE、NOTICE 和素材署名保留在对应目录中；Weave Office 使用自己的应用名称和图标。命令行的设计思路参考了 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)，不包含其代码。
+
+感谢 [LINUX DO](https://linux.do) 社区的支持与反馈。

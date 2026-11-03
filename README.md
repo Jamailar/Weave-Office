@@ -19,6 +19,7 @@
   <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple">
   <img alt="UI: egui" src="https://img.shields.io/badge/UI-egui-4b8bbe">
   <img alt="AI-friendly CLI" src="https://img.shields.io/badge/AI--friendly-CLI%20%2B%20JSON-7c5cff">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-yellow">
 </p>
 
@@ -175,4 +176,8 @@ Most project docs are currently in Chinese.
 
 ## Acknowledgements and license
 
+Weave Office is released under the [MIT License](LICENSE).
+
 The four office editors are built on [WordCraft](https://github.com/storytold/wordcraft), [GridCraft](https://github.com/storytold/gridcraft), [DeckCraft](https://github.com/storytold/deckcraft) and [PdfCraft](https://github.com/storytold/pdfcraft), vendored as pinned snapshots under `vendor/`. The upstream source is licensed MIT OR Apache-2.0, and each upstream's LICENSE, NOTICE and asset attributions are kept in its directory; Weave Office uses its own name and icon. The command line's design draws on ideas from [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) and contains none of its code.
+
+Thanks to the [LINUX DO](https://linux.do) community for its support and feedback.
