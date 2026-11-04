@@ -982,6 +982,10 @@ impl WeaveApp {
             .map(|d| d.editor.host_commands())
             .unwrap_or_default();
         self.dispatch_requests(ctx, requests);
+        // 表格确认打开超链接后,地址经 links 队列交给系统浏览器。
+        for url in crate::links::take() {
+            self.open_external_url(ctx, &url);
+        }
     }
     fn dispatch_requests(
         &mut self,
@@ -1048,9 +1052,21 @@ impl WeaveApp {
                     self.preferences = false;
                     self.about = false;
                 }
+                HostRequest::OpenUrl(url) => self.open_external_url(ctx, &url),
                 HostRequest::Unsupported { id, .. } => {
                     self.error = Some(format!("此操作尚未接入统一工作区：{id}"))
                 }
+            }
+        }
+    }
+    /// 用系统默认浏览器(或邮件程序)打开网页、邮件地址;其他协议一律不打开。
+    fn open_external_url(&mut self, ctx: &egui::Context, url: &str) {
+        match crate::links::external(url) {
+            Some(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
+            None => {
+                self.error = Some(format!(
+                    "只能打开网页（http、https）和邮件（mailto）链接：{url}"
+                ))
             }
         }
     }
@@ -2745,6 +2761,65 @@ mod tests {
         let restored: Settings =
             serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
         assert_eq!(restored.language, UiLanguage::En);
+    }
+
+    #[test]
+    fn confirmed_links_open_in_the_system_browser() {
+        use crate::editor::Editor;
+        fn opened(ctx: &egui::Context) -> Vec<String> {
+            ctx.output_mut(|o| {
+                std::mem::take(&mut o.commands)
+                    .into_iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::OpenUrl(open) => Some(open.url),
+                        _ => None,
+                    })
+                    .collect()
+            })
+        }
+        let mut host = Host::default();
+        let sheet = host.new_document(DocumentKind::Spreadsheet).unwrap();
+        let pdf = host.new_document(DocumentKind::Pdf).unwrap();
+        let mut app = test_app(host);
+        app.mounted = None;
+        let ctx = egui::Context::default();
+
+        // 表格:确认框的"确定"运行 link.open。
+        app.host.workspace.activate(sheet);
+        app.host
+            .active_mut()
+            .unwrap()
+            .editor
+            .command("link.open", json!({"url":"https://example.com/sheet"}))
+            .unwrap();
+        app.handle_editor_requests(&ctx);
+        assert_eq!(opened(&ctx), ["https://example.com/sheet"]);
+        assert_eq!(app.error, None);
+
+        // PDF:确认打开文档里的链接后发出 system.open_url。
+        app.host.workspace.activate(pdf);
+        let Some(Editor::Pdf(viewer)) = app.host.active_mut().map(|d| &mut d.editor) else {
+            panic!("PDF")
+        };
+        viewer.request_document_url(
+            "https://example.com/pdf",
+            pdfcraft_ui_egui::LinkOrigin::Link,
+        );
+        viewer.resolve_pending_link(true);
+        app.handle_editor_requests(&ctx);
+        assert_eq!(opened(&ctx), ["https://example.com/pdf"]);
+        assert_eq!(app.error, None);
+
+        // 宿主不把其他协议交给系统。
+        app.dispatch_requests(
+            &ctx,
+            vec![(
+                "system.open_url".into(),
+                json!({"url":"file:///etc/passwd"}),
+            )],
+        );
+        assert!(opened(&ctx).is_empty());
+        assert!(app.error.is_some());
     }
 
     #[test]
