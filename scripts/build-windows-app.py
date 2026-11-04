@@ -80,6 +80,8 @@ def main() -> None:
         "WEAVE_DOCUMENT_FONTS_REQUIRED": "1",
         "CRAFT_I18N_DIR": str(inputs / "craft-i18n"),
         "CRAFT_I18N_REQUIRED": "1",
+        # The app icon and version info must be in the executable (build.rs, via llvm-rc).
+        "WEAVE_REQUIRE_WINRES": "1",
         "XWIN_ARCH": ",".join({"x64": "x86_64", "arm64": "aarch64", "x86": "x86"}[arch]
                               for arch in args.arch),
         "RUSTFLAGS": (env.get("RUSTFLAGS", "") + " -C target-feature=+crt-static").strip(),
@@ -115,7 +117,7 @@ def main() -> None:
             installer = output / f"WeaveOffice-{version}-windows-{arch}-setup.exe"
             package_command = [
                 "makensis", f"-DVERSION={version}", f"-DARCH={arch}", f"-DSTAGE={stage}",
-                f"-DOUTPUT={installer}",
+                f"-DOUTPUT={installer}", f"-DICON={ROOT / 'assets/app-icon/weave-office.ico'}",
             ]
             if signing:
                 package_command.append("-DSIGN_COMMAND=" + shlex.join([signing["cmd"], *signing["args"]]))

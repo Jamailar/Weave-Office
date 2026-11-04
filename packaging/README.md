@@ -41,7 +41,15 @@ python3 scripts/build-windows-app.py \
 Use `--arch x64`, `--arch arm64` or `--arch x86` to build a subset, and `--offline`
 after the dependencies have been fetched. The script verifies the font and catalog
 inputs, statically links the MSVC runtime, verifies each application's PE machine
-type, and packages the executable and attribution. Installers install for the
+type, and packages the executable and attribution. Release executables use the
+Windows GUI subsystem, so starting the app opens no console window; command-line
+verbs (`weave-office help`) still write to a redirected or piped output, or to the
+console they were typed into. `build.rs` embeds `assets/app-icon/weave-office.ico`
+and version information with `llvm-rc` (`WEAVE_REQUIRE_WINRES=1` makes a missing
+resource compiler an error), and the same icon is used by the installer, the
+uninstaller and the Start menu shortcut. Regenerate the `.ico` and the 256 px window
+icon from the approved master with `python3 scripts/generate_windows_icon.py`
+(requires Pillow). Installers install for the
 current user, add a Start menu shortcut and register an uninstaller without
 requiring administrator privileges or changing file associations. Existing user
 documents and settings are preserved on uninstall. Use a dedicated `XWIN_CACHE_DIR`

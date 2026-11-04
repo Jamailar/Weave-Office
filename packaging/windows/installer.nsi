@@ -18,6 +18,8 @@ VIAddVersionKey "FileDescription" "Weave Office ${ARCH} installer"
 VIAddVersionKey "FileVersion" "${VERSION}"
 
 !define MUI_ABORTWARNING
+!define MUI_ICON "${ICON}"
+!define MUI_UNICON "${ICON}"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -47,7 +49,7 @@ Section "Weave Office"
   File /r "${STAGE}/licenses/*"
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\Weave Office.lnk" "$INSTDIR\weave-office.exe"
+  CreateShortcut "$SMPROGRAMS\Weave Office.lnk" "$INSTDIR\weave-office.exe" "" "$INSTDIR\weave-office.exe" 0
   WriteRegStr HKCU "Software\WeaveOffice" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\WeaveOffice" "DisplayName" "Weave Office (${ARCH})"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\WeaveOffice" "DisplayVersion" "${VERSION}"
