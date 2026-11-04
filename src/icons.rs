@@ -139,13 +139,18 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             c.line((10.0, 9.0), (10.0, 15.0));
         }
         Undo | Redo => {
+            // An arrow turning back: the head points left (right for redo) and sits on the tail's
+            // end, the tail runs across and turns down. The head used to point the wrong way and
+            // float above the tail, which read as a stray chevron beside a hook; the head and the
+            // tail are also kept short, so the icon stays light at 28 pt.
             let flip = |x: f32| if icon == Redo { 20.0 - x } else { x };
-            c.path(&[(flip(4.0), 9.0), (flip(7.0), 6.0), (flip(4.0), 3.0)]);
+            c.path(&[(flip(7.7), 12.7), (flip(3.5), 8.5), (flip(7.7), 4.3)]);
             c.path(&[
-                (flip(4.0), 9.0),
-                (flip(11.0), 9.0),
-                (flip(14.8), 11.0),
-                (flip(15.0), 16.0),
+                (flip(3.5), 8.5),
+                (flip(12.6), 8.5),
+                (flip(15.4), 10.2),
+                (flip(16.5), 12.7),
+                (flip(16.5), 16.2),
             ]);
         }
         Print => {
