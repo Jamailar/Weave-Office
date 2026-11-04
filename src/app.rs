@@ -1055,7 +1055,15 @@ impl WeaveApp {
         }
     }
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.input_mut(|input| consume_exact_shortcut(input, egui::Modifiers::COMMAND, Key::Q)) {
+        // WPS 在 Windows 和 Linux 上用 Alt+F4 退出。macOS 的退出键是 ⌘Q，Option+F4 不退出。
+        let alt_f4_quits = !ctx.os().is_mac();
+        let quit = ctx.input_mut(|input| {
+            let alt_f4 =
+                alt_f4_quits && consume_exact_shortcut(input, egui::Modifiers::ALT, Key::F4);
+            let command_q = consume_exact_shortcut(input, egui::Modifiers::COMMAND, Key::Q);
+            alt_f4 || command_q
+        });
+        if quit {
             self.request_quit(ctx);
             return;
         }
@@ -1064,21 +1072,20 @@ impl WeaveApp {
             || ctx.memory(|memory| memory.top_modal_layer().is_some());
         let mut pressed = Vec::new();
         ctx.input_mut(|i| {
-            for (key, shift, action) in [
-                (Key::O, false, 0),
-                (Key::N, false, 1),
-                (Key::S, true, 3),
-                (Key::S, false, 2),
-                (Key::W, false, 4),
-                (Key::Comma, false, 6),
-                (Key::P, false, 9),
+            // WPS 文件界面：F12 另存为，Shift+F12 保存，Ctrl/⌘+F4 关闭当前文档。
+            for (modifiers, key, action) in [
+                (egui::Modifiers::COMMAND, Key::O, 0),
+                (egui::Modifiers::COMMAND, Key::N, 1),
+                (egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::S, 3),
+                (egui::Modifiers::COMMAND, Key::S, 2),
+                (egui::Modifiers::NONE, Key::F12, 3),
+                (egui::Modifiers::SHIFT, Key::F12, 2),
+                (egui::Modifiers::COMMAND, Key::W, 4),
+                (egui::Modifiers::COMMAND, Key::F4, 4),
+                (egui::Modifiers::COMMAND, Key::Comma, 6),
+                (egui::Modifiers::COMMAND, Key::P, 9),
             ] {
-                let mods = if shift {
-                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT
-                } else {
-                    egui::Modifiers::COMMAND
-                };
-                if consume_exact_shortcut(i, mods, key) {
+                if consume_exact_shortcut(i, modifiers, key) {
                     pressed.push(action);
                 }
             }
@@ -2106,6 +2113,100 @@ mod tests {
         ctx.end_pass().textures_delta.clear();
     }
 
+    #[test]
+    fn wps_file_shortcuts_save_save_as_and_close_without_taking_editor_chords() {
+        let mut host = Host::default();
+        let id = host.new_document(DocumentKind::Text).unwrap();
+        let mut app = test_app(host);
+        let ctx = egui::Context::default();
+        let word_open = shortcut_event(Key::F12, egui::Modifiers::COMMAND);
+        let word_print =
+            shortcut_event(Key::F12, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+        let shifted_close =
+            shortcut_event(Key::F4, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+        ctx.begin_pass(egui::RawInput {
+            events: vec![
+                shortcut_event(Key::F12, egui::Modifiers::NONE),
+                shortcut_event(Key::F12, egui::Modifiers::SHIFT),
+                word_open.clone(),
+                word_print.clone(),
+                shifted_close.clone(),
+            ],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        assert!(matches!(app.actions.pop_front(), Some(Action::Save(tab, true)) if tab == id));
+        assert!(matches!(app.actions.pop_front(), Some(Action::Save(tab, false)) if tab == id));
+        assert!(app.actions.is_empty());
+        assert!(app.close_plan.is_none());
+        let kept: Vec<_> = ctx
+            .input(|input| input.events.clone())
+            .into_iter()
+            .map(|event| match event {
+                egui::Event::Key { key, modifiers, .. } => (key, modifiers),
+                other => panic!("unexpected event {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            kept,
+            vec![
+                (Key::F12, egui::Modifiers::COMMAND),
+                (Key::F12, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT),
+                (Key::F4, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT),
+            ]
+        );
+        ctx.end_pass().textures_delta.clear();
+
+        ctx.set_os(egui::os::OperatingSystem::Mac);
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(Key::F4, egui::Modifiers::ALT)],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        assert!(app.close_plan.is_none(), "Option+F4 does not quit on macOS");
+        assert_eq!(ctx.input(|input| input.events.len()), 1);
+        ctx.end_pass().textures_delta.clear();
+
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(Key::F4, egui::Modifiers::COMMAND)],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        let plan = app.close_plan.as_ref().unwrap();
+        assert!(!plan.quit);
+        assert_eq!(plan.ids, vec![id]);
+        assert!(ctx.input(|input| input.events.is_empty()));
+        ctx.end_pass().textures_delta.clear();
+
+        let mut host = Host::default();
+        let id = host.new_document(DocumentKind::Text).unwrap();
+        let mut app = test_app(host);
+        let ctx = egui::Context::default();
+        ctx.set_os(egui::os::OperatingSystem::Windows);
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(
+                Key::F4,
+                egui::Modifiers::ALT | egui::Modifiers::SHIFT,
+            )],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        assert!(app.close_plan.is_none());
+        assert_eq!(ctx.input(|input| input.events.len()), 1);
+        ctx.end_pass().textures_delta.clear();
+
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(Key::F4, egui::Modifiers::ALT)],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        let plan = app.close_plan.as_ref().unwrap();
+        assert!(plan.quit);
+        assert_eq!(plan.ids, vec![id]);
+        assert!(ctx.input(|input| input.events.is_empty()));
+        ctx.end_pass().textures_delta.clear();
+    }
+
     fn open_editor_modal(editor: &mut crate::editor::Editor) {
         let (command, params) = match editor {
             crate::editor::Editor::Word(_) | crate::editor::Editor::Sheet(_) => {
@@ -2153,6 +2254,9 @@ mod tests {
                 .collect::<Vec<_>>();
             events.extend([
                 shortcut_event(Key::S, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT),
+                shortcut_event(Key::F12, egui::Modifiers::NONE),
+                shortcut_event(Key::F12, egui::Modifiers::SHIFT),
+                shortcut_event(Key::F4, egui::Modifiers::COMMAND),
                 shortcut_event(Key::Tab, egui::Modifiers::CTRL | egui::Modifiers::SHIFT),
                 shortcut_event(Key::Tab, egui::Modifiers::CTRL),
                 copy.clone(),
