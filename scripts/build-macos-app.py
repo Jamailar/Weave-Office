@@ -44,6 +44,7 @@ def package_version(metadata: dict) -> str:
 
 def copy_licenses(destination: Path) -> None:
     destination.mkdir(parents=True)
+    shutil.copy2(ROOT / "LICENSE", destination / "WEAVE-OFFICE-LICENSE.txt")
     shutil.copy2(ROOT / "vendor" / "README.md", destination / "VENDOR-VERSIONS.md")
     for vendor in ("wordcraft", "gridcraft", "deckcraft", "pdfcraft"):
         source_root = ROOT / "vendor" / vendor
