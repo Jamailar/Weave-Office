@@ -78,7 +78,7 @@ All four run in a single process and share one host:
 
 ### Markdown with Obsidian-style live preview
 
-- **Live preview:** headings, bold, links and more render in place; markers such as `#`, `**` and `[]()` appear only on the line you are editing. Source and reading views too.
+- **Live preview:** headings, bold, links and more render in place; markers such as `#`, `**` and `[]()` appear only on the line you are editing. Markdown tables render with borders, aligned columns and wrapped cells; click a table to edit its source. Source and reading views too.
 - **Notes features:** task checkboxes, `[[wikilinks]]`, backlinks, tags and outline.
 - **Sidebar:** file tree, full-text search, outline, tags and backlinks.
 - **Command palette** (⇧⌘P) and **quick open** (⌥⌘O).
