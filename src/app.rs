@@ -1055,7 +1055,7 @@ impl WeaveApp {
         }
     }
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        // WPS 在 Windows 和 Linux 上用 Alt+F4 退出。macOS 的退出键是 ⌘Q，Option+F4 不退出。
+        // Windows 和 Linux 上 Alt+F4 退出。macOS 的退出键是 ⌘Q，Option+F4 不退出。
         let alt_f4_quits = !ctx.os().is_mac();
         let quit = ctx.input_mut(|input| {
             let alt_f4 =
@@ -1072,7 +1072,7 @@ impl WeaveApp {
             || ctx.memory(|memory| memory.top_modal_layer().is_some());
         let mut pressed = Vec::new();
         ctx.input_mut(|i| {
-            // WPS 文件界面：F12 另存为，Shift+F12 保存，Ctrl/⌘+F4 关闭当前文档。
+            // Office 风格文件快捷键：F12 另存为，Shift+F12 保存，Ctrl/⌘+F4 关闭当前文档。
             for (modifiers, key, action) in [
                 (egui::Modifiers::COMMAND, Key::O, 0),
                 (egui::Modifiers::COMMAND, Key::N, 1),
@@ -2114,7 +2114,7 @@ mod tests {
     }
 
     #[test]
-    fn wps_file_shortcuts_save_save_as_and_close_without_taking_editor_chords() {
+    fn office_file_shortcuts_save_save_as_and_close_without_taking_editor_chords() {
         let mut host = Host::default();
         let id = host.new_document(DocumentKind::Text).unwrap();
         let mut app = test_app(host);
