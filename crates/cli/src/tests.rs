@@ -454,7 +454,11 @@ fn spreadsheet_paths_set_add_and_remove() {
     assert_eq!(a1["style"]["align"]["h"], "Center");
     ok(d, &["set", "s.xlsx", "/Sheet1/C1", "value=007"]);
     assert_eq!(ok(d, &["get", "s.xlsx", "/Sheet1/C1"])["text"], "7");
-    ok(d, &["set", "s.xlsx", "/Sheet1", "name=Sales"]);
+    // Renaming and colouring in one call: the colour must not look up the old name.
+    ok(
+        d,
+        &["set", "s.xlsx", "/Sheet1", "name=Sales", "tabColor=00B050"],
+    );
     assert_eq!(
         ok(d, &["add", "s.xlsx", "/", "--type", "sheet", "name=Notes"])["path"],
         "/Notes"
@@ -604,4 +608,39 @@ fn batches_mix_path_edits_and_commands_and_stay_atomic() {
     );
     assert_eq!(e["details"]["results"][1]["error"]["code"], "not_found");
     assert_eq!(std::fs::read(d.join("r.docx")).unwrap(), before);
+}
+
+#[test]
+fn document_text_goes_in_as_typed() {
+    // AutoCorrect would capitalise "a" and turn "(c)" into a symbol once the next paragraph starts.
+    let d = tempfile::tempdir().unwrap();
+    let d = d.path();
+    ok(d, &["create", "t.docx"]);
+    ok(
+        d,
+        &["add", "t.docx", "/body", "--type", "paragraph", "text=a"],
+    );
+    ok(
+        d,
+        &[
+            "add",
+            "t.docx",
+            "/body",
+            "--type",
+            "paragraph",
+            "text=teh (c) b",
+        ],
+    );
+    ok(
+        d,
+        &["add", "t.docx", "/body", "--type", "paragraph", "text=end"],
+    );
+    let text = ok(d, &["view", "t.docx", "text"]).to_string();
+    assert!(text.contains("teh (c) b"), "{text}");
+    let first = ok(d, &["get", "t.docx", "/body/p[1]"]);
+    let second = ok(d, &["get", "t.docx", "/body/p[2]"]);
+    assert!(
+        [first["text"].clone(), second["text"].clone()].contains(&json!("a")),
+        "{first:#} {second:#}"
+    );
 }

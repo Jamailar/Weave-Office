@@ -108,6 +108,15 @@ fn engine(e: impl std::fmt::Display) -> CliError {
     CliError::new("engine", e.to_string())
 }
 
+/// Text from the command line goes in as given: AutoCorrect off for this session, so Enter
+/// after "a" leaves "a" (not "A") and "(c)" stays "(c)". Only this headless session's
+/// options change; the app's saved preferences are untouched.
+fn literal_text(s: &mut wordcraft_engine::Session) -> Result<(), CliError> {
+    s.run("tools.autocorrect", &json!({"enabled": false}))
+        .map(drop)
+        .map_err(engine)
+}
+
 fn word_region() -> wordcraft_engine::Region {
     wordcraft_engine::Region::from_locale_vars(|name| std::env::var(name).ok(), || None)
 }
@@ -128,6 +137,7 @@ impl Doc {
             Kind::Word => {
                 let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
                 s.system_region = word_region();
+                literal_text(&mut s)?;
                 if let Some(t) = template {
                     // `file.new` opens beside the first document; keep only the new one.
                     let first = s.document_id();
@@ -179,6 +189,7 @@ impl Doc {
                         .map_err(|e| password_or(e, password))?;
                 let mut s = wordcraft_engine::Session::new(doc);
                 s.system_region = word_region();
+                literal_text(&mut s)?;
                 s.path = Some(path.into());
                 if encrypted {
                     s.password = password.map(wordcraft_engine::io::Password::new);
