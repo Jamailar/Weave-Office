@@ -147,6 +147,16 @@ pub fn tr(text: &str) -> &str {
         "代码与数据" => "Code & data",
         "纯文本" => "Plain Text",
         "富文本" => "Rich Text",
+        "分屏" => "Split",
+        "左右分屏" => "Split Left/Right",
+        "上下分屏" => "Split Top/Bottom",
+        "关闭窗格" => "Close Pane",
+        "在右侧打开" => "Open to the Right",
+        "在下方打开" => "Open Below",
+        "选择文档" => "Choose a Document",
+        "此窗格没有文档" => "This pane has no document",
+        "在此显示 {title}" => "Show {title} here",
+        "在当前窗口拆分查看" => "View documents side by side in this window",
         _ => text,
     }
 }
