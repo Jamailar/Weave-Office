@@ -56,6 +56,8 @@ struct Settings {
     scale: f32,
     theme: String,
     language: UiLanguage,
+    /// Look for new releases at startup and twice a day.
+    auto_update: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -64,6 +66,7 @@ impl Default for Settings {
             scale: 1.0,
             theme: "light".into(),
             language: UiLanguage::default(),
+            auto_update: true,
         }
     }
 }
@@ -88,6 +91,7 @@ pub struct WeaveApp {
     preferences: bool,
     preferences_pane: SettingsPane,
     about: bool,
+    updates: crate::updates::Updates,
     print_dialog: Option<crate::printing::PrintDialog>,
     file_dialogs: VecDeque<PendingFileDialog>,
     allow_exit: bool,
@@ -113,6 +117,7 @@ impl WeaveApp {
             || self.preferences
             || self.error.is_some()
             || self.about
+            || self.updates.dialog
             || self.print_dialog.is_some()
             || !self.file_dialogs.is_empty()
     }
@@ -155,6 +160,7 @@ impl WeaveApp {
             preferences: false,
             preferences_pane: SettingsPane::General,
             about: false,
+            updates: crate::updates::Updates::default(),
             print_dialog: None,
             file_dialogs: VecDeque::new(),
             allow_exit: false,
@@ -182,6 +188,11 @@ impl WeaveApp {
             }
             Err(error) => eprintln!("automatic recovery is off: {error}"),
         }
+    }
+    /// Check for new releases and offer to install them. Off unless the application turns it
+    /// on, like recovery.
+    pub fn enable_updates(&mut self, ctx: &egui::Context) {
+        self.updates.enable(ctx);
     }
     /// Reopen every copy a crashed run left as an unsaved document, then delete that run's
     /// folder once this run holds its own copies of them.
@@ -811,6 +822,7 @@ impl WeaveApp {
         self.new_picker = false;
         self.preferences = false;
         self.about = false;
+        self.updates.dialog = false;
         self.close_plan = Some(ClosePlan {
             ids,
             index: 0,
@@ -883,6 +895,10 @@ impl WeaveApp {
                     self.host.close(id, true);
                 }
                 if plan.quit {
+                    // A downloaded update is installed as the application exits.
+                    if !self.updates.install_on_exit() {
+                        return;
+                    }
                     self.allow_exit = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -1031,6 +1047,7 @@ impl WeaveApp {
                     self.apply_interface_language(ctx, language)
                 }
                 HostRequest::About => self.about = true,
+                HostRequest::CheckForUpdates => self.updates.check_now(),
                 HostRequest::NextTab => self.next_tab(false),
                 HostRequest::PreviousTab => self.next_tab(true),
                 HostRequest::Theme(theme) => self.apply_theme(ctx, theme),
@@ -1051,6 +1068,7 @@ impl WeaveApp {
                     self.new_picker = false;
                     self.preferences = false;
                     self.about = false;
+                    self.updates.close();
                 }
                 HostRequest::OpenUrl(url) => self.open_external_url(ctx, &url),
                 HostRequest::Unsupported { id, .. } => {
@@ -1159,11 +1177,13 @@ impl WeaveApp {
                             .iter()
                             .map(|t| (t.id, t.kind, t.title.clone(), t.is_dirty()))
                             .collect();
+                        let badge = self.updates.badge();
+                        let badge_width = if badge.is_some() { 150.0 } else { 0.0 };
                         if tabs.is_empty() {
                             ui.label(RichText::new("Weave Office").size(13.0));
                             ui.add_space(12.0);
                         } else {
-                            let width = (ui.available_width() - 50.0).max(60.0);
+                            let width = (ui.available_width() - 50.0 - badge_width).max(60.0);
                             let area = egui::ScrollArea::horizontal()
                                 .id_salt("file-tabs")
                                 .max_width(width)
@@ -1341,6 +1361,18 @@ impl WeaveApp {
                         if new_file.clicked() {
                             self.new_picker = !self.new_picker;
                         }
+                        if let Some(badge) = badge {
+                            let clicked = ui
+                                .with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| crate::updates::badge_button(ui, &badge),
+                                )
+                                .inner
+                                .clicked();
+                            if clicked {
+                                self.updates.dialog = true;
+                            }
+                        }
                     });
                 });
                 if close {
@@ -1500,6 +1532,7 @@ impl WeaveApp {
                 self.new_picker = false;
                 self.preferences = false;
                 self.about = false;
+                self.updates.close();
                 self.close_prompt = None;
                 self.close_plan = None;
                 if self
@@ -1529,6 +1562,7 @@ impl WeaveApp {
         if self.preferences {
             let mut open = self.preferences;
             let mut selected_language = self.settings.language;
+            let mut check_updates = false;
             egui::Window::new(tr("设置"))
                 .frame(crate::theme::surface_frame(ctx))
                 .id(egui::Id::unique("weave-settings"))
@@ -1576,6 +1610,23 @@ impl WeaveApp {
                             {
                                 ctx.set_zoom_factor(self.settings.scale);
                             }
+                            if self.updates.available() {
+                                ui.add_space(8.0);
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut self.settings.auto_update, tr("自动检查更新"));
+                                    if ui.button(tr("立即检查")).clicked() {
+                                        check_updates = true;
+                                    }
+                                });
+                                ui.label(
+                                    RichText::new(
+                                        tr("当前版本 {version}")
+                                            .replace("{version}", env!("CARGO_PKG_VERSION")),
+                                    )
+                                    .small()
+                                    .weak(),
+                                );
+                            }
                         }
                         SettingsPane::Language => {
                             ui.horizontal(|ui| {
@@ -1613,8 +1664,14 @@ impl WeaveApp {
             if selected_language != self.settings.language {
                 self.apply_interface_language(ctx, selected_language);
             }
+            if check_updates {
+                self.preferences = false;
+                self.updates.check_now();
+            }
         }
         if self.about {
+            let mut check_updates = false;
+            let updates = self.updates.available();
             egui::Window::new(tr("关于 Weave Office"))
                 .frame(crate::theme::surface_frame(ctx))
                 .open(&mut self.about)
@@ -1627,7 +1684,25 @@ impl WeaveApp {
                     ui.label(tr(
                         "编辑引擎基于 WordCraft、GridCraft、DeckCraft 和 PdfCraft。",
                     ));
+                    if updates {
+                        ui.add_space(6.0);
+                        check_updates = ui.button(tr("检查更新…")).clicked();
+                    }
                 });
+            if check_updates {
+                self.about = false;
+                self.updates.check_now();
+            }
+        }
+        if self.error.is_none() && !self.restore_prompt {
+            match self.updates.show(ctx) {
+                Some(crate::updates::Request::Restart) => {
+                    self.updates.restart = true;
+                    self.request_quit(ctx);
+                }
+                Some(crate::updates::Request::OpenPage(url)) => self.open_external_url(ctx, &url),
+                None => {}
+            }
         }
         if self.restore_prompt && self.error.is_none() {
             let titles: Vec<String> = self
@@ -1865,6 +1940,12 @@ impl eframe::App for WeaveApp {
             crate::theme::style(&ctx).visuals.panel_fill,
         );
         self.advance_close(&ctx);
+        if self.close_plan.is_none() && !self.allow_exit {
+            // A cancelled quit also cancels the restart into the update; it stays ready.
+            self.updates.restart = false;
+        }
+        let quiet = self.blocking_dialog_open() || self.editor_blocks_host_navigation();
+        self.updates.tick(&ctx, self.settings.auto_update, quiet);
         let bar = self.shell(ui);
         #[cfg(target_os = "macos")]
         frame.set_traffic_lights_position(&ctx, bar.y_range(), bar.left() + 12.0);
@@ -2451,7 +2532,7 @@ mod tests {
             source.save_as(source_id, path).unwrap();
         }
         let incoming = incoming.map(|path| std::fs::canonicalize(path).unwrap());
-        for dialog in ["preferences", "about", "error", "print"] {
+        for dialog in ["preferences", "about", "update", "error", "print"] {
             let mut host = Host::default();
             let original = host.new_document(DocumentKind::Text).unwrap();
             host.active_mut()
@@ -2464,6 +2545,7 @@ mod tests {
             match dialog {
                 "preferences" => app.preferences = true,
                 "about" => app.about = true,
+                "update" => app.updates.dialog = true,
                 "error" => app.error = Some("尚未关闭的错误".into()),
                 "print" => {
                     app.print_dialog = Some(crate::printing::PrintDialog::new(
@@ -2493,6 +2575,7 @@ mod tests {
             assert!(app.host.dirty(original));
             app.preferences = false;
             app.about = false;
+            app.updates.dialog = false;
             app.error = None;
             app.print_dialog = None;
             for path in &incoming {
@@ -2750,6 +2833,7 @@ mod tests {
         let legacy: Settings =
             serde_json::from_value(json!({"theme":"dark", "scale":1.25})).unwrap();
         assert_eq!(legacy.language, UiLanguage::ZhHans);
+        assert!(legacy.auto_update, "update checks are on for existing settings files");
         let invalid: Settings =
             serde_json::from_value(json!({"theme":"dark", "language":"fr"})).unwrap();
         assert_eq!(invalid.language, UiLanguage::ZhHans);
@@ -3250,6 +3334,7 @@ mod tests {
             preferences: false,
             preferences_pane: SettingsPane::General,
             about: false,
+            updates: crate::updates::Updates::default(),
             print_dialog: None,
             file_dialogs: VecDeque::new(),
             allow_exit: false,

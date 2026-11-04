@@ -86,6 +86,7 @@ fn main() -> eframe::Result {
                 app.startup_frames = Some(3);
             } else {
                 app.enable_recovery();
+                app.enable_updates(&cc.egui_ctx);
             }
             #[cfg(target_os = "macos")]
             {

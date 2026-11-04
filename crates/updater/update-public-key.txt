@@ -1,0 +1,5 @@
+# Ed25519 public keys that sign release checksums (SHA256SUMS.txt.sig), one 64-digit hex key
+# per line. Create the key pair with:
+#   cargo run -p weave-updater --example release-signing -- keygen <private-key-file>
+# Keep the private key out of the repository. With no key here, update notices link to the
+# release page instead of installing.

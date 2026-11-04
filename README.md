@@ -123,6 +123,10 @@ weave-office help agent      # prints the full guide written for AI agents
 
 Full reference: [docs/cli.md](docs/cli.md) (Chinese); the agent guide is [crates/cli/AGENT.md](crates/cli/AGENT.md).
 
+### Automatic updates
+
+The Windows and macOS apps check GitHub Releases for new versions. When one is out you get a notice, click **Update** to download it in the background, then **Restart Now** to finish; unsaved documents are offered for saving first. Downloads are installed only if they match release checksums signed with the project's Ed25519 key. Details: [docs/updates.md](docs/updates.md) (Chinese).
+
 ## Build from source
 
 You need Rust 1.95.0 (pinned in `rust-toolchain.toml`) and Python 3. Large build inputs such as fonts and translations live on an external volume; point `WEAVE_DEV_VOLUME` at its mount point:
@@ -158,6 +162,7 @@ crates/
   text-editor/        Markdown and code editor
   rich-editor/        Rich-text (HTML) editor
   cli/                The command line, weave-office <verb>
+  updater/            Update checks, signed downloads and in-place install
 vendor/               Pinned snapshots of the four upstream editors
 integration/          Early integration experiments, kept for reference
 packaging/ scripts/   Packaging and build scripts
@@ -170,7 +175,7 @@ Most project docs are currently in Chinese.
 
 - [Product goals and plan](PLAN.md)
 - [Acceptance log](docs/acceptance.md): automated tests, hands-on checks and remaining work
-- [Command line](docs/cli.md) · [PDF capabilities](docs/pdf-capabilities.md) · [Fonts](docs/fonts.md) · [UI languages](docs/i18n.md)
+- [Command line](docs/cli.md) · [PDF capabilities](docs/pdf-capabilities.md) · [Fonts](docs/fonts.md) · [UI languages](docs/i18n.md) · [Automatic updates](docs/updates.md)
 - [Upstream projects, pinned versions and hand-off notes](vendor/README.md)
 - [App icon](assets/app-icon/README.md) · [Packaging](packaging/README.md)
 

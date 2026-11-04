@@ -70,6 +70,14 @@ fn draw_toolbar(
         );
         menu_item(ui, &mut commands, "设置", "⌘,", "file.options", true);
         menu_item(ui, &mut commands, "关于", "", "app.about", true);
+        menu_item(
+            ui,
+            &mut commands,
+            "检查更新…",
+            "",
+            "app.checkForUpdates",
+            true,
+        );
         ui.separator();
         menu_item(ui, &mut commands, "退出", "⌘Q", "app.quit", true);
     });

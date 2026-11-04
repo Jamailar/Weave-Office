@@ -69,7 +69,12 @@ This also supports a private SSH signing relay while credentials remain on the M
 Before publishing, run the existing workspace tests, check each executable's
 architecture and dependencies, verify the DMGs, and smoke-test installation,
 launch and uninstall on available runtimes. Document untested architectures and
-OS versions in the release notes. Include `SHA256SUMS.txt` for the five installers.
+OS versions in the release notes. Include `SHA256SUMS.txt` for the five installers and its
+signature `SHA256SUMS.txt.sig`, made with
+`cargo run -p weave-updater --example release-signing -- sign <private-key> SHA256SUMS.txt`:
+installed copies only install an update whose checksums carry that signature. Keep the
+`vX.Y.Z` tags and installer names unchanged; automatic updates look for them. See
+[automatic updates](../docs/updates.md) for the one-time key setup.
 The default macOS build is ad-hoc signed and not notarized; Windows installers
 are unsigned unless a signing command is supplied. Windows packaging requires
 Python 3.11 or newer for `tomllib`.
