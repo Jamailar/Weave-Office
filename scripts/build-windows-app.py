@@ -103,6 +103,8 @@ def main() -> None:
         subprocess.run(command, cwd=ROOT, env=build_env, check=True)
         executable = target_dir / triple / "release" / "weave-office.exe"
         verify_pe(executable, machine)
+        # Every load-time import must exist on every supported Windows, or the app cannot start.
+        runpy.run_path(str(ROOT / "scripts" / "check-windows-imports.py"))["verify"](executable)
         if signing:
             subprocess.run([signing["cmd"], *[arg.replace("%1", str(executable))
                                              for arg in signing["args"]]], check=True)

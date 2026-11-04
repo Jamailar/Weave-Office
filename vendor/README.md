@@ -8,6 +8,9 @@ Pinned snapshots used by Weave Office. Original licenses, notices and asset attr
 | GridCraft | https://github.com/storytold/gridcraft | a85b1aea3a8a3369581a749d8da041e4db014504 |
 | DeckCraft | https://github.com/storytold/deckcraft | 82573331a8f2b87ccb536b9b66d55b90295f2111 |
 | PdfCraft | https://github.com/storytold/pdfcraft | eea00a6186546762d11d857666249672bff3fcad |
+| winprint (Windows printing) | https://github.com/storytold/winprint.rs | 5f80b9baf6b58937c401656634e42d33f00ddf49 |
+
+`vendor/winprint/` (BSD-3-Clause) loads optional Windows print components at run time so the app starts without them; see its README.
 
 Upstream source licenses are MIT OR Apache-2.0; individual third-party assets and dependencies retain their respective licenses. ArtCraft branding is not used as Weave Office branding or bundled in its application resources.
 
