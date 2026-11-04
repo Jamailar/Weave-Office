@@ -61,6 +61,10 @@ fn main() -> eframe::Result {
         Ok(icon) => viewport.with_icon(icon),
         Err(_) => viewport,
     };
+    // With no icon set, eframe puts its own default (egui) logo in the Dock at startup via
+    // `setApplicationIconImage`. An empty icon tells eframe to leave the bundle's .icns alone.
+    #[cfg(target_os = "macos")]
+    let viewport = viewport.with_icon(eframe::egui::IconData::default());
     let options = eframe::NativeOptions {
         viewport,
         renderer: eframe::Renderer::Glow,
