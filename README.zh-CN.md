@@ -56,10 +56,10 @@
 | 演示 | `.pptx` `.pptm` `.ppt` `.odp` | `.pptx` | 基于 DeckCraft 引擎 |
 | PDF | `.pdf` | `.pdf` | 基于 PdfCraft 引擎 |
 | Markdown | `.md` `.markdown` `.mdx` 等 | `.md` | 自研（`crates/text-editor`） |
-| 纯文本与代码 | 20 多种语言，以及内容是文本的未知扩展名 | `.txt` `.json` `.yaml` `.py` `.js` `.sh` `.sql` … | 自研（`crates/text-editor`） |
+| 纯文本与代码 | 20 多种语言，以及内容是文本的未知扩展名 | `.txt` `.json` `.yaml` `.toml` `.xml` `.sql` `.sh` `.py` `.js` `.ts` `.css` `.go` `.rs` | 自研（`crates/text-editor`） |
 | 富文本（HTML） | `.html` `.htm` `.xhtml` | `.html` | 自研（`crates/rich-editor`），开发中 |
 
-点击标签栏的 **＋** 打开新建面板，按「Office 文档」「文本与代码」「富文本」三组列出所有可新建的格式。
+点击标签栏的 **＋** 打开新建面板，分三组列出所有可新建的格式：「Office 文档」（文字、演示、表格、PDF）、「文本与网页」（Markdown、纯文本、富文本）和「代码与数据」（JSON、YAML、TOML、XML、SQL、Shell、Python、JavaScript、TypeScript、CSS、Go、Rust）。面板里的每种格式都能编辑，并按原格式保存。
 
 ### 四合一办公：文字、表格、演示、PDF
 

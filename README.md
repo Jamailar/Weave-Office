@@ -56,10 +56,10 @@ Most of us bounce between a word processor, a spreadsheet, a slide tool, a PDF r
 | Presentations | `.pptx` `.pptm` `.ppt` `.odp` | `.pptx` | DeckCraft engine |
 | PDF | `.pdf` | `.pdf` | PdfCraft engine |
 | Markdown | `.md` `.markdown` `.mdx` and more | `.md` | Built in (`crates/text-editor`) |
-| Plain text and code | 20+ languages, plus unknown extensions whose content is text | `.txt` `.json` `.yaml` `.py` `.js` `.sh` `.sql` … | Built in (`crates/text-editor`) |
+| Plain text and code | 20+ languages, plus unknown extensions whose content is text | `.txt` `.json` `.yaml` `.toml` `.xml` `.sql` `.sh` `.py` `.js` `.ts` `.css` `.go` `.rs` | Built in (`crates/text-editor`) |
 | Rich text (HTML) | `.html` `.htm` `.xhtml` | `.html` | Built in (`crates/rich-editor`), in development |
 
-The **＋** button on the tab bar opens the New panel, grouped into Office documents, Text and code, and Rich text.
+The **＋** button on the tab bar opens the New panel, grouped into Office documents (documents, presentations, spreadsheets, PDF), Text & web (Markdown, plain text, rich text) and Code & data (JSON, YAML, TOML, XML, SQL, Shell, Python, JavaScript, TypeScript, CSS, Go, Rust). Every format in it can be edited and saved back in the same format.
 
 ### Four office editors in one: documents, spreadsheets, slides, PDF
 

@@ -256,6 +256,12 @@ pub fn text_document(painter: &Painter, rect: Rect, extension: &str) {
         "js" => ((168, 140, 18), (232, 214, 120), "JS"),
         "sh" => ((44, 120, 72), (140, 202, 160), "SH"),
         "sql" => ((24, 128, 140), (124, 200, 208), "SQL"),
+        "toml" => ((140, 92, 58), (214, 180, 150), "TOML"),
+        "xml" => ((104, 118, 52), (186, 198, 138), "XML"),
+        "ts" => ((40, 116, 196), (146, 188, 236), "TS"),
+        "css" => ((68, 82, 186), (156, 166, 232), "CSS"),
+        "go" => ((22, 140, 196), (132, 202, 232), "GO"),
+        "rs" => ((176, 74, 44), (232, 162, 136), "RS"),
         _ => return document(painter, rect, DocumentKind::PlainText),
     };
     let rgb = |(r, g, b): (u8, u8, u8)| Color32::from_rgb(r, g, b);
@@ -279,7 +285,10 @@ pub fn text_document(painter: &Painter, rect: Rect, extension: &str) {
         c.p(10.25, 12.2),
         egui::Align2::CENTER_CENTER,
         tag,
-        egui::FontId::proportional((rect.height() * 0.24).max(6.0)),
+        // Four-letter tags shrink so they stay inside the page.
+        egui::FontId::proportional(
+            (rect.height() * if tag.len() > 3 { 0.2 } else { 0.24 }).max(6.0),
+        ),
         Color32::WHITE,
     );
 }

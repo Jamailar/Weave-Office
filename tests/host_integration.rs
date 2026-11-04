@@ -413,7 +413,24 @@ fn new_code_files_take_the_language_and_extension_of_their_tile() {
     for (_, entries) in weave_office::new_document::groups() {
         for entry in entries {
             match entry.extension {
-                Some(extension) => assert!(host.new_text_file(extension).is_ok()),
+                Some(extension) => {
+                    assert!(host.new_text_file(extension).is_ok());
+                    // A saved file must reopen in the editor that created it, and that
+                    // editor must recognise the language rather than fall back to plain text.
+                    let saved = std::path::PathBuf::from(format!("untitled.{extension}"));
+                    assert_eq!(
+                        DocumentKind::from_path(&saved),
+                        Some(DocumentKind::PlainText),
+                        "{extension}"
+                    );
+                    let id = host.new_text_file(extension).unwrap();
+                    match &host.documents[&id].editor {
+                        weave_office::editor::Editor::TextFile(app) => {
+                            assert_ne!(app.language_name(), "纯文本", "{extension}")
+                        }
+                        _ => unreachable!(),
+                    }
+                }
                 None => assert!(host.new_document(entry.kind).is_ok()),
             }
         }
