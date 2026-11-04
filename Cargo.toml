@@ -57,6 +57,10 @@ objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSWindow", "NSResponder", "NSGraphicsContext", "NSPasteboard"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSThread", "NSObject", "NSString"] }
 
+[build-dependencies]
+# Icon + VERSIONINFO for weave-office.exe; build.rs only uses it when the target is Windows.
+winresource = "0.1"
+
 [[test]]
 name = "native_app_menu"
 harness = false
