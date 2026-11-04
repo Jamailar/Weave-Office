@@ -147,6 +147,59 @@ pub fn tr(text: &str) -> &str {
         "代码与数据" => "Code & data",
         "纯文本" => "Plain Text",
         "富文本" => "Rich Text",
+        "新版本 {version}" => "Update {version}",
+        "正在下载更新 {percent}%" => "Downloading update {percent}%",
+        "重启以完成更新" => "Restart to Update",
+        "检查更新" => "Check for Updates",
+        "检查更新…" => "Check for Updates…",
+        "正在检查更新…" => "Checking for updates…",
+        "已是最新版本" => "You’re up to date",
+        "Weave Office {version} 是目前的最新版本。" => {
+            "Weave Office {version} is the latest version."
+        }
+        "发现新版本" => "A new version is available",
+        "Weave Office {version} 已发布，当前版本是 {current}。" => {
+            "Weave Office {version} is available. You have {current}."
+        }
+        "这个版本需要从下载页手动安装。" => {
+            "This version needs to be installed from the download page."
+        }
+        "更新" => "Update",
+        "打开下载页" => "Open Download Page",
+        "稍后" => "Later",
+        "正在下载更新" => "Downloading update",
+        "可以继续工作，下载完成后会提醒你重启。" => {
+            "You can keep working. You’ll be asked to restart when the download finishes."
+        }
+        "取消下载" => "Cancel Download",
+        "后台下载" => "Download in Background",
+        "更新已就绪" => "Update ready",
+        "重启 Weave Office 即可更新到 {version}。有未保存的文档时，会先询问是否保存。" => {
+            "Restart Weave Office to update to {version}. You’ll be asked to save any unsaved documents first."
+        }
+        "选择“稍后”时，会在下次退出时自动安装。" => {
+            "If you choose Later, the update is installed the next time you quit."
+        }
+        "立即重启" => "Restart Now",
+        "无法检查更新" => "Could not check for updates",
+        "无法连接更新服务器，请检查网络后重试。" => {
+            "Could not reach the update server. Check your connection and try again."
+        }
+        "下载更新失败" => "Update download failed",
+        "请检查网络后重试。" => "Check your connection and try again.",
+        "更新未通过校验" => "Update failed verification",
+        "下载的安装包与发布签名不符，已删除，不会安装。" => {
+            "The downloaded installer does not match the release signature. It was deleted and will not be installed."
+        }
+        "无法安装更新" => "Could not install the update",
+        "可以从下载页手动安装新版本。" => {
+            "You can install the new version from the download page."
+        }
+        "重试" => "Try Again",
+        "Weave Office 更新" => "Weave Office update",
+        "自动检查更新" => "Check for updates automatically",
+        "立即检查" => "Check Now",
+        "当前版本 {version}" => "Current version {version}",
         _ => text,
     }
 }

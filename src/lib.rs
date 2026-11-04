@@ -19,3 +19,4 @@ pub mod recovery;
 mod sheet_transfer;
 pub mod theme;
 pub mod ui_fonts;
+pub mod updates;

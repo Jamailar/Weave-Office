@@ -59,6 +59,8 @@ pub enum HostRequest {
     },
     InterfaceLanguage(UiLanguage),
     About,
+    /// Look for a new release now and show the result.
+    CheckForUpdates,
     NextTab,
     PreviousTab,
     Theme(ThemeRequest),
@@ -203,6 +205,7 @@ fn classify_known(id: &str, params: &Value) -> Option<HostRequest> {
         )?),
         "app.language.english" => R::InterfaceLanguage(UiLanguage::En),
         "app.about" | "help.about" => R::About,
+        "app.checkForUpdates" | "help.checkForUpdates" => R::CheckForUpdates,
         "system.open_url" => R::OpenUrl(params.get("url")?.as_str()?.to_owned()),
         "view.next_tab" => R::NextTab,
         "view.previous_tab" => R::PreviousTab,
@@ -274,7 +277,7 @@ fn classify_known(id: &str, params: &Value) -> Option<HostRequest> {
                 _ => return None,
             }
         }
-        // Window creation/arrangement, updates, printing, export, recovery, file conversions
+        // Window creation/arrangement, printing, export, recovery, file conversions
         // and templates require their own implementation. Never guess from an ID substring.
         _ => return None,
     })
@@ -381,6 +384,13 @@ fn parse_scale(value: &Value) -> Option<ScaleRequest> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn check_for_updates_is_a_host_request() {
+        for id in ["app.checkForUpdates", "help.checkForUpdates"] {
+            assert_eq!(classify(id, &json!({})), HostRequest::CheckForUpdates);
+        }
+    }
 
     #[test]
     fn open_url_requests_carry_their_address() {

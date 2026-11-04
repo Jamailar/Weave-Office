@@ -5,9 +5,10 @@ edition = "2024"
 rust-version = "1.95"
 description = "Unified desktop workspace for documents, spreadsheets, presentations and PDF"
 license = "MIT"
+repository = "https://github.com/Jamailar/weave-office"
 
 [workspace]
-members = ["crates/workspace", "crates/cli", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon", "crates/text-editor", "crates/rich-editor"]
+members = ["crates/workspace", "crates/cli", "crates/updater", "crates/pdf-backend", "crates/font-assets", "crates/system-fonts", "crates/ribbon", "crates/text-editor", "crates/rich-editor"]
 exclude = ["integration", "vendor/wordcraft", "vendor/gridcraft", "vendor/deckcraft", "vendor/pdfcraft"]
 resolver = "2"
 
@@ -33,6 +34,8 @@ weave-ribbon = { path = "crates/ribbon" }
 weave-text-editor = { path = "crates/text-editor" }
 # Rich-text (HTML) documents: design view and source view.
 weave-rich-editor = { path = "crates/rich-editor" }
+# Update checks against the repository's GitHub releases.
+weave-updater = { path = "crates/updater" }
 wordcraft-ui-egui = { path = "vendor/wordcraft/crates/ui-egui", default-features = false, features = ["shared-font-assets", "host-ribbon"] }
 wordcraft-engine = { path = "vendor/wordcraft/crates/engine" }
 wordcraft-doc = { path = "vendor/wordcraft/crates/doc" }

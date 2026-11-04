@@ -123,6 +123,10 @@ weave-office help agent      # 打印给 AI 读的完整使用说明
 
 完整说明见 [docs/cli.md](docs/cli.md)。
 
+### 自动更新
+
+Windows 和 macOS 版会从 GitHub Releases 检查新版本。有新版本时弹出提醒，点"更新"在后台下载，下载完点"立即重启"就装好了；有未保存的文档会先询问是否保存。安装包必须和用项目 Ed25519 密钥签名的校验和一致才会安装。详见 [docs/updates.md](docs/updates.md)。
+
 ## 从源码构建
 
 需要 Rust 1.95.0（`rust-toolchain.toml` 已固定）和 Python 3。字体与翻译等大型构建输入放在外置盘上，用环境变量 `WEAVE_DEV_VOLUME` 指向它的挂载点：
@@ -158,6 +162,7 @@ crates/
   text-editor/        Markdown 与代码编辑器
   rich-editor/        富文本（HTML）编辑器
   cli/                命令行 weave-office <动词>
+  updater/            检查更新、签名校验下载和原地安装
 vendor/               四个上游编辑器的固定快照（文字、表格、演示、PDF）
 integration/          早期集成实验，仅作参考
 packaging/ scripts/   打包与构建脚本
@@ -168,7 +173,7 @@ tests/                宿主回归测试
 
 - [产品目标与实施规划](PLAN.md)
 - [验收记录](docs/acceptance.md)：自动测试、实际操作验证与剩余工作
-- [命令行](docs/cli.md) · [PDF 编辑能力](docs/pdf-capabilities.md) · [字体](docs/fonts.md) · [界面语言](docs/i18n.md)
+- [命令行](docs/cli.md) · [PDF 编辑能力](docs/pdf-capabilities.md) · [字体](docs/fonts.md) · [界面语言](docs/i18n.md) · [自动更新](docs/updates.md)
 - [上游项目、固定版本与接手说明](vendor/README.md)
 - [应用图标](assets/app-icon/README.md) · [打包说明](packaging/README.md)
 

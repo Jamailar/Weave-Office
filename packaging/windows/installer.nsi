@@ -1,6 +1,8 @@
 Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
+!include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 Name "Weave Office"
 OutFile "${OUTPUT}"
@@ -27,6 +29,12 @@ VIAddVersionKey "FileVersion" "${VERSION}"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
+; Automatic updates run this installer as `/S /UPDATE [/RELAUNCH] /D=<current folder>` just
+; before the application exits: wait for it to release weave-office.exe, install over it, then
+; start the new version when asked to.
+Var UpdateMode
+Var Relaunch
+
 Function .onInit
 !if "${ARCH}" == "arm64"
   ${IfNot} ${IsNativeARM64}
@@ -39,10 +47,45 @@ Function .onInit
     Abort
   ${EndIf}
 !endif
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/UPDATE" $R1
+  ${IfNot} ${Errors}
+    StrCpy $UpdateMode 1
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $R0 "/RELAUNCH" $R1
+  ${IfNot} ${Errors}
+    StrCpy $Relaunch 1
+  ${EndIf}
+FunctionEnd
+
+; A running weave-office.exe cannot be opened for writing. Wait up to 60 seconds for it to exit.
+Function WaitForApplication
+  StrCpy $R2 0
+  ${Do}
+    ${IfNot} ${FileExists} "$INSTDIR\weave-office.exe"
+      ${Break}
+    ${EndIf}
+    ClearErrors
+    FileOpen $R3 "$INSTDIR\weave-office.exe" a
+    ${IfNot} ${Errors}
+      FileClose $R3
+      ${Break}
+    ${EndIf}
+    IntOp $R2 $R2 + 1
+    ${If} $R2 >= 300
+      ${Break}
+    ${EndIf}
+    Sleep 200
+  ${Loop}
 FunctionEnd
 
 Section "Weave Office"
   SetShellVarContext current
+  ${If} $UpdateMode == 1
+    Call WaitForApplication
+  ${EndIf}
   SetOutPath "$INSTDIR"
   File "${STAGE}/weave-office.exe"
   SetOutPath "$INSTDIR\licenses"
@@ -59,6 +102,9 @@ Section "Weave Office"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\WeaveOffice" "InstallLocation" "$INSTDIR"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\WeaveOffice" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\WeaveOffice" "NoRepair" 1
+  ${If} $Relaunch == 1
+    Exec '"$INSTDIR\weave-office.exe"'
+  ${EndIf}
 SectionEnd
 
 Section "Uninstall"
