@@ -236,7 +236,11 @@ mod word {
                     log.run("text.delete", json!({}))?;
                 }
             } else {
-                log.run("text.insert", json!({"text": t, "paragraphs": true}))?;
+                // `raw`: the text as given, without AutoCorrect (which would capitalise "a" to "A").
+                log.run(
+                    "text.insert",
+                    json!({"text": t, "paragraphs": true, "raw": true}),
+                )?;
             }
         }
         log.run("caret.set", json!({"pos": pos(i, 0)}))?;
@@ -536,17 +540,18 @@ mod sheet {
         let name = sheet_name(doc, &steps[0])?;
         let mut log = Log::new(doc);
         if steps.len() == 1 {
-            for (k, v) in props {
-                match k.as_str() {
-                    "name" => {
-                        log.run("sheet.rename", json!({"sheet": name, "name": as_text(v)}))?
-                    }
-                    "tabColor" | "tabcolor" => log.run(
-                        "sheet.tabColor",
-                        json!({"sheet": name, "color": hex(v, true)}),
-                    )?,
-                    other => return Err(unsupported("a sheet", other, SHEET_PROPS)),
-                };
+            if let Some(p) = props.keys().find(|k| !SHEET_PROPS.contains(&k.as_str())) {
+                return Err(unsupported("a sheet", p, SHEET_PROPS));
+            }
+            // The tab colour first: renaming changes the name the sheet is found by.
+            if let Some(v) = props.get("tabColor") {
+                log.run(
+                    "sheet.tabColor",
+                    json!({"sheet": name, "color": hex(v, true)}),
+                )?;
+            }
+            if let Some(v) = props.get("name") {
+                log.run("sheet.rename", json!({"sheet": name, "name": as_text(v)}))?;
             }
             return Ok(reply(path, log, json!({})));
         }
