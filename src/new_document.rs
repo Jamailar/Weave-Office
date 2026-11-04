@@ -74,7 +74,13 @@ const fn code(label: &'static str, extension: &'static str) -> Choice {
     }
 }
 
-/// The picker's groups, in order. Labels are Chinese source strings, translated when drawn.
+/// Tiles per row of the picker.
+const COLUMNS: usize = 6;
+const TILE_WIDTH: f32 = 73.5;
+const TILE_GAP: f32 = 6.0;
+
+/// The picker's groups, in order. Only formats an editor can also save are listed.
+/// Labels are Chinese source strings, translated when drawn.
 pub fn groups() -> Vec<(&'static str, Vec<Choice>)> {
     vec![
         (
@@ -87,25 +93,36 @@ pub fn groups() -> Vec<(&'static str, Vec<Choice>)> {
             ],
         ),
         (
-            tr("文本与代码"),
+            tr("文本与网页"),
             vec![
                 office(DocumentKind::Markdown, "Markdown"),
                 office(DocumentKind::PlainText, "纯文本"),
-                code("JSON", "json"),
-                code("YAML", "yaml"),
-                code("Python", "py"),
-                code("JavaScript", "js"),
-                code("Shell", "sh"),
-                code("SQL", "sql"),
+                office(DocumentKind::RichText, "富文本"),
             ],
         ),
-        (tr("富文本"), vec![office(DocumentKind::RichText, "富文本")]),
+        (
+            tr("代码与数据"),
+            vec![
+                code("JSON", "json"),
+                code("YAML", "yaml"),
+                code("TOML", "toml"),
+                code("XML", "xml"),
+                code("SQL", "sql"),
+                code("Shell", "sh"),
+                code("Python", "py"),
+                code("JavaScript", "js"),
+                code("TypeScript", "ts"),
+                code("CSS", "css"),
+                code("Go", "go"),
+                code("Rust", "rs"),
+            ],
+        ),
     ]
 }
 
 fn tile(ui: &mut egui::Ui, entry: &Choice) -> bool {
     let label = tr(entry.label);
-    let (rect, response) = ui.allocate_exact_size(vec2(73.5, 82.0), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(TILE_WIDTH, 82.0), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     if response.hovered() || response.has_focus() {
         ui.painter()
@@ -169,7 +186,7 @@ pub fn show(ctx: &egui::Context, anchor: Anchor, open: &mut bool) -> Option<Choi
     .frame(frame)
     .show(|ui| {
         ui.set_style(crate::theme::style(ctx));
-        ui.set_width(312.0);
+        ui.set_width(COLUMNS as f32 * TILE_WIDTH + (COLUMNS - 1) as f32 * TILE_GAP);
         ui.label(egui::RichText::new(tr("新建")).size(22.0).strong());
         ui.add_space(20.0);
         for (index, (title, entries)) in groups().into_iter().enumerate() {
@@ -178,9 +195,9 @@ pub fn show(ctx: &egui::Context, anchor: Anchor, open: &mut bool) -> Option<Choi
             }
             ui.label(egui::RichText::new(title).size(13.0).strong());
             ui.add_space(12.0);
-            for row in entries.chunks(4) {
+            for row in entries.chunks(COLUMNS) {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.spacing_mut().item_spacing.x = TILE_GAP;
                     for entry in row {
                         if tile(ui, entry) {
                             selected = Some(*entry);
