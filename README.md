@@ -74,6 +74,7 @@ All four run in a single process and share one host:
 - **Unified fonts:** open fonts ship once and system fonts are scanned once; all editors share one set of UI fonts, so switching tabs no longer reloads fonts.
 - **Autosave and crash recovery:** the host periodically writes unsaved changes to a recovery folder; after an unexpected quit, relaunch and get them back.
 - **Unified files and dialogs:** open, save and folder pickers use the native OS panels; confirmations, errors, settings and printing are Weave's own. While a dialog is open, tabs can't be switched or closed by accident, and files opened from outside wait in a queue.
+- **Split view:** show open documents side by side, one above another, or in nested panes within one window; drag the divider to resize. Use the Split menu next to the tab bar, the tab's right-click menu (Open to the Right / Open Below), or ⌘⌥→ / ⌘⌥↓ (Ctrl+Alt on Windows and Linux); ⌘⌥W closes the focused pane without closing its document.
 - **Native on macOS:** real traffic-light window buttons, rounded corners and shadow, with file tabs placed in the title bar; app menu, shortcuts, opening from Finder and the system quit flow are wired in.
 
 ### Markdown with Obsidian-style live preview
