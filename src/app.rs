@@ -31,6 +31,10 @@ enum Action {
     Close(Vec<TabId>, bool),
     Command(&'static str),
     Reorder(TabId, TabId),
+    /// 拆分指定窗格；窗格缺省时拆分当前窗格。新窗格显示给出的文档，没有则显示另一份已打开的文档。
+    Split(crate::panes::SplitAxis, Option<TabId>, Option<u64>),
+    ShowInPane(u64, TabId),
+    ClosePane(u64),
 }
 struct ClosePlan {
     ids: Vec<TabId>,
@@ -72,6 +76,7 @@ pub struct WeaveApp {
     _native_menu: crate::native_file_panel::AppMenu,
     pub host: Host,
     mounted: Option<TabId>,
+    panes: crate::panes::Panes,
     actions: VecDeque<Action>,
     close_plan: Option<ClosePlan>,
     close_prompt: Option<TabId>,
@@ -142,6 +147,7 @@ impl WeaveApp {
             _native_menu: crate::native_file_panel::install_app_menu(&cc.egui_ctx),
             host: Host::default(),
             mounted: None,
+            panes: crate::panes::Panes::default(),
             actions: files.into_iter().map(Action::Open).collect(),
             close_plan: None,
             close_prompt: None,
@@ -685,8 +691,20 @@ impl WeaveApp {
             }
             processed_action = true;
             let result: Result<(), String> = match action {
-                Action::New(kind) => self.host.new_document(kind).map(|_| ()),
-                Action::NewText(extension) => self.host.new_text_file(extension).map(|_| ()),
+                Action::New(kind) => {
+                    let created = self.host.new_document(kind).map(|_| ());
+                    if created.is_ok() {
+                        self.panes.present(self.host.workspace.active());
+                    }
+                    created
+                }
+                Action::NewText(extension) => {
+                    let created = self.host.new_text_file(extension).map(|_| ());
+                    if created.is_ok() {
+                        self.panes.present(self.host.workspace.active());
+                    }
+                    created
+                }
                 Action::OpenDialog => {
                     self.choose_file(
                         FileDialogMode::Open { multiple: true },
@@ -701,21 +719,25 @@ impl WeaveApp {
                     );
                     Ok(())
                 }
-                Action::Open(path) | Action::OpenExternal(path) => self
-                    .host
-                    .open(&path)
-                    .map_err(|error| {
-                        format!("{} “{}”\n{error}", tr("无法打开文件"), path.display())
-                    })
-                    .map(|id| {
+                Action::Open(path) | Action::OpenExternal(path) => match self.host.open(&path) {
+                    Ok(id) => {
                         self.reveal_tab = Some(id);
                         if let Some(path) = self.host.path(id).map(Path::to_path_buf) {
                             self.remember(path);
                         }
-                    }),
+                        self.panes.present(Some(id));
+                        Ok(())
+                    }
+                    Err(error) => Err(format!(
+                        "{} “{}”\n{error}",
+                        tr("无法打开文件"),
+                        path.display()
+                    )),
+                },
                 Action::Activate(id) => {
                     self.host.workspace.activate(id);
                     self.reveal_tab = Some(id);
+                    self.panes.present(Some(id));
                     Ok(())
                 }
                 Action::Save(id, save_as) => self.save(id, save_as).map(|_| ()),
@@ -744,6 +766,18 @@ impl WeaveApp {
                     .and_then(|d| d.editor.command(command, json!({})).map(|_| ())),
                 Action::Reorder(from, to) => {
                     self.host.workspace.reorder(from, to);
+                    Ok(())
+                }
+                Action::Split(axis, tab, pane) => {
+                    self.split_pane(axis, tab, pane);
+                    Ok(())
+                }
+                Action::ShowInPane(pane, tab) => {
+                    self.show_in_pane(pane, tab);
+                    Ok(())
+                }
+                Action::ClosePane(pane) => {
+                    self.close_pane(pane);
                     Ok(())
                 }
             };
@@ -879,9 +913,11 @@ impl WeaveApp {
         };
         if plan.index >= plan.ids.len() {
             if let Some(plan) = self.close_plan.take() {
-                for id in plan.ids {
-                    self.host.close(id, true);
+                for id in &plan.ids {
+                    self.host.close(*id, true);
+                    self.panes.forget(*id);
                 }
+                self.collapse_panes_after_close();
                 if plan.quit {
                     self.allow_exit = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1117,6 +1153,44 @@ impl WeaveApp {
         if blocked {
             return;
         }
+        let close_pane = self.panes.is_split();
+        let split = ctx.input_mut(|input| {
+            let right = consume_exact_shortcut(
+                input,
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                Key::ArrowRight,
+            );
+            let down = consume_exact_shortcut(
+                input,
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                Key::ArrowDown,
+            );
+            let close = close_pane
+                && consume_exact_shortcut(
+                    input,
+                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                    Key::W,
+                );
+            (right, down, close)
+        });
+        if split.0 {
+            self.actions.push_back(Action::Split(
+                crate::panes::SplitAxis::LeftRight,
+                None,
+                None,
+            ));
+        }
+        if split.1 {
+            self.actions.push_back(Action::Split(
+                crate::panes::SplitAxis::TopBottom,
+                None,
+                None,
+            ));
+        }
+        if split.2 {
+            self.actions
+                .push_back(Action::ClosePane(self.panes.focused_id()));
+        }
         for action in pressed {
             match action {
                 0 => self.actions.push_back(Action::OpenDialog),
@@ -1141,6 +1215,435 @@ impl WeaveApp {
                 9 => self.begin_print(ctx),
                 _ => {}
             }
+        }
+    }
+    fn sync_single_pane(&mut self) {
+        if !self.panes.is_split() {
+            self.panes.present(self.host.workspace.active());
+        }
+    }
+    fn live_editor(&self) -> bool {
+        let active = self.host.workspace.active();
+        self.mounted == active && self.panes.focused_tab() == active && active.is_some()
+    }
+    fn install_tab_memory(&mut self, ctx: &egui::Context, tab: TabId) {
+        if self.mounted == Some(tab) {
+            return;
+        }
+        self.stash_tab_memory(ctx);
+        let options = ctx.options(|options| options.clone());
+        if let Some(document) = self.host.documents.get(&tab) {
+            ctx.memory_mut(|memory| {
+                *memory = document.memory.clone();
+                memory.options = options;
+            });
+            self.mounted = Some(tab);
+        }
+    }
+    fn stash_tab_memory(&mut self, ctx: &egui::Context) {
+        let Some(tab) = self.mounted else {
+            return;
+        };
+        if let Some(document) = self.host.documents.get_mut(&tab) {
+            document.memory = ctx.memory(|memory| memory.clone());
+        }
+    }
+    fn unshown_tab(&self) -> Option<TabId> {
+        self.host
+            .workspace
+            .tabs()
+            .iter()
+            .map(|tab| tab.id)
+            .find(|id| !self.panes.is_shown(*id))
+    }
+    fn split_pane(
+        &mut self,
+        axis: crate::panes::SplitAxis,
+        requested: Option<TabId>,
+        pane: Option<u64>,
+    ) {
+        if self.host.workspace.tabs().is_empty() {
+            return;
+        }
+        self.sync_single_pane();
+        if let Some(pane) = pane {
+            self.panes.focus(pane);
+            if let Some(tab) = self.panes.focused_tab() {
+                self.host.workspace.activate(tab);
+            }
+        }
+        if let Some(tab) = requested
+            && let Some(existing) = self.panes.leaf_with(tab)
+            && existing != self.panes.focused_id()
+        {
+            self.panes.focus(existing);
+            self.host.workspace.activate(tab);
+            self.reveal_tab = Some(tab);
+            return;
+        }
+        let companion = requested
+            .filter(|tab| Some(*tab) != self.panes.focused_tab())
+            .or_else(|| self.unshown_tab());
+        let Some(new_pane) = self.panes.split_focused(axis, companion) else {
+            return;
+        };
+        if requested.is_some()
+            && let Some(tab) = companion
+        {
+            self.panes.focus(new_pane);
+            self.host.workspace.activate(tab);
+            self.reveal_tab = Some(tab);
+        }
+    }
+    fn show_in_pane(&mut self, pane: u64, tab: TabId) {
+        if !self.panes.set_tab(pane, Some(tab)) {
+            return;
+        }
+        if self.panes.focused_id() == pane {
+            self.host.workspace.activate(tab);
+            self.reveal_tab = Some(tab);
+        }
+    }
+    fn close_pane(&mut self, id: u64) {
+        let was_focused = self.panes.focused_id() == id;
+        let tab = self.panes.tab_of(id);
+        if !self.panes.close(id) {
+            return;
+        }
+        if was_focused {
+            if self.panes.focused_tab().is_none()
+                && let Some(tab) = tab
+                && !self.panes.is_shown(tab)
+            {
+                self.panes.present(Some(tab));
+            }
+            if let Some(tab) = self.panes.focused_tab() {
+                self.host.workspace.activate(tab);
+                self.reveal_tab = Some(tab);
+            }
+        }
+    }
+    fn collapse_panes_after_close(&mut self) {
+        if self.host.workspace.tabs().is_empty() {
+            self.panes = crate::panes::Panes::default();
+            return;
+        }
+        if self.panes.focused_tab().is_none() {
+            let active = self.host.workspace.active();
+            if active.is_some_and(|id| !self.panes.is_shown(id)) {
+                self.panes.present(active);
+            } else if let Some(id) = active
+                && let Some(pane) = self.panes.leaf_with(id)
+            {
+                self.panes.focus(pane);
+            }
+        }
+    }
+    fn pane_title(&self, tab: Option<TabId>) -> String {
+        tab.and_then(|id| self.host.workspace.tab(id))
+            .map(|tab| short_title(&tab.title))
+            .unwrap_or_else(|| tr("选择文档").to_string())
+    }
+    fn open_tab_list(&self) -> Vec<(TabId, String)> {
+        self.host
+            .workspace
+            .tabs()
+            .iter()
+            .map(|tab| (tab.id, tab.title.clone()))
+            .collect()
+    }
+    fn show_split(&mut self, ui: &mut egui::Ui, blocked: bool) -> Vec<crate::chrome::Command> {
+        let ctx = ui.ctx().clone();
+        let bounds = ui.available_rect_before_wrap();
+        ui.painter()
+            .rect_filled(bounds, 0, ui.visuals().extreme_bg_color);
+        let layout = self.panes.layout(bounds);
+        let focused = self.panes.focused_id();
+        let frame_tab = self.panes.focused_tab();
+        let panes = layout.panes.clone();
+        let dividers = layout.dividers.clone();
+        let mut commands = Vec::new();
+        let mut clicked = None;
+        for pane in panes.iter().filter(|pane| pane.id != focused) {
+            let (_, click) = self.draw_split_pane(ui, pane, false, blocked);
+            if click.is_some() {
+                clicked = click;
+            }
+        }
+        if let Some(pane) = panes.iter().find(|pane| pane.id == focused) {
+            let (drawn, click) = self.draw_split_pane(ui, pane, true, blocked);
+            commands = drawn;
+            if click.is_some() {
+                clicked = click;
+            }
+        }
+        for divider in &dividers {
+            self.draw_split_divider(ui, divider);
+        }
+        if let Some(pane) = panes.iter().find(|pane| pane.id == focused) {
+            ui.painter().rect_stroke(
+                pane.rect,
+                0,
+                egui::Stroke::new(1.5, ui.visuals().selection.stroke.color),
+                egui::StrokeKind::Inside,
+            );
+        }
+        self.finish_pane_focus(&ctx, focused, frame_tab, clicked);
+        commands
+    }
+    fn draw_split_pane(
+        &mut self,
+        ui: &mut egui::Ui,
+        pane: &crate::panes::PlacedPane,
+        active: bool,
+        blocked: bool,
+    ) -> (Vec<crate::chrome::Command>, Option<u64>) {
+        let (body, mut clicked) = self.draw_pane_header(ui, pane);
+        let mut commands = Vec::new();
+        if let Some(tab) = pane.tab {
+            let ctx = ui.ctx().clone();
+            let pane_id = pane.id;
+            if active && blocked {
+                frozen_editor_input(&ctx, || {
+                    commands = self.paint_pane_editor(ui, tab, pane_id, body);
+                });
+            } else if active {
+                commands = self.paint_pane_editor(ui, tab, pane_id, body);
+            } else {
+                quiet_editor_input(&ctx, || {
+                    let _ = self.paint_pane_editor(ui, tab, pane_id, body);
+                });
+                let response = ui.interact(
+                    body,
+                    ui.scope_id().with(("pane-focus", pane_id)),
+                    egui::Sense::click(),
+                );
+                if response.clicked() {
+                    clicked = Some(pane_id);
+                }
+            }
+        } else {
+            let response = ui.interact(
+                body,
+                ui.scope_id().with(("pane-empty", pane.id)),
+                egui::Sense::click(),
+            );
+            self.draw_empty_pane(ui, pane.id, body);
+            if response.clicked() {
+                clicked = Some(pane.id);
+            }
+        }
+        (commands, clicked)
+    }
+    fn draw_pane_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        pane: &crate::panes::PlacedPane,
+    ) -> (egui::Rect, Option<u64>) {
+        let header = egui::Rect::from_min_max(
+            pane.rect.min,
+            egui::pos2(
+                pane.rect.right(),
+                (pane.rect.top() + 28.0).min(pane.rect.bottom()),
+            ),
+        );
+        let body = pane.rect.with_min_y(header.bottom());
+        let title = self.pane_title(pane.tab);
+        let tabs = self.open_tab_list();
+        let focused = pane.id == self.panes.focused_id();
+        let fill = if focused {
+            ui.visuals().selection.bg_fill
+        } else {
+            ui.visuals().panel_fill
+        };
+        ui.painter().rect_filled(header, 0, fill);
+        let response = ui.interact(
+            header,
+            ui.scope_id().with(("pane-header", pane.id)),
+            egui::Sense::click(),
+        );
+        let clicked = response.clicked().then_some(pane.id);
+        let pane_id = pane.id;
+        let buttons =
+            egui::Rect::from_min_max(egui::pos2(header.right() - 76.0, header.top()), header.max);
+        let title_rect = egui::Rect::from_min_max(
+            header.min + egui::vec2(8.0, 0.0),
+            egui::pos2(buttons.left(), header.bottom()),
+        );
+        let title_response = ui.interact(
+            title_rect,
+            ui.scope_id().with(("pane-title", pane_id)),
+            egui::Sense::hover(),
+        );
+        title_response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &title));
+        ui.painter().text(
+            title_rect.left_center(),
+            egui::Align2::LEFT_CENTER,
+            &title,
+            egui::FontId::proportional(13.0),
+            ui.visuals().text_color(),
+        );
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(buttons)
+                .id_salt(("pane-header-ui", pane_id)),
+            |ui| {
+                ui.horizontal_centered(|ui| {
+                    if ui.small_button("×").on_hover_text(tr("关闭窗格")).clicked() {
+                        self.actions.push_back(Action::ClosePane(pane_id));
+                    }
+                    ui.menu_button("⋯", |ui| {
+                        if ui.button(tr("左右分屏")).clicked() {
+                            self.actions.push_back(Action::Split(
+                                crate::panes::SplitAxis::LeftRight,
+                                None,
+                                Some(pane_id),
+                            ));
+                            ui.close();
+                        }
+                        if ui.button(tr("上下分屏")).clicked() {
+                            self.actions.push_back(Action::Split(
+                                crate::panes::SplitAxis::TopBottom,
+                                None,
+                                Some(pane_id),
+                            ));
+                            ui.close();
+                        }
+                        ui.separator();
+                        for (id, name) in tabs {
+                            let label =
+                                tr("在此显示 {title}").replace("{title}", &short_title(&name));
+                            if ui.button(label).clicked() {
+                                self.actions.push_back(Action::ShowInPane(pane_id, id));
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+            },
+        );
+        (body, clicked)
+    }
+    fn draw_empty_pane(&mut self, ui: &mut egui::Ui, pane_id: u64, rect: egui::Rect) {
+        let tabs = self.open_tab_list();
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .id_salt(("pane-empty-ui", pane_id))
+                .layout(egui::Layout::top_down(egui::Align::Center)),
+            |ui| {
+                ui.shrink_clip_rect(rect);
+                ui.add_space(28.0);
+                ui.label(tr("此窗格没有文档"));
+                ui.add_space(8.0);
+                for (id, name) in tabs {
+                    let label = tr("在此显示 {title}").replace("{title}", &short_title(&name));
+                    if ui.button(label).clicked() {
+                        self.actions.push_back(Action::ShowInPane(pane_id, id));
+                    }
+                }
+            },
+        );
+    }
+    fn paint_pane_editor(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab: TabId,
+        pane_id: u64,
+        rect: egui::Rect,
+    ) -> Vec<crate::chrome::Command> {
+        let ctx = ui.ctx().clone();
+        self.install_tab_memory(&ctx, tab);
+        let mut commands = Vec::new();
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .id_salt(("split-pane", pane_id))
+                .max_rect(rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+            |ui| {
+                ui.shrink_clip_rect(rect);
+                if let Some(document) = self.host.documents.get_mut(&tab) {
+                    commands = document.editor.ui(ui);
+                }
+            },
+        );
+        self.stash_tab_memory(&ctx);
+        commands
+    }
+    fn draw_split_divider(&mut self, ui: &mut egui::Ui, divider: &crate::panes::SplitDivider) {
+        let response = ui.interact(
+            divider.rect,
+            ui.scope_id().with(("split-divider", divider.id)),
+            egui::Sense::drag(),
+        );
+        let cursor = match divider.axis {
+            crate::panes::SplitAxis::LeftRight => egui::CursorIcon::ResizeHorizontal,
+            crate::panes::SplitAxis::TopBottom => egui::CursorIcon::ResizeVertical,
+        };
+        let response = response.on_hover_and_drag_cursor(cursor);
+        if response.dragged()
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            let ratio = match divider.axis {
+                crate::panes::SplitAxis::LeftRight => {
+                    (pos.x - divider.bounds.left()) / divider.bounds.width()
+                }
+                crate::panes::SplitAxis::TopBottom => {
+                    (pos.y - divider.bounds.top()) / divider.bounds.height()
+                }
+            };
+            self.panes.set_ratio(divider.id, ratio);
+        }
+        ui.painter().rect_filled(
+            divider.rect,
+            0,
+            ui.visuals().widgets.noninteractive.bg_stroke.color,
+        );
+    }
+    fn finish_pane_focus(
+        &mut self,
+        ctx: &egui::Context,
+        previous_pane: u64,
+        previous_tab: Option<TabId>,
+        clicked: Option<u64>,
+    ) {
+        self.stash_tab_memory(ctx);
+        let Some(clicked) = clicked else {
+            if let Some(tab) = previous_tab {
+                self.install_tab_memory(ctx, tab);
+            }
+            return;
+        };
+        if clicked == previous_pane || !self.panes.focus(clicked) {
+            if let Some(tab) = previous_tab {
+                self.install_tab_memory(ctx, tab);
+            }
+            return;
+        }
+        let next = self.panes.focused_tab();
+        if previous_tab != next
+            && let Some(old) = previous_tab
+        {
+            self.install_tab_memory(ctx, old);
+            let failed = self
+                .host
+                .documents
+                .get_mut(&old)
+                .and_then(|document| document.editor.deactivate(ctx).err());
+            if let Some(error) = failed {
+                self.panes.focus(previous_pane);
+                self.error = Some(error);
+                self.stash_tab_memory(ctx);
+                return;
+            }
+            self.stash_tab_memory(ctx);
+        }
+        if let Some(tab) = next {
+            self.host.workspace.activate(tab);
+            self.reveal_tab = Some(tab);
+            self.install_tab_memory(ctx, tab);
+        } else if let Some(tab) = previous_tab {
+            self.install_tab_memory(ctx, tab);
         }
     }
     fn shell(&mut self, ui: &mut egui::Ui) -> egui::Rect {
@@ -1289,6 +1792,22 @@ impl WeaveApp {
                                                         .push_back(Action::Close(ids, false));
                                                     ui.close();
                                                 }
+                                                if ui.button(tr("在右侧打开")).clicked() {
+                                                    self.actions.push_back(Action::Split(
+                                                        crate::panes::SplitAxis::LeftRight,
+                                                        Some(id),
+                                                        None,
+                                                    ));
+                                                    ui.close();
+                                                }
+                                                if ui.button(tr("在下方打开")).clicked() {
+                                                    self.actions.push_back(Action::Split(
+                                                        crate::panes::SplitAxis::TopBottom,
+                                                        Some(id),
+                                                        None,
+                                                    ));
+                                                    ui.close();
+                                                }
                                             });
                                             response.on_hover_text(&title);
                                             let close_rect = egui::Rect::from_min_max(
@@ -1341,6 +1860,36 @@ impl WeaveApp {
                         if new_file.clicked() {
                             self.new_picker = !self.new_picker;
                         }
+                        ui.add_enabled_ui(!self.host.workspace.tabs().is_empty(), |ui| {
+                            ui.menu_button(tr("分屏"), |ui| {
+                                if ui.button(tr("左右分屏")).on_hover_text("⌥⌘→").clicked()
+                                {
+                                    self.actions.push_back(Action::Split(
+                                        crate::panes::SplitAxis::LeftRight,
+                                        None,
+                                        None,
+                                    ));
+                                    ui.close();
+                                }
+                                if ui.button(tr("上下分屏")).on_hover_text("⌥⌘↓").clicked()
+                                {
+                                    self.actions.push_back(Action::Split(
+                                        crate::panes::SplitAxis::TopBottom,
+                                        None,
+                                        None,
+                                    ));
+                                    ui.close();
+                                }
+                                if self.panes.is_split() && ui.button(tr("关闭窗格")).clicked()
+                                {
+                                    self.actions
+                                        .push_back(Action::ClosePane(self.panes.focused_id()));
+                                    ui.close();
+                                }
+                            })
+                            .response
+                            .on_hover_text(tr("在当前窗口拆分查看"));
+                        });
                     });
                 });
                 if close {
@@ -1771,6 +2320,7 @@ impl eframe::App for WeaveApp {
     }
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.sync_interface_language();
+        self.sync_single_pane();
         // Restore the next document's focus and IME memory before egui consumes its events.
         if self.mounted != self.host.workspace.active() {
             if let Err(error) = self.mount_active(ctx) {
@@ -1795,7 +2345,7 @@ impl eframe::App for WeaveApp {
                 recovery.touch(id);
             }
         }
-        if !self.host_dialog_open() && self.mounted == self.host.workspace.active() {
+        if !self.host_dialog_open() && self.live_editor() {
             if let Some(doc) = self.host.active_mut() {
                 doc.editor.raw_input(ctx, raw);
             }
@@ -1803,6 +2353,7 @@ impl eframe::App for WeaveApp {
     }
     fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         self.sync_interface_language();
+        self.sync_single_pane();
         // A replayed egui pass may follow a tab action from the previous pass.
         // Restore its fonts before any editor or shell text is laid out.
         if let Err(error) = self.mount_active(ctx) {
@@ -1828,7 +2379,7 @@ impl eframe::App for WeaveApp {
             self.request_quit(ctx);
         }
         self.shortcuts(ctx);
-        if !self.host_dialog_open() && self.mounted == self.host.workspace.active() {
+        if !self.host_dialog_open() && self.live_editor() {
             if let Some(doc) = self.host.active_mut() {
                 doc.editor.logic(ctx);
             }
@@ -1850,6 +2401,7 @@ impl eframe::App for WeaveApp {
     }
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.sync_interface_language();
+        self.sync_single_pane();
         let ctx = ui.ctx().clone();
         if let Err(error) = self.mount_active(&ctx) {
             self.error = Some(error);
@@ -1873,7 +2425,9 @@ impl eframe::App for WeaveApp {
         let blocked = self.host_dialog_open();
         let mut row_commands = Vec::new();
         ui.add_enabled_ui(!self.blocking_dialog_open(), |ui| {
-            if self.mounted != self.host.workspace.active() {
+            if self.panes.is_split() {
+                row_commands = self.show_split(ui, blocked);
+            } else if self.mounted != self.host.workspace.active() {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color))
                     .show(ui, |_| {});
@@ -1995,6 +2549,24 @@ fn normalize_control_click(events: &mut [egui::Event], held: &mut bool) {
 
 /// Keep the document visible behind host dialogs. Some upstream canvases read Context input
 /// directly, so disabling widgets alone does not stop typing, dragging or viewport gestures.
+fn quiet_editor_input(ctx: &egui::Context, draw: impl FnOnce()) {
+    let options = ctx.options(|options| options.input_options);
+    let original = ctx.input_mut(|input| {
+        let original = input.clone();
+        let mut raw = original.raw.clone();
+        raw.events.clear();
+        raw.dropped_files.clear();
+        raw.hovered_files.clear();
+        raw.focused = original.focused;
+        raw.screen_rect = Some(original.viewport_rect());
+        raw.time = Some(original.time);
+        *input =
+            egui::InputState::default().begin_pass(raw, false, original.pixels_per_point, options);
+        original
+    });
+    draw();
+    ctx.input_mut(|input| *input = original);
+}
 fn frozen_editor_input(ctx: &egui::Context, draw: impl FnOnce()) {
     let options = ctx.options(|o| o.input_options);
     let original = ctx.input_mut(|input| {
@@ -2246,6 +2818,185 @@ mod tests {
             repeat: false,
             modifiers,
         }
+    }
+
+    #[test]
+    fn split_shortcuts_arrange_open_documents_without_taking_shifted_arrows() {
+        let mut host = Host::default();
+        let first = host.new_document(DocumentKind::Text).unwrap();
+        let second = host.new_document(DocumentKind::PlainText).unwrap();
+        let mut app = test_app(host);
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(
+                Key::ArrowRight,
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+            )],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        app.process_actions(&ctx);
+        assert!(app.panes.is_split());
+        assert_eq!(app.panes.leaf_count(), 2);
+        assert!(app.panes.is_shown(first));
+        assert!(app.panes.is_shown(second));
+        assert_eq!(app.panes.focused_tab(), Some(second));
+        let layout = app.panes.layout(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1000.0, 800.0),
+        ));
+        assert_eq!(layout.dividers[0].axis, crate::panes::SplitAxis::LeftRight);
+        assert!(ctx.input(|input| input.events.is_empty()));
+        ctx.end_pass().textures_delta.clear();
+
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(
+                Key::ArrowRight,
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT,
+            )],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        assert_eq!(ctx.input(|input| input.events.len()), 1);
+        ctx.end_pass().textures_delta.clear();
+
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(
+                Key::ArrowDown,
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+            )],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        app.process_actions(&ctx);
+        assert_eq!(app.panes.leaf_count(), 3);
+        ctx.end_pass().textures_delta.clear();
+
+        ctx.begin_pass(egui::RawInput {
+            events: vec![shortcut_event(
+                Key::W,
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+            )],
+            ..Default::default()
+        });
+        app.shortcuts(&ctx);
+        app.process_actions(&ctx);
+        assert_eq!(app.panes.leaf_count(), 2);
+        assert!(app.panes.is_shown(first));
+        assert!(app.panes.is_shown(second));
+        ctx.end_pass().textures_delta.clear();
+    }
+
+    #[test]
+    fn activating_a_visible_document_focuses_its_pane_without_duplicating_it() {
+        let mut host = Host::default();
+        let first = host.new_document(DocumentKind::Text).unwrap();
+        let second = host.new_document(DocumentKind::PlainText).unwrap();
+        let mut app = test_app(host);
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput::default());
+        app.split_pane(crate::panes::SplitAxis::TopBottom, None, None);
+        assert_eq!(app.panes.leaf_count(), 2);
+        assert!(app.panes.is_shown(first));
+        assert!(app.panes.is_shown(second));
+        app.actions.push_back(Action::Activate(first));
+        app.process_actions(&ctx);
+        assert_eq!(app.panes.leaf_count(), 2);
+        assert_eq!(app.panes.focused_tab(), Some(first));
+        assert_eq!(app.host.workspace.active(), Some(first));
+        let shown = app
+            .panes
+            .layout(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 600.0),
+            ))
+            .panes
+            .into_iter()
+            .filter_map(|pane| pane.tab)
+            .collect::<Vec<_>>();
+        assert_eq!(shown.len(), 2);
+        assert!(shown.contains(&first) && shown.contains(&second));
+        ctx.end_pass().textures_delta.clear();
+    }
+
+    #[test]
+    fn split_view_paints_two_documents_in_one_window() {
+        let mut host = Host::default();
+        let first = host.new_document(DocumentKind::PlainText).unwrap();
+        let second = host.new_document(DocumentKind::PlainText).unwrap();
+        let mut app = test_app(host);
+        app.split_pane(crate::panes::SplitAxis::LeftRight, None, None);
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 800.0),
+                )),
+                focused: true,
+                ..Default::default()
+            },
+            |ui| {
+                app.sync_single_pane();
+                if let Err(error) = app.mount_active(ui.ctx()) {
+                    panic!("{error}");
+                }
+                app.sync_fonts(ui.ctx());
+                let _ = app.show_split(ui, false);
+            },
+        );
+        let first_title = app.host.workspace.tab(first).unwrap().title.clone();
+        let second_title = app.host.workspace.tab(second).unwrap().title.clone();
+        let labels: Vec<_> = output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|update| {
+                update
+                    .nodes
+                    .iter()
+                    .filter_map(|(_, node)| {
+                        node.label()
+                            .map(|label| label.to_string())
+                            .or_else(|| node.value().map(|value| value.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let count = |name: &str| labels.iter().filter(|label| label.as_str() == name).count();
+        assert!(
+            labels.iter().any(|label| label.contains(&first_title)),
+            "missing {first_title} in {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains(&second_title)),
+            "missing {second_title} in {labels:?}"
+        );
+        assert_eq!(
+            count("撤销 (⌘Z)"),
+            2,
+            "both editors must paint, labels={labels:?}"
+        );
+        assert_eq!(
+            count("×"),
+            2,
+            "both pane headers must paint, labels={labels:?}"
+        );
+        let layout = app.panes.layout(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1200.0, 800.0),
+        ));
+        assert_eq!(layout.panes.len(), 2);
+        assert!(layout.panes.iter().any(|pane| pane.tab == Some(first)));
+        assert!(layout.panes.iter().any(|pane| pane.tab == Some(second)));
+        assert!(
+            !layout.panes[0]
+                .rect
+                .intersects(layout.panes[1].rect.shrink(0.5))
+        );
+        assert!(app.error.is_none(), "{:?}", app.error);
+        output.textures_delta.clear();
     }
 
     #[test]
@@ -3237,6 +3988,7 @@ mod tests {
             _native_menu: crate::native_file_panel::AppMenu::default(),
             host,
             mounted,
+            panes: crate::panes::Panes::default(),
             actions: VecDeque::new(),
             close_plan: None,
             close_prompt: None,

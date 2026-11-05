@@ -14,6 +14,7 @@ pub mod native_file_panel;
 pub mod new_document;
 pub mod office_files;
 pub mod output;
+pub mod panes;
 pub mod printing;
 pub mod recovery;
 mod sheet_transfer;
