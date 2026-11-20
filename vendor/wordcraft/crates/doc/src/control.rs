@@ -367,6 +367,11 @@ pub struct ControlRange {
 }
 
 impl ControlRange {
+    /// The innermost range containing a position in a previously scanned story.
+    pub fn innermost_at<'a>(ranges: &'a [Self], p: &Pos) -> Option<&'a Self> {
+        ranges.iter().filter(|r| r.contains(p)).max_by(|a, b| a.start.cmp(&b.start))
+    }
+
     /// The start of the content (just after the start marker).
     pub fn content_start(&self) -> Pos {
         Pos { off: self.start.off + OBJ.len_utf8(), ..self.start.clone() }
@@ -380,6 +385,58 @@ impl ControlRange {
     /// Whether the content is empty (nothing but other controls' markers would be content too).
     pub fn is_empty(&self) -> bool {
         self.start.path == self.end.path && self.end.off == self.start.off + OBJ.len_utf8()
+    }
+}
+
+/// Reuses the story's paired ranges while its marker-bearing blocks remain in place.
+/// A weak reference identifies each COW block even during a multi-step editing command.
+#[derive(Default)]
+pub struct ControlRangeCache {
+    story: Option<StoryRef>,
+    blocks: Vec<(std::sync::Weak<Block>, bool)>,
+    ranges: std::sync::Arc<[ControlRange]>,
+}
+
+impl ControlRangeCache {
+    pub fn ranges(&mut self, doc: &Document, story: StoryRef) -> std::sync::Arc<[ControlRange]> {
+        use std::sync::Arc;
+        let blocks = doc.story(story).map(Vec::as_slice).unwrap_or_default();
+        let mut changed = self.story != Some(story);
+        self.story = Some(story);
+        changed |= self.blocks.get(blocks.len()..).is_some_and(|tail| tail.iter().any(|(_, marked)| *marked));
+        self.blocks.truncate(blocks.len());
+        for (index, block) in blocks.iter().enumerate() {
+            if let Some((previous, _)) = self.blocks.get(index)
+                && previous.as_ptr() == Arc::as_ptr(block)
+            {
+                continue;
+            }
+            let marked = has_markers(block, 0);
+            let next = (Arc::downgrade(block), marked);
+            if let Some(entry) = self.blocks.get_mut(index) {
+                changed |= entry.1;
+                *entry = next;
+            } else {
+                self.blocks.push(next);
+            }
+            changed |= marked;
+        }
+        if changed {
+            self.ranges = if self.blocks.iter().any(|(_, marked)| *marked) { doc.control_ranges(story).into() } else { Arc::default() };
+        }
+        self.ranges.clone()
+    }
+}
+
+fn has_markers(block: &Block, depth: usize) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    match block {
+        Block::Para(p) => p.objects.iter().any(|o| matches!(o, InlineObject::ControlStart { .. } | InlineObject::ControlEnd)),
+        Block::Table(t) => {
+            !t.controls.is_empty() || t.rows.iter().any(|r| r.cells.iter().any(|c| c.blocks.iter().any(|b| has_markers(b, depth + 1))))
+        }
     }
 }
 
@@ -524,10 +581,7 @@ impl Document {
         {
             return None;
         }
-        self.control_ranges(p.story)
-            .into_iter()
-            .filter(|r| r.contains(p))
-            .max_by(|a, b| (&a.start.path, a.start.off).cmp(&(&b.start.path, b.start.off)))
+        ControlRange::innermost_at(&self.control_ranges(p.story), p).cloned()
     }
 
     fn story_has_controls(&self, s: StoryRef) -> bool {

@@ -73,7 +73,7 @@ pub(crate) fn note_numbers(doc: &Document, hide_deleted: HideDeleted) -> HashMap
 }
 
 /// The page each footnote's text starts on.
-pub(crate) fn footnote_pages(doc: &Document, pages: &[Page]) -> HashMap<u32, usize> {
+pub(crate) fn footnote_pages(doc: &Document, pages: &[std::sync::Arc<Page>]) -> HashMap<u32, usize> {
     let mut m = HashMap::new();
     for (pi, p) in pages.iter().enumerate() {
         for it in &p.items {

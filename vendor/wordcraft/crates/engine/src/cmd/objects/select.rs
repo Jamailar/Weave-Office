@@ -111,26 +111,25 @@ pub fn selected_all(s: &Session, max: usize) -> Vec<(Pos, InlineObject)> {
     let (a, b) = s.sel.ordered();
     let max = if a == b { 1 } else { max };
     let story = a.story;
-    let paths = if a == b { vec![a.path.clone()] } else { s.doc.paths_between(&a, &b) };
-    for path in paths {
-        let Some(p) = s.doc.para(story, &path) else { continue };
-        for off in p.object_offsets() {
+    s.doc.visit_paras_between(&a, &b, |path, p| {
+        if p.objects.is_empty() {
+            return true;
+        }
+        for (off, object) in p.objects_with_offsets() {
             let inside = if a == b {
                 off + wordcraft_doc::para::OBJ.len_utf8() == a.off || off == a.off
             } else {
-                (path != a.path || off >= a.off) && (path != b.path || off < b.off)
+                (path != a.path.0 || off >= a.off) && (path != b.path.0 || off < b.off)
             };
-            if !inside {
-                continue;
-            }
-            if let Some(o) = p.object_at(off).filter(|o| o.is_drawing()) {
-                out.push((Pos { story, path: path.clone(), off }, o.clone()));
+            if inside && object.is_drawing() {
+                out.push((Pos { story, path: wordcraft_doc::Path(path.to_vec()), off }, object.clone()));
                 if out.len() >= max {
-                    return out;
+                    return false;
                 }
             }
         }
-    }
+        true
+    });
     out
 }
 

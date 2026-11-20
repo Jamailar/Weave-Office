@@ -10,40 +10,53 @@ pub fn para_block(p: Paragraph) -> Arc<Block> {
 /// document is copy-on-write, so a block that changed was copied and has another address —
 /// and a block that was copied but holds the same content is compared by value.
 pub(crate) fn same_blocks(a: &Blocks, b: &Blocks) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| Arc::ptr_eq(x, y) || same_block(x, y))
+    same_blocks_except(a, b, &[])
 }
 
-/// The same block by value. A table's cells compare their blocks by address first too: an edit in
-/// one cell copies the whole table, which mustn't mean comparing every cell by value.
-fn same_block(a: &Block, b: &Block) -> bool {
-    match (a, b) {
-        (Block::Table(x), Block::Table(y)) => same_table(x, y),
-        _ => a == b,
+/// Tail of the paragraph path in this child, empty for every other child.
+fn child_path(path: &[u32], index: usize) -> &[u32] {
+    match path.split_first() {
+        Some((&first, tail)) if first as usize == index => tail,
+        _ => &[],
     }
+}
+
+pub(crate) fn same_blocks_except(a: &Blocks, b: &Blocks, except: &[u32]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).enumerate().all(|(index, (x, y))| {
+            if Arc::ptr_eq(x, y) {
+                return true;
+            }
+            match (x.as_ref(), y.as_ref()) {
+                (Block::Table(t), Block::Table(u)) => same_table(t, u, child_path(except, index)),
+                (Block::Para(_), Block::Para(_)) if matches!(except, [i] if *i as usize == index) => true,
+                _ => x == y,
+            }
+        })
 }
 
 /// The same table. Every field is listed, so a new one does not build until someone decides
 /// whether a change to it counts.
-fn same_table(a: &Table, b: &Table) -> bool {
+fn same_table(a: &Table, b: &Table, except: &[u32]) -> bool {
     let Table { props, grid, rows, controls } = a;
     let Table { props: other_props, grid: other_grid, rows: other_rows, controls: other_controls } = b;
     props == other_props
         && grid == other_grid
         && controls == other_controls
         && rows.len() == other_rows.len()
-        && rows.iter().zip(other_rows).all(|(x, y)| same_row(x, y))
+        && rows.iter().zip(other_rows).enumerate().all(|(index, (x, y))| same_row(x, y, child_path(except, index)))
 }
 
-fn same_row(a: &Row, b: &Row) -> bool {
+fn same_row(a: &Row, b: &Row, except: &[u32]) -> bool {
     let Row { props, cells, controls } = a;
     let Row { props: other_props, cells: other_cells, controls: other_controls } = b;
     props == other_props
         && controls == other_controls
         && cells.len() == other_cells.len()
-        && cells.iter().zip(other_cells).all(|(x, y)| {
+        && cells.iter().zip(other_cells).enumerate().all(|(index, (x, y))| {
             let Cell { props, blocks, controls } = x;
             let Cell { props: other_props, blocks: other_blocks, controls: other_controls } = y;
-            props == other_props && controls == other_controls && same_blocks(blocks, other_blocks)
+            props == other_props && controls == other_controls && same_blocks_except(blocks, other_blocks, child_path(except, index))
         })
 }
 

@@ -46,6 +46,7 @@ mod ctx;
 mod floats;
 mod flow;
 mod headers;
+mod incremental;
 mod notes;
 mod page;
 mod pass;
@@ -296,9 +297,9 @@ pub struct Page {
 /// The whole layout.
 #[derive(Clone, Debug, Default)]
 pub struct DocLayout {
-    pub pages: Vec<Page>,
+    pub pages: Vec<Arc<Page>>,
     /// Index: (story, paragraph path) → (page, item index) of each placed piece, in order.
-    pub index: HashMap<(StoryRef, Path), Vec<(usize, usize)>>,
+    pub index: Arc<HashMap<(StoryRef, Path), Vec<(usize, usize)>>>,
     /// Layout time, milliseconds.
     pub ms: f64,
     /// Text box stories laid out (each time a box's text was).

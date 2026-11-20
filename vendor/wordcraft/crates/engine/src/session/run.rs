@@ -297,7 +297,7 @@ impl Session {
             if let Some((before, ..)) = before_doc {
                 crate::cmd::fmt_revisions::record(self, id, before);
             }
-            self.doc.ensure_nonempty();
+            self.doc.ensure_nonempty_cached(&mut self.validated_tables);
             self.doc.prune_text_boxes();
             // Whether the command left the document, the selection and the formatting
             // waiting at the caret as they were. A command that replaces the document —
@@ -392,6 +392,9 @@ impl Session {
             self.also_selected.clear();
         }
         self.note_typing(id, before_doc.as_ref().map(|b| &b.0), sel_before);
+        if matches!(id, "text.insert" | "text.backspace" | "text.delete") && self.rev != rev_before {
+            self.text_edit = before_doc.as_ref().and_then(|b| self.single_text_edit(&b.0, rev_before, sel_before));
+        }
     }
 
     /// The end of [`Session::run`] for a command that ended up in another document than it

@@ -537,7 +537,7 @@ pub(crate) fn layout_pass(
         return Pass::Again(found);
     }
     evict_unused(ctx.cache);
-    let mut lay = DocLayout { index: index_lines(&pages), pages, ms: 0.0, text_boxes: 0 };
+    let mut lay = DocLayout { index: Arc::new(index_lines(&pages)), pages: pages.into_iter().map(Arc::new).collect(), ms: 0.0, text_boxes: 0 };
     if opts.comment_balloons && !mode.web {
         balloons::add(&mut ctx, &mut lay);
     }

@@ -73,6 +73,26 @@ fn hosted_screen_baseline_preserves_layout_and_zoom() {
     assert!(std::sync::Arc::ptr_eq(&layout, &app.session.layout()), "screen density and zoom do not reflow Print Layout");
 }
 
+#[test]
+fn page_placement_is_reused_on_scroll_and_refreshed_on_view_changes() {
+    use std::sync::Arc;
+    let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let layout = app.session.layout();
+    let avail = vec2(1200.0, 800.0);
+    let first = geometry::cached_geometry(&mut app, &layout, avail);
+    app.canvas.scroll_offset.y = 400.0;
+    let scrolled = geometry::cached_geometry(&mut app, &layout, avail);
+    assert!(Arc::ptr_eq(&first, &scrolled));
+    app.session.view.fit = "pageWidth".into();
+    let fit = geometry::cached_geometry(&mut app, &layout, avail);
+    let narrow = geometry::cached_geometry(&mut app, &layout, vec2(660.0, 800.0));
+    assert!(!Arc::ptr_eq(&first, &fit));
+    assert!(narrow.scale < fit.scale);
+    app.run("text.insert", json!({"text": "edit"})).unwrap();
+    let updated = app.session.layout();
+    assert!(!Arc::ptr_eq(&fit, &geometry::cached_geometry(&mut app, &updated, avail)));
+}
+
 /// The rendered page, ruler, hit testing and outgoing IME candidate rect all share the same
 /// native screen transform at 100% and 150%; backing pixels are applied exactly once.
 #[test]

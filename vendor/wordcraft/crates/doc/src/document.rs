@@ -1,10 +1,10 @@
 use super::block::{Block, Blocks, BoxBudget};
-use super::compare::{para_block, same_blocks, same_bytes, same_glossary, same_parts};
+use super::compare::{para_block, same_bytes, same_glossary, same_parts};
 use super::error::{DocError, Result};
 use super::parts::{MAX_LINKED_BOXES, NoteSeparators, Part, PartKind, PermRange, TextBody, free_id};
 use super::position::{Path, Pos, StoryRef};
 use super::settings::{CoreProps, CustomProp, Settings};
-use super::text_walk::{TextMode, notes_and_boxes, story_word_count_of, text_of, walk};
+use super::text_walk::{TextMode, notes_and_boxes, seek_para, story_word_count_of, text_of, walk};
 use std::sync::Arc;
 
 use super::{BTreeMap, CharProps, Document, InlineObject, Numbering, Paragraph, SectionProps, StyleSheet, Table, edit, numbering, para, section};
@@ -93,30 +93,41 @@ impl Document {
         }
     }
 
-    fn fix_story_blocks(bl: &mut Blocks) {
-        if !bl.iter().any(|b| matches!(**b, Block::Para(_))) || matches!(bl.last().map(|b| &**b), Some(Block::Table(_))) {
-            bl.push(para_block(Paragraph::new()));
+    /// Every story must hold at least one paragraph, and every cell too.
+    pub fn ensure_nonempty(&mut self) {
+        self.ensure_nonempty_with(None);
+    }
+
+    /// Recheck only the body tables changed since the last repair. Weak identities also
+    /// detect edits made through a different caller or restored from undo.
+    pub fn ensure_nonempty_cached(&mut self, validated: &mut Vec<std::sync::Weak<Block>>) {
+        self.ensure_nonempty_with(Some(validated));
+    }
+
+    fn ensure_nonempty_with(&mut self, mut validated: Option<&mut Vec<std::sync::Weak<Block>>>) {
+        Self::fix_cell_blocks(&mut self.body);
+        if let Some(slots) = &mut validated {
+            slots.resize_with(self.body.len(), std::sync::Weak::new);
         }
-        for b in bl.iter_mut() {
-            if let Block::Table(t) = &**b {
-                let needs = t
-                    .rows
-                    .iter()
-                    .any(|r| r.cells.iter().any(|c| c.blocks.is_empty() || matches!(c.blocks.last().map(|b| &**b), Some(Block::Table(_)))));
-                if needs && let Block::Table(t) = Arc::make_mut(b) {
+        for (index, block) in self.body.iter_mut().enumerate() {
+            let known = validated.as_mut().and_then(|slots| slots.get_mut(index));
+            if known.as_ref().is_some_and(|slot| slot.as_ptr() == Arc::as_ptr(block)) {
+                continue;
+            }
+            if let Block::Table(t) = &**block {
+                let needs = t.rows.iter().any(|r| r.cells.iter().any(|c| c.blocks.last().is_none_or(|b| matches!(**b, Block::Table(_)))));
+                if needs && let Block::Table(t) = Arc::make_mut(block) {
                     for r in &mut t.rows {
                         for c in &mut r.cells {
                             Self::fix_cell_blocks(&mut c.blocks);
                         }
                     }
                 }
+                if let Some(slot) = known {
+                    *slot = Arc::downgrade(block);
+                }
             }
         }
-    }
-
-    /// Every story must hold at least one paragraph, and every cell too.
-    pub fn ensure_nonempty(&mut self) {
-        Self::fix_story_blocks(&mut self.body);
         for p in self.parts.values_mut() {
             if p.blocks.is_empty() {
                 p.blocks.push(para_block(Paragraph::new()));
@@ -134,7 +145,7 @@ impl Document {
     /// Every field is listed, so a new one does not build until someone decides whether a
     /// change to it counts (the same rule the session's edit snapshot follows).
     pub fn same_content(&self, other: &Document) -> bool {
-        self.same_content_with_save_stamp(other, true)
+        self.same_content_with_save_stamp(other, true, &[])
     }
 
     /// Compare document contents at a save point, excluding only the metadata `stamp_save`
@@ -143,10 +154,15 @@ impl Document {
     /// and every other document field still participate. Shared blocks/media take the same
     /// address fast paths as [`Self::same_content`]; no document clone or serialization occurs.
     pub fn same_content_without_save_stamp(&self, other: &Document) -> bool {
-        self.same_content_with_save_stamp(other, false)
+        self.same_content_with_save_stamp(other, false, &[])
     }
 
-    fn same_content_with_save_stamp(&self, other: &Document, include_save_stamp: bool) -> bool {
+    /// Whether the two documents differ only in the body paragraph at this path.
+    pub fn same_except_paragraph(&self, other: &Document, path: &Path) -> bool {
+        self.same_content_with_save_stamp(other, true, &path.0)
+    }
+
+    fn same_content_with_save_stamp(&self, other: &Document, include_save_stamp: bool, except: &[u32]) -> bool {
         let Document {
             body,
             last_section,
@@ -185,7 +201,7 @@ impl Document {
             glossary: other_glossary,
             media_index: _,
         } = other;
-        same_blocks(body, other_body)
+        crate::compare::same_blocks_except(body, other_body, except)
             && same_parts(parts, other_parts)
             && last_section == other_section
             && styles == other_styles
@@ -303,13 +319,19 @@ impl Document {
 
     /// First and last positions of a story.
     pub fn start_of(&self, s: StoryRef) -> Pos {
-        let path = self.para_paths(s).into_iter().next().unwrap_or_else(|| Path::top(0));
-        Pos { story: s, path, off: 0 }
+        self.story_edge(s, false)
     }
     pub fn end_of(&self, s: StoryRef) -> Pos {
-        let path = self.para_paths(s).pop().unwrap_or_else(|| Path::top(0));
-        let off = self.para(s, &path).map(|p| p.len()).unwrap_or(0);
-        Pos { story: s, path, off }
+        self.story_edge(s, true)
+    }
+
+    fn story_edge(&self, story: StoryRef, last: bool) -> Pos {
+        let mut path = Vec::new();
+        let len = self.story(story).and_then(|bl| seek_para(bl, None, last, &mut path));
+        match len {
+            Some(len) => Pos::new(story, Path(path), if last { len } else { 0 }),
+            None => Pos::new(story, Path::top(0), 0),
+        }
     }
 
     /// The position just after the shape that owns text box story `part` (body first, then the
@@ -331,14 +353,19 @@ impl Document {
 
     /// The next / previous paragraph path in document order.
     pub fn next_para(&self, s: StoryRef, path: &Path) -> Option<Path> {
-        let all = self.para_paths(s);
-        let i = all.binary_search(path).ok()?;
-        all.get(i + 1).cloned()
+        self.adjacent_para(s, path, false)
     }
     pub fn prev_para(&self, s: StoryRef, path: &Path) -> Option<Path> {
-        let all = self.para_paths(s);
-        let i = all.binary_search(path).ok()?;
-        i.checked_sub(1).and_then(|j| all.get(j).cloned())
+        self.adjacent_para(s, path, true)
+    }
+
+    fn adjacent_para(&self, s: StoryRef, path: &Path, reverse: bool) -> Option<Path> {
+        if path.0.is_empty() || path.depth() > crate::PARA_WALK_DEPTH || self.para(s, path).is_none() {
+            return None;
+        }
+        let mut next = Vec::new();
+        seek_para(self.story(s)?, Some(&path.0), reverse, &mut next)?;
+        Some(Path(next))
     }
 
     /// Clamp a position into the document (valid path, char boundary).

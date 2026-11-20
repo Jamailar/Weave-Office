@@ -28,9 +28,9 @@ impl Session {
         let outline = (mode == ViewMode::Outline).then(|| self.view.outline.view());
         let shown = (self.view.marks || self.prefs.marks.hidden, self.view.field_codes);
         let (rev, proofing, numeral) = (self.rev, self.view.proofing, self.view.numeral);
-        let fits = |e: &Option<LayoutEntry>| {
+        let matches_view = |e: &Option<LayoutEntry>, wanted_rev, wanted_typing| {
             e.as_ref().is_some_and(|(r, w, h, m, sp, _, pf, o, hd, n, t, sh)| {
-                *r == rev
+                *r == wanted_rev
                     && (*w == width || mode == ViewMode::Print)
                     && *h == height
                     && *m == mode
@@ -39,10 +39,11 @@ impl Session {
                     && *n == numeral
                     && *hd == deleted
                     && *o == outline
-                    && *t == typing
+                    && *t == wanted_typing
                     && *sh == shown
             })
         };
+        let fits = |e: &Option<LayoutEntry>| matches_view(e, rev, typing);
         if !fits(&self.layout[0]) && fits(&self.layout[1]) {
             self.layout.swap(0, 1);
         }
@@ -72,7 +73,21 @@ impl Session {
             filename: filename.clone(),
             filepath: filepath.clone(),
         };
-        let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
+        let local = self.text_edit().and_then(|edit| {
+            if typing.is_some_and(|w| self.doc.para(StoryRef::Body, &edit.path).is_none_or(|p| p.rev != w.rev)) {
+                return None;
+            }
+            let slot = self
+                .layout
+                .iter()
+                .find(|slot| {
+                    slot.as_ref()
+                        .is_some_and(|entry| entry.10.is_none_or(|w| w.rev == edit.previous_paragraph) && matches_view(slot, edit.previous, entry.10))
+                })?
+                .as_ref()?;
+            slot.5.reflow_text(&self.doc, &self.cache, &opts, &edit.path)
+        });
+        let l = Arc::new(local.unwrap_or_else(|| wordcraft_layout::layout(&self.doc, &mut self.cache, &opts)));
         let [newest, _] = std::mem::take(&mut self.layout);
         self.layout = [
             Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing, shown)),

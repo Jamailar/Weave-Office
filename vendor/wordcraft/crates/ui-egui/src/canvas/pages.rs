@@ -73,7 +73,7 @@ impl PageKeys {
         if let Some(Some(k)) = self.keys.get(i) {
             return *k;
         }
-        let k = layout.pages.get(i).map_or(0, page_content_key);
+        let k = layout.pages.get(i).map_or(0, |page| page_content_key(page));
         if let Some(slot) = self.keys.get_mut(i) {
             *slot = Some(k);
             self.hashed += 1;

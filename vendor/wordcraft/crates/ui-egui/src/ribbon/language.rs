@@ -180,7 +180,7 @@ pub(crate) fn caret_unreadable_dictionary(app: &WordApp) -> Option<(std::path::P
 /// with every language and Set As Default, and Language Preferences… opens Options › Language
 /// (#860: the short list alone left no way to pick French).
 pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
-    let st = app.session.run("format.state", &json!({})).unwrap_or_default();
+    let st = app.displayed_format();
     // The selection's own language; else (nothing set on the text) the one it gets from its
     // style or the document default, as the status bar shows.
     let current = match st.get("lang") {
