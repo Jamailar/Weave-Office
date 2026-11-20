@@ -37,8 +37,13 @@ impl Session {
     /// The line pieces of the current column selection, if there is one (the selection hasn't
     /// moved since the block was made).
     pub fn column_segments(&self) -> Option<&[(Pos, Pos)]> {
+        self.shared_column_segments().map(AsRef::as_ref)
+    }
+
+    /// The immutable line ranges of the active block selection, shared with screen caches.
+    pub fn shared_column_segments(&self) -> Option<&std::sync::Arc<[(Pos, Pos)]>> {
         // Cells that are one run of the text are an ordinary stream selection.
-        self.column.as_ref().filter(|c| c.sel == self.sel && !c.cells.as_ref().is_some_and(|r| r.stream)).map(|c| c.segments.as_slice())
+        self.column.as_ref().filter(|c| c.sel == self.sel && !c.cells.as_ref().is_some_and(|r| r.stream)).map(|c| &c.segments)
     }
 
     /// The whole table cells selected, if the selection is that (see [`CellRange`]).
@@ -99,6 +104,7 @@ impl Session {
     }
 
     pub fn touch(&mut self) {
+        self.text_edit = None;
         self.rev = self.rev.wrapping_add(1);
         self.dirty = true;
     }
@@ -266,6 +272,53 @@ impl Session {
     /// Words in the document, as the status bar shows them (see [`Prefs::count_notes`]).
     pub fn word_count(&self) -> usize {
         if self.prefs.count_notes { self.doc.word_count_including_notes() } else { self.doc.word_count() }
+    }
+
+    /// Paired content-control markers in the current model, including in-command edits.
+    pub fn control_ranges(&self, story: StoryRef) -> std::sync::Arc<[wordcraft_doc::control::ControlRange]> {
+        self.control_ranges.lock().unwrap_or_else(std::sync::PoisonError::into_inner).ranges(&self.doc, story)
+    }
+
+    pub(crate) fn control_at(&self, pos: &Pos) -> Option<wordcraft_doc::control::ControlRange> {
+        self.doc.para_at(pos)?;
+        wordcraft_doc::control::ControlRange::innermost_at(&self.control_ranges(pos.story), pos).cloned()
+    }
+
+    /// The word count of selected plain text. Paragraph and cell boundaries separate words.
+    pub fn selected_word_count(&self) -> usize {
+        let mut total = 0usize;
+        let mut count = |a: &Pos, b: &Pos| {
+            let (a, b) = (a.min(b), a.max(b));
+            self.doc.visit_paras_between(a, b, |path, p| {
+                let from = if path == a.path.0 { a.off } else { 0 };
+                let to = if path == b.path.0 { b.off } else { p.len() };
+                if let Some(text) = p.text.get(from..to) {
+                    let n = if p.objects.is_empty() || !text.contains(wordcraft_doc::para::OBJ) {
+                        wordcraft_doc::count_words(text)
+                    } else {
+                        let mut shown = String::with_capacity(text.len());
+                        let mut prev = from;
+                        for (off, o) in p.objects_with_offsets().filter(|(off, _)| (from..to).contains(off)) {
+                            shown.push_str(p.text.get(prev..off).unwrap_or_default());
+                            shown.push_str(o.plain_text());
+                            prev = off + wordcraft_doc::para::OBJ.len_utf8();
+                        }
+                        shown.push_str(p.text.get(prev..to).unwrap_or_default());
+                        wordcraft_doc::count_words(&shown)
+                    };
+                    total = total.saturating_add(n);
+                }
+                true
+            });
+        };
+        if let Some(rows) = self.column_segments() {
+            for (a, b) in rows {
+                count(a, b);
+            }
+        } else {
+            count(&self.sel.anchor, &self.sel.focus);
+        }
+        total
     }
 
     /// Selected plain text.

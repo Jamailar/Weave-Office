@@ -46,6 +46,7 @@ pub use proof::{ProofRun, is_list_item, paragraph_issues, proof_runs, proof_text
 /// A laid-out paragraph.
 #[derive(Clone, Debug)]
 pub struct ParaLayout {
+    pub(crate) reflow: Option<crate::incremental::ParagraphMeasure>,
     pub rp: ResolvedPara,
     pub styles: Vec<StyleRun>,
     pub glyphs: Vec<Glyph>,

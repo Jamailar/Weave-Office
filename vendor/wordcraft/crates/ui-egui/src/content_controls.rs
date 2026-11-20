@@ -20,7 +20,7 @@ const MAX_FRAMED: usize = 400;
 pub struct ControlUi {
     /// Control markers only change on edits. Caret moves and scrolling reuse the story scan.
     ranges_for: Option<(u64, u64, StoryRef)>,
-    ranges: Vec<ControlRange>,
+    ranges: std::sync::Arc<[ControlRange]>,
     /// Clickable check boxes shown this frame: (screen rect, where the content starts).
     checks: Vec<(Rect, Pos)>,
     /// The list/calendar button of the control the caret is in.
@@ -34,7 +34,7 @@ impl ControlUi {
         let story = session.sel.focus.story;
         let key = (session.document_id(), session.rev(), story);
         if self.ranges_for != Some(key) {
-            self.ranges = session.doc.control_ranges(story);
+            self.ranges = session.control_ranges(story);
             self.ranges_for = Some(key);
         }
     }

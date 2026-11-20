@@ -44,7 +44,7 @@ pub(super) fn clipboard(app: &mut WordApp, ui: &mut Ui) {
 }
 
 pub(super) fn styles(app: &mut WordApp, ui: &mut Ui) {
-    let st = app.session.run("format.state", &json!({})).unwrap_or_default();
+    let st = app.displayed_format();
     let cur = st.get("style").and_then(Value::as_str).unwrap_or("Normal").to_string();
     let current_name = app
         .session

@@ -553,16 +553,29 @@ impl Document {
 
     /// Paragraph paths between `a` and `b` inclusive (same story), document order.
     pub fn paths_between(&self, a: &Pos, b: &Pos) -> Vec<Path> {
-        let (a, b) = order(a, b);
-        if a.story != b.story {
-            return Vec::new();
-        }
-        // Only the blocks the range reaches are walked (not every paragraph of the story).
         let mut out = Vec::new();
-        if let Some(bl) = self.story(a.story) {
-            crate::walk_between(bl, &mut Vec::new(), &mut out, 0, (&a.path.0, &b.path.0));
-        }
+        self.visit_paras_between(a, b, |path, _| {
+            out.push(Path(path.to_vec()));
+            true
+        });
         out
+    }
+
+    /// Visit paragraphs in a selection without allocating paths. A false return ends the walk.
+    pub fn visit_paras_between(&self, a: &Pos, b: &Pos, mut visit: impl FnMut(&[u32], &Paragraph) -> bool) {
+        if a.story != b.story {
+            return;
+        }
+        if a.path == b.path {
+            if a.path.0.len() / 3 <= crate::PARA_WALK_DEPTH
+                && let Some(p) = self.para_at(a)
+            {
+                visit(&a.path.0, p);
+            }
+        } else if let Some(bl) = self.story(a.story) {
+            let (start, end) = if a < b { (a, b) } else { (b, a) };
+            crate::walk_between(bl, &mut Vec::new(), &mut visit, 0, (&start.path.0, &end.path.0));
+        }
     }
 
     /// Delete `a..b`. Returns the position where the deletion collapsed to. On error the document

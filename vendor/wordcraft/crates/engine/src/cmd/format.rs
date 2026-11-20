@@ -276,19 +276,16 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
         out.push(s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()));
         return out;
     };
-    for path in s.doc.paths_between(&a, &b) {
-        let Some(p) = s.doc.para(a.story, &path) else { continue };
-        let from = if path == a.path { a.off } else { 0 };
-        let to = if path == b.path { b.off } else { p.len() };
+    s.doc.visit_paras_between(&a, &b, |path, p| {
+        let from = if path == a.path.0 { a.off } else { 0 };
+        let to = if path == b.path.0 { b.off } else { p.len() };
         for (r, c) in p.run_ranges() {
             if r.end > from && r.start < to {
                 out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), c));
             }
         }
-        if out.len() > 10_000 {
-            break;
-        }
-    }
+        out.len() <= 10_000
+    });
     if out.is_empty() {
         let p = s.doc.para_at(&a);
         let style = p.and_then(|p| p.props.style.clone());

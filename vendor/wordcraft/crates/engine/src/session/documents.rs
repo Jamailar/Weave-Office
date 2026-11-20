@@ -265,11 +265,14 @@ impl Session {
             math_normal_text: _,
             last_highlight: _,
             // Keyed by document id and revision, so one cache serves every document.
+            validated_tables: _,
+            control_ranges: _,
             protect_facts: _,
             // The input method talks to the window, whichever document it shows; the IME
             // context is keyed by `document_id`.
             ime_state_revision: _,
             ime_state_seen: _,
+            text_edit: _,
             ime_edit_outcome: _,
             #[cfg(any(test, feature = "test-support"))]
                 ime_state_exhausted: _,

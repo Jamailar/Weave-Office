@@ -306,6 +306,12 @@ fn same_content_sees_every_change() {
     let Block::Table(t) = Arc::make_mut(&mut e.body[0]) else { panic!("a table") };
     t.rows[1].cells[1].blocks[0] = para_block(Paragraph::with_text("x", CharProps::default()));
     assert!(!d.same_content(&e), "a cell's text changed");
+    let edited = Path(vec![0, 1, 1, 0]);
+    assert!(d.same_except_paragraph(&e, &edited));
+    assert!(!d.same_except_paragraph(&e, &Path(vec![0, 1, 0, 0])));
+    let table = e.table_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    table.props.fixed = !table.props.fixed;
+    assert!(!d.same_except_paragraph(&e, &edited));
     // A building block was added.
     let mut e = d.clone();
     e.glossary.push(BuildingBlock { name: "Sign-off".into(), ..Default::default() });
@@ -327,8 +333,15 @@ fn ensure_nonempty_repairs() {
     let mut d = Document::new();
     d.body.clear();
     d.body.push(Arc::new(Block::Table(Table::new(1, 1, 100.0))));
-    d.ensure_nonempty();
+    let mut known = Vec::new();
+    d.ensure_nonempty_cached(&mut known);
     assert!(matches!(d.body.last().map(|b| &**b), Some(Block::Para(_))));
+    let snapshot = d.body[0].clone();
+    d.ensure_nonempty_cached(&mut known);
+    assert!(Arc::ptr_eq(&snapshot, &d.body[0]));
+    d.table_mut(StoryRef::Body, &Path::top(0)).unwrap().rows[0].cells[0].blocks.clear();
+    d.ensure_nonempty_cached(&mut known);
+    assert!(d.para(StoryRef::Body, &Path(vec![0, 0, 0, 0])).is_some());
 }
 
 #[test]

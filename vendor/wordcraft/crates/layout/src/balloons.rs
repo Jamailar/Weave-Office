@@ -165,7 +165,7 @@ pub(crate) fn add(ctx: &mut Ctx, lay: &mut DocLayout) {
     }
     // Every page gets the markup area, so the pages keep one size.
     let widths: Vec<f32> = lay.pages.iter().map(|p| p.w).collect();
-    for p in &mut lay.pages {
+    for p in lay.pages.iter_mut().map(std::sync::Arc::make_mut) {
         p.w += MARKUP_AREA;
         p.markup = MARKUP_AREA;
     }
@@ -175,6 +175,7 @@ pub(crate) fn add(ctx: &mut Ctx, lay: &mut DocLayout) {
     }
     for (pi, mut list) in by_page {
         let (Some(page), Some(&pw)) = (lay.pages.get_mut(pi), widths.get(pi)) else { continue };
+        let page = std::sync::Arc::make_mut(page);
         list.sort_by(|a, b| a.ay.total_cmp(&b.ay).then(a.ax.total_cmp(&b.ax)));
         let (top_min, bottom) = (EDGE, (page.h - EDGE).max(EDGE + MIN_CARD));
         // Each card as near its anchor as the ones above allow; then pushed up from the page

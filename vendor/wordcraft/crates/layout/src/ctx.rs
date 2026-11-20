@@ -53,7 +53,7 @@ pub(crate) struct Ctx<'a> {
     pub(crate) mirror: bool,
     /// Cache-key hashes of the table-style text formatting cells were laid out with
     /// ([`Ctx::table_key`]).
-    pub(crate) table_keys: Vec<(para::CellText, u64)>,
+    pub(crate) table_keys: Vec<(Arc<para::CellText>, u64)>,
     /// While a header or footer with tables is laid out: its page, for floats in its cells placed
     /// on the page (see [`with_pin`]).
     pub(crate) pin: Option<Pin>,
@@ -237,10 +237,16 @@ impl Ctx<'_> {
         }
         self.cache.misses += 1;
         let typing = key.typing;
-        let pl = Arc::new(para::layout_para(
-            p,
-            &self.para_env(ParaEnvInput { width, label, table, exclusions, eq_number, typing_word: typing, fitted: &fitted }),
-        ));
+        let can_reflow = label.is_none() && exclusions.is_empty() && p.objects.is_empty() && !self.boxes.inside();
+        let mut pl =
+            para::layout_para(p, &self.para_env(ParaEnvInput { width, label, table, exclusions, eq_number, typing_word: typing, fitted: &fitted }));
+        if can_reflow {
+            let cell = table.and_then(|t| self.table_keys.iter().find(|(c, _)| c.as_ref() == t).map(|(c, _)| c.clone()));
+            if table.is_none() || cell.is_some() {
+                pl.reflow = Some(crate::incremental::ParagraphMeasure { width, grid: self.grid, cell });
+            }
+        }
+        let pl = Arc::new(pl);
         self.cache.paras.insert(key, pl.clone());
         pl
     }
@@ -382,14 +388,14 @@ impl Ctx<'_> {
     /// as text, which a long table would otherwise do for each of its paragraphs on every pass; a
     /// document's tables only give their text a few different formats.
     fn table_key(&mut self, t: &para::CellText) -> u64 {
-        if let Some((_, h)) = self.table_keys.iter().find(|(c, _)| c == t) {
+        if let Some((_, h)) = self.table_keys.iter().find(|(c, _)| c.as_ref() == t) {
             return *h;
         }
         let h = hash_of(&format!("{t:?}"));
         if self.table_keys.len() >= 64 {
             self.table_keys.clear();
         }
-        self.table_keys.push((t.clone(), h));
+        self.table_keys.push((Arc::new(t.clone()), h));
         h
     }
 

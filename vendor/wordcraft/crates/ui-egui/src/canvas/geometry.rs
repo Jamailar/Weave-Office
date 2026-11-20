@@ -104,6 +104,10 @@ pub fn markup_width(app: &WordApp) -> f32 {
     let comments = m.comments && !s.doc.comments.is_empty() && m.comment_display == CommentDisplay::Margin;
     let [has_formats, has_moves, has_deletions] = match app.canvas.markup_facts.get() {
         Some((rev, facts)) if rev == (s.document_id(), s.rev()) => facts,
+        Some(((id, rev), facts)) if id == s.document_id() && s.text_edit().is_some_and(|e| e.previous == rev) => {
+            app.canvas.markup_facts.set(Some(((id, s.rev()), facts)));
+            facts
+        }
         _ => {
             use wordcraft_engine::cmd::{moves, review};
             let facts = [review::has_format_changes(&s.doc), moves::has_moves(&s.doc), review::has_deletions(&s.doc)];

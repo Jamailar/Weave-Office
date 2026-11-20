@@ -96,6 +96,7 @@ const TILE_HEIGHT_PX: usize = 1024;
 const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
+    pub(crate) selection_info: std::cell::RefCell<Option<crate::selection_info::SelectionInfo>>,
     geometry: Option<geometry::CachedGeometry>,
     textures: HashMap<usize, (u64, TextureHandle)>,
     /// Visible full-resolution tiles of pages too tall for one GPU texture.
@@ -346,6 +347,7 @@ impl Default for CanvasState {
     /// visibility, and inactive drag and column-selection state.
     fn default() -> Self {
         CanvasState {
+            selection_info: Default::default(),
             geometry: None,
             textures: HashMap::new(),
             tiles: HashMap::new(),
@@ -1412,23 +1414,32 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // Selection (a selected object shows its frame instead): whole table cells shade the
         // cells (an empty one too), a column selection each row's piece, text running into or
         // across a table the whole cells of the rows it takes.
+        let on_screen = |r: &Rect| r.intersects(view_rect);
+        let visible = rects.iter().position(on_screen).unwrap_or(0)..rects.iter().rposition(on_screen).map_or(0, |i| i + 1);
         let selected: Vec<_> = if let Some(sel) = preview_sel(app) {
             let (a, b) = sel.ordered();
             if a == b {
                 Vec::new()
             } else {
-                wordcraft_engine::cmd::table_mouse::selection_rects(&layout, page_doc(app), &a, &b, app.session.page_hint)
+                wordcraft_engine::cmd::table_mouse::selection_rects_on_pages(&layout, page_doc(app), &a, &b, app.session.page_hint, visible.clone())
             }
         } else if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
-            wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
+            wordcraft_engine::cmd::table_mouse::cell_rects_on_pages(&layout, &app.session.doc, range, visible.clone())
         } else if !app.session.sel.is_collapsed() {
             match app.session.column_segments() {
-                Some(segs) => segs.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect(),
+                Some(segs) => layout.column_rects_on_pages(&app.session.doc, segs, app.session.page_hint, visible.clone()),
                 None => {
                     let (a, b) = app.session.sel.ordered();
-                    wordcraft_engine::cmd::table_mouse::selection_rects(&layout, &app.session.doc, &a, &b, app.session.page_hint)
+                    wordcraft_engine::cmd::table_mouse::selection_rects_on_pages(
+                        &layout,
+                        &app.session.doc,
+                        &a,
+                        &b,
+                        app.session.page_hint,
+                        visible.clone(),
+                    )
                 }
             }
         } else {

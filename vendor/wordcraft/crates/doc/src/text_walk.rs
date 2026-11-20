@@ -109,10 +109,16 @@ pub(crate) fn seek_para(bl: &Blocks, from: Option<&[u32]>, reverse: bool, path: 
 }
 
 /// [`walk`] for the paragraphs from path `a` to `b` inclusive, skipping the blocks outside.
-pub(crate) fn walk_between(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize, (a, b): (&[u32], &[u32])) {
+pub(crate) fn walk_between(
+    bl: &Blocks,
+    prefix: &mut Vec<u32>,
+    visit: &mut dyn FnMut(&[u32], &crate::Paragraph) -> bool,
+    depth: usize,
+    (a, b): (&[u32], &[u32]),
+) -> bool {
     use std::cmp::Ordering::{Greater, Less};
     if depth > PARA_WALK_DEPTH {
-        return;
+        return true;
     }
     // Where the paths starting with `q` lie against `x`: all before, all after, or either.
     let side = |q: &[u32], x: &[u32]| {
@@ -127,9 +133,9 @@ pub(crate) fn walk_between(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Pat
         }
         if side(prefix, a) != Less {
             match &**blk {
-                Block::Para(_) => {
-                    if prefix.as_slice() >= a && prefix.as_slice() <= b {
-                        out.push(Path(prefix.clone()));
+                Block::Para(p) => {
+                    if prefix.as_slice() >= a && prefix.as_slice() <= b && !visit(prefix, p) {
+                        return false;
                     }
                 }
                 Block::Table(t) => {
@@ -137,8 +143,9 @@ pub(crate) fn walk_between(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Pat
                         for (c, cell) in row.cells.iter().enumerate() {
                             prefix.push(r as u32);
                             prefix.push(c as u32);
-                            if side(prefix, a) != Less && side(prefix, b) != Greater {
-                                walk_between(&cell.blocks, prefix, out, depth + 1, (a, b));
+                            if side(prefix, a) != Less && side(prefix, b) != Greater && !walk_between(&cell.blocks, prefix, visit, depth + 1, (a, b))
+                            {
+                                return false;
                             }
                             prefix.pop();
                             prefix.pop();
@@ -149,6 +156,7 @@ pub(crate) fn walk_between(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Pat
         }
         prefix.pop();
     }
+    true
 }
 
 /// Which text of a paragraph [`text_of`] collects.

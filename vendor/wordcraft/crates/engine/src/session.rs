@@ -15,6 +15,8 @@ mod views;
 pub use documents::{DocInfo, DocState};
 use documents::{document_id_mark, next_document_id, untitled_name};
 pub use views::WindowView;
+mod edit_delta;
+pub use edit_delta::TextEdit;
 mod history;
 mod ime;
 mod layout;
@@ -126,6 +128,10 @@ pub struct Session {
     untitled: u32,
     /// `rev` when the document was made, for [`Session::is_untouched_blank`].
     made_rev: u64,
+    /// Body tables whose cell endings have been checked by the editing pipeline.
+    validated_tables: Vec<std::sync::Weak<wordcraft_doc::Block>>,
+    /// Content-control ranges indexed by immutable blocks, including mid-command mutations.
+    control_ranges: std::sync::Mutex<wordcraft_doc::control::ControlRangeCache>,
     /// What Restrict Editing's outright refusals depend on, for greying out commands
     /// ([`Session::why_disabled`]): computed once per document, revision and author instead of
     /// for every button on every frame.
@@ -141,6 +147,8 @@ pub struct Session {
     /// The caret/equation-session token the revision was last allocated for. It covers selection
     /// and caret changes without walking the document.
     ime_state_seen: Option<ImeCaretState>,
+    /// Verified local change available to layout and UI consumers of this revision.
+    text_edit: Option<TextEdit>,
     /// The current command's explicit IME effect classification.
     ime_edit_outcome: ImeEditOutcome,
     /// Simulation of a globally exhausted IME revision allocator for front-end producer tests.

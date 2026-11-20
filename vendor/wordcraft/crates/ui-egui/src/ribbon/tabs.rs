@@ -115,21 +115,25 @@ pub fn has_chart_selected(s: &wordcraft_engine::Session) -> bool {
 
 /// Contextual tabs for the current selection (pure, tested).
 pub fn contextual_tabs(s: &wordcraft_engine::Session) -> Vec<&'static str> {
+    tabs_with_objects(s, crate::selection_info::SelectionObjects::of(s))
+}
+
+pub(super) fn tabs_with_objects(s: &wordcraft_engine::Session, objects: crate::selection_info::SelectionObjects) -> Vec<&'static str> {
     let mut tabs = Vec::new();
     if s.sel.focus.path.cell().is_some() {
         tabs.push("Table Design");
         tabs.push("Table Layout");
     }
-    if has_picture_selected(s) {
+    if objects.picture {
         tabs.push("Picture Format");
     }
-    if has_shape_selected(s) {
+    if objects.shape {
         tabs.push("Shape Format");
     }
-    if has_smart_art_selected(s) {
+    if objects.smart_art {
         tabs.push("SmartArt Design");
     }
-    if has_chart_selected(s) {
+    if objects.chart {
         tabs.push("Chart Design");
     }
     // Editing an equation.

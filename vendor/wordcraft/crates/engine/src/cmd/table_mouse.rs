@@ -294,17 +294,23 @@ pub fn moved_to(l: &DocLayout, page: usize, geom: &ResizeTarget, dx: f32, dy: f3
 
 /// Where the selected cells are drawn (page, rect), for shading them.
 pub fn cell_rects(l: &DocLayout, doc: &Document, range: &CellRange) -> Vec<(usize, Rect)> {
+    cell_rects_on_pages(l, doc, range, 0..l.pages.len())
+}
+
+pub fn cell_rects_on_pages(l: &DocLayout, doc: &Document, range: &CellRange, pages: std::ops::Range<usize>) -> Vec<(usize, Rect)> {
     let Some(t) = doc.table(range.story, &range.table) else { return Vec::new() };
-    let picked: std::collections::BTreeSet<(usize, usize)> = range.cells(t).into_iter().collect();
+    let mut picked = BTreeMap::new();
     let mut out = Vec::new();
-    for (pi, pg) in l.pages.iter().enumerate() {
+    for pi in pages {
+        let Some(pg) = l.pages.get(pi) else { break };
         for it in &pg.items {
             // A vertically merged cell's box spans its rows (#640); its continuation rows'
             // `covered` boxes would shade it twice.
             if let Placed::Cell { rect, table, row, cell, story, covered: false, .. } = it
                 && *story == range.story
                 && *table == range.table
-                && picked.contains(&(*row, *cell))
+                && (range.rows.0..=range.rows.1).contains(row)
+                && picked.entry(*row).or_insert_with(|| t.rows.get(*row).map_or(0..0, |r| range.cells_in_row(r))).contains(cell)
             {
                 out.push((pi, *rect));
             }
@@ -319,13 +325,23 @@ pub fn cell_rects(l: &DocLayout, doc: &Document, range: &CellRange) -> Vec<(usiz
 /// both ends are in keeps its text (whole cells there are a `CellRange`).
 pub fn selection_rects(l: &DocLayout, doc: &Document, a: &Pos, b: &Pos, page_hint: usize) -> Vec<(usize, Rect)> {
     let text = l.selection_rects(doc, a, b, page_hint);
+    shade_rows(l, doc, a, b, 0..l.pages.len(), text)
+}
+
+pub fn selection_rects_on_pages(l: &DocLayout, doc: &Document, a: &Pos, b: &Pos, hint: usize, pages: std::ops::Range<usize>) -> Vec<(usize, Rect)> {
+    let text = l.selection_rects_on_pages(doc, a, b, hint, pages.clone());
+    shade_rows(l, doc, a, b, pages, text)
+}
+
+fn shade_rows(l: &DocLayout, doc: &Document, a: &Pos, b: &Pos, pages: std::ops::Range<usize>, text: Vec<(usize, Rect)>) -> Vec<(usize, Rect)> {
     let (a, b) = if a <= b { (a, b) } else { (b, a) };
-    if a.story != b.story {
+    if a.story != b.story || a.path == b.path {
         return text;
     }
     let mut seen = BTreeMap::new();
     let mut cells = Vec::new();
-    for (pi, pg) in l.pages.iter().enumerate() {
+    for pi in pages {
+        let Some(pg) = l.pages.get(pi) else { break };
         for it in &pg.items {
             // A vertically merged cell's box spans its rows (#640), as in `cell_rects`.
             if let Placed::Cell { rect, table, row, story, covered: false, .. } = it
