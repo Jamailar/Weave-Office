@@ -1341,7 +1341,9 @@ fn blocks_content(ctx: &mut Ctx, blocks: &Blocks, text: Option<&CellText>, depth
         let (l, h) = match &**b {
             Block::Para(p) => {
                 let label = list_level(ctx, p).map(|l| (String::new(), l));
-                ctx.para_measured(p, UNBOUNDED, text, label, para_content)
+                let matched = ctx.cache.matching_cell(b, ctx.opts.typing_word);
+                let layout_para = matched.as_deref().and_then(Block::as_para).unwrap_or(p);
+                ctx.para_measured(layout_para, UNBOUNDED, text, label, para_content)
             }
             // A nested table: its fixed width, else its columns' but at least its preferred width
             // (its own, else its grid's when it has preferred widths at all).

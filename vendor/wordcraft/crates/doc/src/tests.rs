@@ -12,6 +12,39 @@ fn new_document_is_valid() {
 }
 
 #[test]
+fn paragraph_navigation_matches_story_order_in_nested_and_empty_cells() {
+    let mut outer = Table::new(3, 2, 360.0);
+    outer.rows[0].cells.clear();
+    outer.rows[1].cells[0].blocks.clear();
+    let mut inner = Table::new(2, 2, 120.0);
+    inner.rows[1].cells[1] = table::Cell::with_text("终");
+    outer.rows[2].cells[1].blocks = vec![Arc::new(Block::Table(inner))];
+    let mut doc = Document::new();
+    doc.body = vec![Arc::new(Block::Table(Table::default())), Arc::new(Block::Table(outer))];
+    let part = doc.add_part(PartKind::Footer, doc.body.clone());
+    for story in [StoryRef::Body, StoryRef::Part(part)] {
+        let paths = doc.para_paths(story);
+        assert_eq!(doc.start_of(story), Pos::new(story, paths[0].clone(), 0));
+        assert_eq!(doc.end_of(story), Pos::new(story, paths.last().unwrap().clone(), "终".len()));
+        for (i, path) in paths.iter().enumerate() {
+            assert_eq!(doc.prev_para(story, path).as_ref(), i.checked_sub(1).and_then(|n| paths.get(n)));
+            assert_eq!(doc.next_para(story, path).as_ref(), paths.get(i + 1));
+        }
+        assert!(doc.next_para(story, &Path::top(1)).is_none());
+    }
+    let mut deep = para_block(Paragraph::new());
+    for _ in 0..=PARA_WALK_DEPTH {
+        let mut table = Table::new(1, 1, 120.0);
+        table.rows[0].cells[0].blocks = vec![deep];
+        deep = Arc::new(Block::Table(table));
+    }
+    doc.body = vec![deep];
+    assert!(doc.para_paths(StoryRef::Body).is_empty());
+    assert_eq!(doc.start_of(StoryRef::Body), Pos::body(0, 0));
+    assert_eq!(doc.end_of(StoryRef::Body), Pos::body(0, 0));
+}
+
+#[test]
 fn word_count() {
     let d = Document::from_text("Hello, world!\nThis is — a test 42.\n\n");
     assert_eq!(d.word_count(), 7);
@@ -273,6 +306,12 @@ fn same_content_sees_every_change() {
     let Block::Table(t) = Arc::make_mut(&mut e.body[0]) else { panic!("a table") };
     t.rows[1].cells[1].blocks[0] = para_block(Paragraph::with_text("x", CharProps::default()));
     assert!(!d.same_content(&e), "a cell's text changed");
+    let edited = Path(vec![0, 1, 1, 0]);
+    assert!(d.same_except_paragraph(&e, &edited));
+    assert!(!d.same_except_paragraph(&e, &Path(vec![0, 1, 0, 0])));
+    let table = e.table_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    table.props.fixed = !table.props.fixed;
+    assert!(!d.same_except_paragraph(&e, &edited));
     // A building block was added.
     let mut e = d.clone();
     e.glossary.push(BuildingBlock { name: "Sign-off".into(), ..Default::default() });
@@ -294,8 +333,15 @@ fn ensure_nonempty_repairs() {
     let mut d = Document::new();
     d.body.clear();
     d.body.push(Arc::new(Block::Table(Table::new(1, 1, 100.0))));
-    d.ensure_nonempty();
+    let mut known = Vec::new();
+    d.ensure_nonempty_cached(&mut known);
     assert!(matches!(d.body.last().map(|b| &**b), Some(Block::Para(_))));
+    let snapshot = d.body[0].clone();
+    d.ensure_nonempty_cached(&mut known);
+    assert!(Arc::ptr_eq(&snapshot, &d.body[0]));
+    d.table_mut(StoryRef::Body, &Path::top(0)).unwrap().rows[0].cells[0].blocks.clear();
+    d.ensure_nonempty_cached(&mut known);
+    assert!(d.para(StoryRef::Body, &Path(vec![0, 0, 0, 0])).is_some());
 }
 
 #[test]

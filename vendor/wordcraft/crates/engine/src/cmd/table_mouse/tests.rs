@@ -556,6 +556,7 @@ fn a_selection_into_a_table_shades_its_rows_whole_cells() {
     let (a, b) = s.sel.ordered();
     let l = s.layout();
     let shaded = selection_rects(&l, &s.doc, &a, &b, 0);
+    assert_eq!(selection_rects_on_pages(&l, &s.doc, &b, &a, 0, 0..1), shaded);
     for r in 0..3 {
         for c in 0..2 {
             let cell = cell_rect(&mut s, r, c);

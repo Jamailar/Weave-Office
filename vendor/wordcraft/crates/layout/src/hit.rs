@@ -795,56 +795,111 @@ impl DocLayout {
         let mut pages = PartPages::new(a.story);
         for path in doc.paths_between(a, b) {
             for (pi, it) in self.pieces_in(&mut pages, &path, page_hint) {
-                let Placed::Lines { para, l0, l1, x, y, turn, .. } = it else { continue };
-                let Some(first) = para.lines.get(*l0) else { continue };
-                // Rectangles in the lines' own frame, turned onto the page.
-                let (ox, oy, turn) = (*x, *y, *turn);
-                let mut put = |r: Rect| out.push((pi, crate::turn_rect(turn, ox, oy, r)));
-                for li in *l0..*l1 {
-                    let Some(l) = para.lines.get(li) else { continue };
-                    let from = if path == a.path { a.off.max(l.start) } else { l.start };
-                    let to = if path == b.path { b.off.min(l.stop) } else { l.stop };
-                    if path == a.path && a.off > l.stop {
-                        continue;
-                    }
-                    if path == b.path && b.off < l.start {
-                        continue;
-                    }
-                    if from > to {
-                        continue;
-                    }
-                    let top = l.top - first.top;
-                    if !l.vis.is_empty() {
-                        // Bidirectional line: the selected text can be several visual pieces.
-                        for (x0, x1) in para.x_spans(li, from, to) {
-                            put(Rect::new(x0, top, (x1 - x0).max(0.0), l.height));
-                        }
-                        // Selection continuing past the paragraph end shows the paragraph mark.
-                        if li + 1 == para.lines.len() && path != b.path {
-                            let ex = l.end_x();
-                            let x0 = if l.rtl { ex - PARA_MARK_WIDTH } else { ex };
-                            put(Rect::new(x0, top, PARA_MARK_WIDTH, l.height));
-                        }
-                        continue;
-                    }
-                    let x0 = para.x_of(li, from).unwrap_or(l.left);
-                    let mut x1 = para.x_of(li, to).unwrap_or(x0);
-                    // Selection continuing past the paragraph end shows the paragraph mark.
-                    let last_line = li + 1 == para.lines.len();
-                    if last_line && path != b.path {
-                        x1 += PARA_MARK_WIDTH;
-                    }
-                    if path == b.path && to >= l.stop && li + 1 < para.lines.len() && b.off > l.stop {
-                        x1 = para.x_of(li, l.stop).unwrap_or(x1);
-                    }
-                    if x1 <= x0 && !(last_line && path != b.path) {
-                        continue;
-                    }
-                    put(Rect::new(x0, top, (x1 - x0).max(0.0), l.height));
+                Self::selected_lines(&mut out, pi, it, a, b);
+            }
+        }
+        out
+    }
+
+    /// Selection geometry for a viewport. Ordinary body pieces are already grouped by page,
+    /// even when the selection stretches over hundreds of thousands of paragraphs.
+    pub fn selection_rects_on_pages(&self, doc: &Document, a: &Pos, b: &Pos, hint: usize, pages: std::ops::Range<usize>) -> Vec<(usize, Rect)> {
+        if a.story != StoryRef::Body || b.story != a.story {
+            return self.selection_rects(doc, a, b, hint).into_iter().filter(|(pi, _)| pages.contains(pi)).collect();
+        }
+        let (a, b) = if a <= b { (a, b) } else { (b, a) };
+        let mut out = Vec::new();
+        if a.path == b.path {
+            for (pi, item) in self.pieces(a.story, &a.path, hint) {
+                if pages.contains(&pi) {
+                    Self::selected_lines(&mut out, pi, item, a, b);
+                }
+            }
+            return out;
+        }
+
+        for pi in pages {
+            let Some(page) = self.pages.get(pi) else { break };
+            for item in &page.items {
+                if let Placed::Lines { story: StoryRef::Body, path, .. } = item
+                    && *path >= a.path
+                    && *path <= b.path
+                {
+                    Self::selected_lines(&mut out, pi, item, a, b);
                 }
             }
         }
         out
+    }
+
+    /// Column selections are in paragraph order. Look up just the runs belonging to
+    /// visible paragraph pieces, including split paragraphs and repeated table headings.
+    pub fn column_rects_on_pages(&self, doc: &Document, segments: &[(Pos, Pos)], hint: usize, pages: std::ops::Range<usize>) -> Vec<(usize, Rect)> {
+        if segments.first().is_none_or(|(a, _)| a.story != StoryRef::Body) {
+            return segments.iter().flat_map(|(a, b)| self.selection_rects_on_pages(doc, a, b, hint, pages.clone())).collect();
+        }
+        let mut out = Vec::new();
+        for pi in pages {
+            let Some(page) = self.pages.get(pi) else { break };
+            for item in &page.items {
+                let Placed::Lines { story: StoryRef::Body, path, .. } = item else { continue };
+                let first = segments.partition_point(|(a, _)| a.path < *path);
+                for (a, b) in segments[first..].iter().take_while(|(a, _)| a.path == *path) {
+                    Self::selected_lines(&mut out, pi, item, a, b);
+                }
+            }
+        }
+        out
+    }
+
+    fn selected_lines(out: &mut Vec<(usize, Rect)>, pi: usize, it: &Placed, a: &Pos, b: &Pos) {
+        let Placed::Lines { path, para, l0, l1, x, y, turn, .. } = it else { return };
+        let Some(first) = para.lines.get(*l0) else { return };
+        // Rectangles in the lines' own frame, turned onto the page.
+        let (ox, oy, turn) = (*x, *y, *turn);
+        let mut put = |r: Rect| out.push((pi, crate::turn_rect(turn, ox, oy, r)));
+        for li in *l0..*l1 {
+            let Some(l) = para.lines.get(li) else { continue };
+            let from = if *path == a.path { a.off.max(l.start) } else { l.start };
+            let to = if *path == b.path { b.off.min(l.stop) } else { l.stop };
+            if *path == a.path && a.off > l.stop {
+                continue;
+            }
+            if *path == b.path && b.off < l.start {
+                continue;
+            }
+            if from > to {
+                continue;
+            }
+            let top = l.top - first.top;
+            if !l.vis.is_empty() {
+                // Bidirectional line: the selected text can be several visual pieces.
+                for (x0, x1) in para.x_spans(li, from, to) {
+                    put(Rect::new(x0, top, (x1 - x0).max(0.0), l.height));
+                }
+                // Selection continuing past the paragraph end shows the paragraph mark.
+                if li + 1 == para.lines.len() && *path != b.path {
+                    let ex = l.end_x();
+                    let x0 = if l.rtl { ex - PARA_MARK_WIDTH } else { ex };
+                    put(Rect::new(x0, top, PARA_MARK_WIDTH, l.height));
+                }
+                continue;
+            }
+            let x0 = para.x_of(li, from).unwrap_or(l.left);
+            let mut x1 = para.x_of(li, to).unwrap_or(x0);
+            // Selection continuing past the paragraph end shows the paragraph mark.
+            let last_line = li + 1 == para.lines.len();
+            if last_line && *path != b.path {
+                x1 += PARA_MARK_WIDTH;
+            }
+            if *path == b.path && to >= l.stop && li + 1 < para.lines.len() && b.off > l.stop {
+                x1 = para.x_of(li, l.stop).unwrap_or(x1);
+            }
+            if x1 <= x0 && !(last_line && *path != b.path) {
+                continue;
+            }
+            put(Rect::new(x0, top, (x1 - x0).max(0.0), l.height));
+        }
     }
 
     /// One step left or right from `pos` in visual order on its line (arrow keys in
@@ -992,14 +1047,15 @@ mod object_index_tests {
         };
         let layout = DocLayout {
             pages: vec![
-                Page { items: vec![object(&body, 10.0), object(&body, 11.0)], header: vec![object(&header, 12.0)], ..Default::default() },
-                Page::default(),
+                Page { items: vec![object(&body, 10.0), object(&body, 11.0)], header: vec![object(&header, 12.0)], ..Default::default() }.into(),
+                Page::default().into(),
                 Page {
                     items: vec![object(&body, 30.0)],
                     header: vec![object(&header, 31.0), object(&header, 32.0)],
                     footer: vec![object(&footer, 33.0)],
                     ..Default::default()
-                },
+                }
+                .into(),
             ],
             ..Default::default()
         };

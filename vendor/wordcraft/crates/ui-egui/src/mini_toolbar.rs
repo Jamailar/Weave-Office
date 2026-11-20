@@ -205,7 +205,7 @@ pub fn context_menu_visible(app: &WordApp) -> bool {
         && !app.session.view.read_mode
         && app.session.math.is_none()
         && app.session.cell_range().is_none()
-        && !crate::ribbon::has_picture_selected(&app.session)
+        && !app.selection_objects().picture
         && wordcraft_engine::cmd::objects::object_selection(&app.session).is_none()
 }
 
@@ -230,7 +230,7 @@ pub fn show_in_context_menu(app: &mut WordApp, ui: &mut egui::Ui) {
 /// The controls in two rows like Word's mini toolbar, reusing the ribbon's widgets so the bar
 /// matches the ribbon exactly.
 fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
-    let st: Value = app.session.run("format.state", &json!({})).unwrap_or_default();
+    let st: Value = app.displayed_format();
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
     // As on the ribbon, the buttons show alignment as seen on the page (#3579).
     let align = app

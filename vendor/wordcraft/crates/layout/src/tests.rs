@@ -27,6 +27,37 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+#[test]
+fn repeated_cells_share_layout_but_keep_their_formatting_typing_and_edits() {
+    let mut doc = Document::new();
+    let mut table = Table::new(4, 1, 200.0);
+    for row in &mut table.rows {
+        row.cells[0] = wordcraft_doc::table::Cell::with_text("repeat");
+    }
+    doc.body = vec![Arc::new(Block::Table(table))];
+    let path = |row| Path(vec![0, row, 0, 0]);
+    let story = StoryRef::Body;
+    let styled = doc.para_mut(story, &path(3)).unwrap();
+    styled.runs[0].props.bold = Some(true);
+    styled.touch();
+    let mut cache = LayoutCache::new();
+    let placed = |layout: &DocLayout, row| {
+        let (page, item) = layout.index[&(story, path(row))][0];
+        let Placed::Lines { para, .. } = &layout.pages[page].items[item] else { panic!("expected paragraph") };
+        para.clone()
+    };
+    let first = layout(&doc, &mut cache, &LayoutOptions::default());
+    assert!(Arc::ptr_eq(&placed(&first, 0), &placed(&first, 2)));
+    assert!(!Arc::ptr_eq(&placed(&first, 0), &placed(&first, 3)));
+    let typing = TypingWord { rev: doc.para(story, &path(0)).unwrap().rev, start: 0, end: 6 };
+    let typed = layout(&doc, &mut cache, &LayoutOptions { typing_word: Some(typing), ..Default::default() });
+    assert!(!Arc::ptr_eq(&placed(&typed, 0), &placed(&typed, 1)));
+    doc.para_mut(story, &path(1)).unwrap().insert_text(6, "ed", &Default::default()).unwrap();
+    let edited = layout(&doc, &mut cache, &LayoutOptions::default());
+    assert_eq!(placed(&edited, 1).text_len, 8);
+    assert_eq!(placed(&edited, 0).text_len, 6);
+}
+
 /// These pagination fixtures test physical boundaries, not the host's Aptos substitution.
 /// Keep their explicit spacing local; ordinary document/layout defaults remain unchanged.
 pub(super) fn pagination_fixture_document(text: &str) -> Document {

@@ -427,7 +427,7 @@ fn shown_tabs(app: &WordApp) -> Vec<(String, bool)> {
     let user_tabs = app.session.ribbon.tabs();
     let mut tabs: Vec<(String, bool)> = if app.hosted { Vec::new() } else { vec![("File".to_string(), false)] };
     tabs.extend(user_tabs.iter().filter(|e| !e.hidden && (!app.hosted || e.name != "File")).map(|e| (e.name.clone(), e.custom)));
-    for ct in contextual_tabs(&app.session) {
+    for ct in tabs::tabs_with_objects(&app.session, app.selection_objects()) {
         if ct == "Outlining" {
             tabs.insert(1.min(tabs.len()), (ct.to_string(), false));
         } else if !tabs.iter().any(|(n, _)| n == ct) {

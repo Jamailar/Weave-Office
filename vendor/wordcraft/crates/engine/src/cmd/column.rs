@@ -99,7 +99,7 @@ fn make(s: &mut Session, a: Pos, b: Pos, xa: f32, xb: f32) {
     let l = s.layout();
     let segments = l.column_segments(&s.doc, ColumnSelection { start: &a, end: &b, left, right, page_hint: s.page_hint, max_lines: MAX_LINES });
     s.sel = Selection { anchor: a, focus: b };
-    s.column = Some(ColumnBlock { sel: s.sel.clone(), anchor_x: xa, focus_x: xb, segments, cells: None });
+    s.column = Some(ColumnBlock { sel: s.sel.clone(), anchor_x: xa, focus_x: xb, segments: segments.into(), cells: None });
     s.pending = None;
 }
 

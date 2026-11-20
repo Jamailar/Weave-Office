@@ -122,10 +122,13 @@ impl Session {
             document_id,
             untitled,
             made_rev,
+            validated_tables: Vec::new(),
+            control_ranges: Default::default(),
             protect_facts: std::sync::Mutex::new(None),
             ime_body_epoch,
             ime_state_revision: None,
             ime_state_seen: None,
+            text_edit: None,
             ime_edit_outcome: ImeEditOutcome::default(),
             #[cfg(any(test, feature = "test-support"))]
             ime_state_exhausted: false,

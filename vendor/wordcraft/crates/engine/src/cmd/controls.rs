@@ -226,16 +226,16 @@ fn new_id(s: &Session) -> i64 {
 
 /// The control at `p`, also when `p` is just outside its markers (a click beside a check box).
 fn control_near(s: &Session, at: &Pos) -> Option<ControlRange> {
-    if let Some(r) = s.doc.control_at(at) {
+    if let Some(r) = s.control_at(at) {
         return Some(r);
     }
     let para = s.doc.para_at(at)?;
     let w = OBJ.len_utf8();
     if matches!(para.object_at(at.off), Some(InlineObject::ControlStart { .. })) {
-        return s.doc.control_at(&Pos { off: at.off + w, ..at.clone() });
+        return s.control_at(&Pos { off: at.off + w, ..at.clone() });
     }
     if at.off >= w && matches!(para.object_at(at.off - w), Some(InlineObject::ControlEnd)) {
-        return s.doc.control_at(&Pos { off: at.off - w, ..at.clone() });
+        return s.control_at(&Pos { off: at.off - w, ..at.clone() });
     }
     None
 }
@@ -297,7 +297,7 @@ pub fn prepare_edit(s: &mut Session) -> Result<Option<CharProps>, CmdError> {
             break;
         }
         let f = s.sel.focus.clone();
-        let Some(r) = s.doc.control_at(&f) else { break };
+        let Some(r) = s.control_at(&f) else { break };
         if r.control.lock.can_edit() && r.control.kind.takes_typing() {
             break;
         }
@@ -311,7 +311,7 @@ pub fn prepare_edit(s: &mut Session) -> Result<Option<CharProps>, CmdError> {
         }
     }
     let (a, b) = s.sel.ordered();
-    let Some(r) = s.doc.control_at(&a) else { return Ok(None) };
+    let Some(r) = s.control_at(&a) else { return Ok(None) };
     if !r.control.lock.can_edit() {
         return Err(locked(s, CANT_EDIT));
     }
@@ -343,7 +343,7 @@ pub fn prepare_edit(s: &mut Session) -> Result<Option<CharProps>, CmdError> {
 
 /// Enter in a one-line plain text control does nothing.
 pub fn refuses_paragraph(s: &Session) -> bool {
-    s.doc.control_at(&s.sel.focus).is_some_and(|r| {
+    s.control_at(&s.sel.focus).is_some_and(|r| {
         matches!(r.control.kind, ControlKind::Text { multi_line: false } | ControlKind::CheckBox { .. } | ControlKind::DropDown { .. })
     })
 }
@@ -357,7 +357,7 @@ pub fn check_delete(s: &mut Session, a: &Pos, b: &Pos) -> Result<(), CmdError> {
 /// Check a batch before editing, reading the story's control ranges only once. An empty
 /// control list needs no per-match work, including for large Replace All operations.
 pub fn check_deletions<'a>(s: &mut Session, story: StoryRef, deletions: impl IntoIterator<Item = (&'a Pos, &'a Pos)>) -> Result<(), CmdError> {
-    let controls = s.doc.control_ranges(story);
+    let controls = s.control_ranges(story);
     if controls.is_empty() {
         return Ok(());
     }
@@ -366,7 +366,7 @@ pub fn check_deletions<'a>(s: &mut Session, story: StoryRef, deletions: impl Int
         if a.story != story || b.story != story {
             continue;
         }
-        for r in &controls {
+        for r in controls.iter() {
             let whole = (&a.path, a.off) <= (&r.start.path, r.start.off) && (&r.end.path, r.end.off + w) <= (&b.path, b.off);
             let cs = r.content_start();
             let touches = (&a.path, a.off) < (&r.end.path, r.end.off) && (&b.path, b.off) > (&cs.path, cs.off);
@@ -388,7 +388,7 @@ pub fn check_edit(s: &mut Session, a: &Pos, b: &Pos) -> Result<(), CmdError> {
     if a.story != b.story {
         return Ok(());
     }
-    let refused = s.doc.control_ranges(a.story).into_iter().any(|r| {
+    let refused = s.control_ranges(a.story).iter().any(|r| {
         let cs = r.content_start();
         !r.control.lock.can_edit() && (&a.path, a.off) < (&r.end.path, r.end.off) && (&b.path, b.off) > (&cs.path, cs.off)
     });
@@ -398,7 +398,7 @@ pub fn check_edit(s: &mut Session, a: &Pos, b: &Pos) -> Result<(), CmdError> {
 /// After the user deleted something: a control left empty shows its placeholder again.
 pub fn restore_placeholder(s: &mut Session) -> Result<(), CmdError> {
     let at = s.sel.focus.clone();
-    let Some(r) = s.doc.control_at(&at) else { return Ok(()) };
+    let Some(r) = s.control_at(&at) else { return Ok(()) };
     if !r.is_empty() || r.control.showing_placeholder {
         return Ok(());
     }
@@ -446,7 +446,7 @@ fn insert(s: &mut Session, v: &Value, kind: ControlKind) -> CmdResult {
     if a.story != b.story || s.doc.para_at(&a).is_none() || s.doc.para_at(&b).is_none() {
         return Err(CmdError::Failed("no paragraph at the selection".into()));
     }
-    if s.doc.control_at(&a).is_some_and(|r| !r.control.lock.can_edit()) {
+    if s.control_at(&a).is_some_and(|r| !r.control.lock.can_edit()) {
         return Err(locked(s, CANT_EDIT));
     }
     let whole_para = a.path == b.path && a.off == 0 && s.doc.para_at(&b).is_some_and(|p| !p.is_empty() && b.off == p.len());
@@ -649,7 +649,7 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(slot) = s.doc.control_mut(&r.start) {
         *slot = c;
     }
-    match s.doc.control_at(&r.content_start()) {
+    match s.control_at(&r.content_start()) {
         Some(r) => Ok(describe(s, &r)),
         None => sel_result(s),
     }
@@ -742,7 +742,7 @@ fn remove_control(s: &mut Session, v: &Value) -> CmdResult {
     if r.control.showing_placeholder {
         s.doc.delete_range(&r.content_start(), &r.end)?;
     }
-    let end = s.doc.control_at(&r.content_start()).map(|x| x.end).unwrap_or(r.end.clone());
+    let end = s.control_at(&r.content_start()).map(|x| x.end).unwrap_or(r.end.clone());
     s.doc.para_mut(end.story, &end.path)?.delete(end.off, end.off + w)?;
     s.doc.para_mut(r.start.story, &r.start.path)?.delete(r.start.off, r.start.off + w)?;
     s.sel = Selection::caret(s.doc.clamp(&r.start));

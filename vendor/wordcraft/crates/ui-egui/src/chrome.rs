@@ -586,7 +586,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 let wtxt = if app.session.sel.is_collapsed() || crate::objects::selected(app).is_some() {
                     crate::i18n::fmt(tl!("{words} words"), &[("words", &words.to_string())])
                 } else {
-                    let sw = wordcraft_doc::count_words(&app.session.selected_text());
+                    let sw = app.selected_word_count();
                     crate::i18n::fmt(tl!("{selected} of {words} words"), &[("selected", &sw.to_string()), ("words", &words.to_string())])
                 };
                 if st(ui, &wtxt).clicked() {
@@ -757,7 +757,12 @@ impl WordApp {
         // The count option changes the count without a document change.
         let key = self.session.rev().wrapping_mul(2) | u64::from(self.session.prefs.count_notes);
         if self.word_count.0 != key {
-            self.word_count = (key, self.session.word_count());
+            let adjusted = self
+                .session
+                .text_edit()
+                .filter(|e| self.word_count.0 == (e.previous.wrapping_mul(2) | u64::from(self.session.prefs.count_notes)))
+                .and_then(|e| self.word_count.1.checked_sub(e.removed_words)?.checked_add(e.added_words));
+            self.word_count = (key, adjusted.unwrap_or_else(|| self.session.word_count()));
         }
         self.word_count.1
     }
