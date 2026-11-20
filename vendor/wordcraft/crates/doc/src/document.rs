@@ -4,7 +4,7 @@ use super::error::{DocError, Result};
 use super::parts::{MAX_LINKED_BOXES, NoteSeparators, Part, PartKind, PermRange, TextBody, free_id};
 use super::position::{Path, Pos, StoryRef};
 use super::settings::{CoreProps, CustomProp, Settings};
-use super::text_walk::{TextMode, notes_and_boxes, story_word_count_of, text_of, walk};
+use super::text_walk::{TextMode, notes_and_boxes, seek_para, story_word_count_of, text_of, walk};
 use std::sync::Arc;
 
 use super::{BTreeMap, CharProps, Document, InlineObject, Numbering, Paragraph, SectionProps, StyleSheet, Table, edit, numbering, para, section};
@@ -303,13 +303,19 @@ impl Document {
 
     /// First and last positions of a story.
     pub fn start_of(&self, s: StoryRef) -> Pos {
-        let path = self.para_paths(s).into_iter().next().unwrap_or_else(|| Path::top(0));
-        Pos { story: s, path, off: 0 }
+        self.story_edge(s, false)
     }
     pub fn end_of(&self, s: StoryRef) -> Pos {
-        let path = self.para_paths(s).pop().unwrap_or_else(|| Path::top(0));
-        let off = self.para(s, &path).map(|p| p.len()).unwrap_or(0);
-        Pos { story: s, path, off }
+        self.story_edge(s, true)
+    }
+
+    fn story_edge(&self, story: StoryRef, last: bool) -> Pos {
+        let mut path = Vec::new();
+        let len = self.story(story).and_then(|bl| seek_para(bl, None, last, &mut path));
+        match len {
+            Some(len) => Pos::new(story, Path(path), if last { len } else { 0 }),
+            None => Pos::new(story, Path::top(0), 0),
+        }
     }
 
     /// The position just after the shape that owns text box story `part` (body first, then the
@@ -331,14 +337,19 @@ impl Document {
 
     /// The next / previous paragraph path in document order.
     pub fn next_para(&self, s: StoryRef, path: &Path) -> Option<Path> {
-        let all = self.para_paths(s);
-        let i = all.binary_search(path).ok()?;
-        all.get(i + 1).cloned()
+        self.adjacent_para(s, path, false)
     }
     pub fn prev_para(&self, s: StoryRef, path: &Path) -> Option<Path> {
-        let all = self.para_paths(s);
-        let i = all.binary_search(path).ok()?;
-        i.checked_sub(1).and_then(|j| all.get(j).cloned())
+        self.adjacent_para(s, path, true)
+    }
+
+    fn adjacent_para(&self, s: StoryRef, path: &Path, reverse: bool) -> Option<Path> {
+        if path.0.is_empty() || path.depth() > crate::PARA_WALK_DEPTH || self.para(s, path).is_none() {
+            return None;
+        }
+        let mut next = Vec::new();
+        seek_para(self.story(s)?, Some(&path.0), reverse, &mut next)?;
+        Some(Path(next))
     }
 
     /// Clamp a position into the document (valid path, char boundary).

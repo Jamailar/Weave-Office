@@ -367,6 +367,11 @@ pub struct ControlRange {
 }
 
 impl ControlRange {
+    /// The innermost range containing a position in a previously scanned story.
+    pub fn innermost_at<'a>(ranges: &'a [Self], p: &Pos) -> Option<&'a Self> {
+        ranges.iter().filter(|r| r.contains(p)).max_by(|a, b| a.start.cmp(&b.start))
+    }
+
     /// The start of the content (just after the start marker).
     pub fn content_start(&self) -> Pos {
         Pos { off: self.start.off + OBJ.len_utf8(), ..self.start.clone() }
@@ -524,10 +529,7 @@ impl Document {
         {
             return None;
         }
-        self.control_ranges(p.story)
-            .into_iter()
-            .filter(|r| r.contains(p))
-            .max_by(|a, b| (&a.start.path, a.start.off).cmp(&(&b.start.path, b.start.off)))
+        ControlRange::innermost_at(&self.control_ranges(p.story), p).cloned()
     }
 
     fn story_has_controls(&self, s: StoryRef) -> bool {

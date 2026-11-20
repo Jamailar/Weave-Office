@@ -4,8 +4,9 @@
 
 use egui::{Align2, Rect, Stroke, Ui, pos2, vec2};
 use serde_json::json;
-use wordcraft_doc::Pos;
 use wordcraft_doc::control::{ControlKind, ControlRange};
+use wordcraft_doc::{Pos, StoryRef};
+use wordcraft_engine::Session;
 use wordcraft_layout::DocLayout;
 
 use crate::WordApp;
@@ -17,6 +18,9 @@ const MAX_FRAMED: usize = 400;
 /// What the canvas remembers between frames.
 #[derive(Default)]
 pub struct ControlUi {
+    /// Control markers only change on edits. Caret moves and scrolling reuse the story scan.
+    ranges_for: Option<(u64, u64, StoryRef)>,
+    ranges: Vec<ControlRange>,
     /// Clickable check boxes shown this frame: (screen rect, where the content starts).
     checks: Vec<(Rect, Pos)>,
     /// The list/calendar button of the control the caret is in.
@@ -26,6 +30,15 @@ pub struct ControlUi {
 }
 
 impl ControlUi {
+    fn refresh_ranges(&mut self, session: &Session) {
+        let story = session.sel.focus.story;
+        let key = (session.document_id(), session.rev(), story);
+        if self.ranges_for != Some(key) {
+            self.ranges = session.doc.control_ranges(story);
+            self.ranges_for = Some(key);
+        }
+    }
+
     /// Whether a control's list or calendar is open.
     pub(crate) fn popup_open(&self) -> bool {
         self.popup.is_some()
@@ -46,10 +59,10 @@ fn screen(pr: Rect, scale: f32, r: wordcraft_geom::Rect) -> Rect {
 }
 
 /// The control's content on screen, one rect per page it is on.
-fn frames(app: &WordApp, layout: &DocLayout, rects: &[Rect], scale: f32, r: &ControlRange) -> Vec<Rect> {
+fn frames(session: &Session, layout: &DocLayout, rects: &[Rect], scale: f32, r: &ControlRange) -> Vec<Rect> {
     let a = r.content_start();
     let mut out: Vec<(usize, Rect)> = Vec::new();
-    for (pi, sr) in layout.selection_rects(&app.session.doc, &a, &r.end, app.session.page_hint) {
+    for (pi, sr) in layout.selection_rects(&session.doc, &a, &r.end, session.page_hint) {
         let Some(pr) = rects.get(pi) else { continue };
         let s = screen(*pr, scale, sr);
         match out.iter_mut().find(|(p, _)| *p == pi) {
@@ -58,7 +71,7 @@ fn frames(app: &WordApp, layout: &DocLayout, rects: &[Rect], scale: f32, r: &Con
         }
     }
     if out.is_empty()
-        && let Some(c) = layout.caret_on(&a, app.session.page_hint)
+        && let Some(c) = layout.caret_on(&a, session.page_hint)
         && let Some(pr) = rects.get(c.page)
     {
         out.push((c.page, Rect::from_min_size(pos2(pr.min.x + c.x * scale, pr.min.y + c.top * scale), vec2(4.0, c.height * scale))));
@@ -70,24 +83,22 @@ fn frames(app: &WordApp, layout: &DocLayout, rects: &[Rect], scale: f32, r: &Con
 pub fn paint(app: &mut WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLayout, rects: &[Rect], scale: f32) {
     app.controls.checks.clear();
     app.controls.button = None;
-    let story = app.session.sel.focus.story;
-    let current = app.session.doc.control_at(&app.session.sel.focus);
-    let mut shown: Vec<ControlRange> = if app.session.view.design_mode {
-        app.session.doc.control_ranges(story).into_iter().take(MAX_FRAMED).collect()
-    } else {
-        current.clone().into_iter().collect()
-    };
+    app.controls.refresh_ranges(&app.session);
+    let ranges = &app.controls.ranges;
+    let focus = &app.session.sel.focus;
+    let current = app.session.doc.para_at(focus).and_then(|_| ControlRange::innermost_at(ranges, focus));
+    let mut shown: Vec<_> = if app.session.view.design_mode { ranges.iter().take(MAX_FRAMED).collect() } else { current.into_iter().collect() };
     // Check boxes are clickable wherever they are, framed or not.
-    let all = if app.session.view.design_mode { shown.clone() } else { app.session.doc.control_ranges(story) };
-    for r in all.iter().filter(|r| matches!(r.control.kind, ControlKind::CheckBox { .. })).take(MAX_FRAMED) {
-        if let Some(f) = frames(app, layout, rects, scale, r).first() {
+    let limit = if app.session.view.design_mode { MAX_FRAMED } else { ranges.len() };
+    for r in ranges.iter().take(limit).filter(|r| matches!(r.control.kind, ControlKind::CheckBox { .. })).take(MAX_FRAMED) {
+        if let Some(f) = frames(&app.session, layout, rects, scale, r).first() {
             app.controls.checks.push((*f, r.content_start()));
         }
     }
     shown.sort_by_key(|r| r.depth);
-    for r in &shown {
-        let is_current = current.as_ref().is_some_and(|c| c.start == r.start);
-        let fr = frames(app, layout, rects, scale, r);
+    for r in shown {
+        let is_current = current.is_some_and(|c| c.start == r.start);
+        let fr = frames(&app.session, layout, rects, scale, r);
         let stroke = Stroke::new(1.0, if is_current { t.accent } else { t.accent.gamma_multiply(0.55) });
         for f in &fr {
             painter.rect_stroke(*f, 1.0, stroke, egui::StrokeKind::Outside);
@@ -121,7 +132,7 @@ pub fn paint(app: &mut WordApp, painter: &egui::Painter, t: &Tokens, layout: &Do
             app.controls.button = Some((b, r.content_start()));
         }
     }
-    if app.controls.popup.as_ref().is_some_and(|p| current.as_ref().is_none_or(|c| c.content_start() != p.at)) {
+    if app.controls.popup.as_ref().is_some_and(|p| current.is_none_or(|c| c.content_start() != p.at)) {
         app.controls.popup = None;
     }
 }
@@ -247,4 +258,40 @@ fn calendar(ui: &mut Ui, t: &Tokens, month: &mut (i64, u32)) -> Option<u32> {
         }
     });
     picked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wordcraft_doc::{Document, PartKind};
+
+    #[test]
+    fn control_ranges_follow_edits_undo_story_and_document_switches() {
+        let mut doc = Document::new();
+        let header = doc.add_part(PartKind::Header, doc.body.clone());
+        let mut session = Session::new(doc);
+        let mut ui = ControlUi::default();
+        ui.refresh_ranges(&session);
+        assert!(ui.ranges.is_empty());
+        session.run("developer.checkBox", &json!({})).unwrap();
+        ui.refresh_ranges(&session);
+        assert_eq!(ui.ranges.len(), 1);
+        let at = ui.ranges[0].content_start();
+        assert_eq!(ControlRange::innermost_at(&ui.ranges, &at), session.doc.control_at(&at).as_ref());
+        let body = session.sel.clone();
+        session.sel.focus.story = StoryRef::Part(header);
+        ui.refresh_ranges(&session);
+        assert!(ui.ranges.is_empty());
+        session.sel = body;
+        ui.refresh_ranges(&session);
+        assert_eq!(ui.ranges.len(), 1);
+        session.run("edit.undo", &json!({})).unwrap();
+        ui.refresh_ranges(&session);
+        assert!(ui.ranges.is_empty());
+        session.run("edit.redo", &json!({})).unwrap();
+        ui.refresh_ranges(&session);
+        assert_eq!(ui.ranges.len(), 1);
+        ui.refresh_ranges(&Session::new(Document::new()));
+        assert!(ui.ranges.is_empty());
+    }
 }

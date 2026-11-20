@@ -12,6 +12,39 @@ fn new_document_is_valid() {
 }
 
 #[test]
+fn paragraph_navigation_matches_story_order_in_nested_and_empty_cells() {
+    let mut outer = Table::new(3, 2, 360.0);
+    outer.rows[0].cells.clear();
+    outer.rows[1].cells[0].blocks.clear();
+    let mut inner = Table::new(2, 2, 120.0);
+    inner.rows[1].cells[1] = table::Cell::with_text("终");
+    outer.rows[2].cells[1].blocks = vec![Arc::new(Block::Table(inner))];
+    let mut doc = Document::new();
+    doc.body = vec![Arc::new(Block::Table(Table::default())), Arc::new(Block::Table(outer))];
+    let part = doc.add_part(PartKind::Footer, doc.body.clone());
+    for story in [StoryRef::Body, StoryRef::Part(part)] {
+        let paths = doc.para_paths(story);
+        assert_eq!(doc.start_of(story), Pos::new(story, paths[0].clone(), 0));
+        assert_eq!(doc.end_of(story), Pos::new(story, paths.last().unwrap().clone(), "终".len()));
+        for (i, path) in paths.iter().enumerate() {
+            assert_eq!(doc.prev_para(story, path).as_ref(), i.checked_sub(1).and_then(|n| paths.get(n)));
+            assert_eq!(doc.next_para(story, path).as_ref(), paths.get(i + 1));
+        }
+        assert!(doc.next_para(story, &Path::top(1)).is_none());
+    }
+    let mut deep = para_block(Paragraph::new());
+    for _ in 0..=PARA_WALK_DEPTH {
+        let mut table = Table::new(1, 1, 120.0);
+        table.rows[0].cells[0].blocks = vec![deep];
+        deep = Arc::new(Block::Table(table));
+    }
+    doc.body = vec![deep];
+    assert!(doc.para_paths(StoryRef::Body).is_empty());
+    assert_eq!(doc.start_of(StoryRef::Body), Pos::body(0, 0));
+    assert_eq!(doc.end_of(StoryRef::Body), Pos::body(0, 0));
+}
+
+#[test]
 fn word_count() {
     let d = Document::from_text("Hello, world!\nThis is — a test 42.\n\n");
     assert_eq!(d.word_count(), 7);

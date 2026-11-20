@@ -96,6 +96,7 @@ const TILE_HEIGHT_PX: usize = 1024;
 const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
+    geometry: Option<geometry::CachedGeometry>,
     textures: HashMap<usize, (u64, TextureHandle)>,
     /// Visible full-resolution tiles of pages too tall for one GPU texture.
     tiles: HashMap<(usize, usize), (u64, TextureHandle)>,
@@ -345,6 +346,7 @@ impl Default for CanvasState {
     /// visibility, and inactive drag and column-selection state.
     fn default() -> Self {
         CanvasState {
+            geometry: None,
             textures: HashMap::new(),
             tiles: HashMap::new(),
             page_keys: PageKeys::default(),
@@ -493,13 +495,13 @@ struct CanvasView {
     sepia_page: bool,
     animate: bool,
     opts: egui::InputOptions,
-    geo: Geometry,
+    geo: std::sync::Arc<Geometry>,
     dim_body: bool,
     grid_story: Option<StoryRef>,
     caret: Option<wordcraft_layout::hit::Caret>,
 }
 
-fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &DocLayout) -> CanvasView {
+fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &std::sync::Arc<DocLayout>) -> CanvasView {
     use wordcraft_engine::cmd::view::ReadPageColor;
     let read_mode = app.session.view.read_mode;
     let dark_page = if read_mode { app.session.view.read_page_color == ReadPageColor::Inverse } else { app.session.view.dark_mode };
@@ -537,7 +539,7 @@ fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &DocLayout) -> C
         let _ = app.run(id, json!({"value": pct}));
     }
     let avail = if read_mode { area.size() } else { area.size() - vec2(SCROLLBAR, 0.0) };
-    let geo = geometry(app, layout, avail);
+    let geo = geometry::cached_geometry(app, layout, avail);
     if read_mode {
         app.canvas.scroll_max = (geo.size - area.size()).max(egui::Vec2::ZERO);
     }
@@ -888,19 +890,24 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
     let mut visible_tile_keys = HashSet::new();
     let mut rendered = 0;
     let mut rects = Vec::with_capacity(geo.rects.len());
+    let prefetch_rect = ui.clip_rect().expand(200.0);
     for (i, pr) in geo.rects.iter().enumerate() {
         let sr = pr.translate(content_origin.to_vec2());
         let Some(page) = layout.pages.get(i) else { continue };
         let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
+        // Hide White Space shows only a band of the page; everything below paints into it.
+        let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
+        let visible = band_of(sr).intersects(prefetch_rect);
+        if !visible && !app.canvas.textures.contains_key(&i) {
+            rects.push(sr);
+            continue;
+        }
         // A Web/Draft page can be arbitrarily tall. Shrinking the whole page into one GPU
         // texture makes the text blurry; split those pages into native-resolution tiles.
         let width_scale = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).max(0.05);
         let tiled = page.h.clamp(1.0, 1e6) * width_scale > max_tex;
         let scale_px = if tiled { width_scale } else { width_scale.min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05) };
         let tile_height_px = TILE_HEIGHT_PX.min(max_tex as usize).max(1);
-        // Hide White Space shows only a band of the page; everything below paints into it.
-        let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
-        let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
         // Only pages on screen or with a texture need their key (#811).
         let cached = !tiled && app.canvas.textures.contains_key(&i);
         let key =
@@ -1099,11 +1106,14 @@ fn handle_primary_pointer(
 }
 
 fn paint_white_space_seams(painter: &egui::Painter, rects: &[Rect], geo: &Geometry, t: &Tokens) {
-    for (i, pair) in rects.windows(2).enumerate() {
-        let Some(&(_, bot)) = geo.bands.get(i) else { continue };
-        if white_space_hidden(&geo.rects, &geo.bands) {
-            let y = pair[0].min.y + bot;
-            painter.rect_filled(Rect::from_min_max(pos2(pair[0].min.x, y), pos2(pair[0].max.x, y + SEAM)), 0.0, t.border_strong);
+    if !white_space_hidden(&geo.rects, &geo.bands) {
+        return;
+    }
+    for (page, &(_, bottom)) in rects.iter().take(rects.len().saturating_sub(1)).zip(&geo.bands) {
+        let y = page.min.y + bottom;
+        let seam = Rect::from_min_max(pos2(page.min.x, y), pos2(page.max.x, y + SEAM));
+        if seam.intersects(painter.clip_rect()) {
+            painter.rect_filled(seam, 0.0, t.border_strong);
         }
     }
 }

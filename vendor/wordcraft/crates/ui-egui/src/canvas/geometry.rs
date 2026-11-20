@@ -1,3 +1,5 @@
+use std::sync::{Arc, Weak};
+
 use super::reading::place_read_pages;
 use super::{CommentDisplay, DocLayout, GAP, PX_PER_PT, Pos2, Rect, StoryRef, WordApp, pos2, screen_px_per_pt, vec2};
 
@@ -163,16 +165,71 @@ pub(super) fn place_pages(sizes: &[(f32, f32)], markup: f32, scale: f32, cols: u
     (rects, vec2(content_w, y.max(avail.y)))
 }
 
+/// Page placement depends on the layout and these view settings, not on the scroll offset.
+#[derive(PartialEq)]
+struct Placement {
+    avail: egui::Vec2,
+    px_per_pt: f32,
+    markup: f32,
+    mode: wordcraft_layout::ViewMode,
+    read_mode: bool,
+    zoom: f32,
+    fit: String,
+    single_column: bool,
+    multi_page: bool,
+    hide_white_space: bool,
+}
+
+impl Placement {
+    fn new(app: &WordApp, avail: egui::Vec2) -> Self {
+        let v = &app.session.view;
+        Self {
+            avail,
+            px_per_pt: screen_px_per_pt(app),
+            markup: markup_width(app),
+            mode: v.mode,
+            read_mode: v.read_mode,
+            zoom: if v.read_mode { v.read_zoom } else { v.zoom },
+            fit: v.fit.clone(),
+            single_column: v.single_column,
+            multi_page: v.multi_page,
+            hide_white_space: v.hide_white_space && app.session.sel.focus.story == StoryRef::Body,
+        }
+    }
+}
+
+pub(super) struct CachedGeometry {
+    layout: Weak<DocLayout>,
+    placement: Placement,
+    geometry: Arc<Geometry>,
+}
+
+pub(super) fn cached_geometry(app: &mut WordApp, layout: &Arc<DocLayout>, avail: egui::Vec2) -> Arc<Geometry> {
+    let placement = Placement::new(app, avail);
+    let weak = Arc::downgrade(layout);
+    if let Some(cached) = &app.canvas.geometry
+        && cached.layout.ptr_eq(&weak)
+        && cached.placement == placement
+    {
+        return cached.geometry.clone();
+    }
+    let geometry = Arc::new(place_layout(&placement, layout));
+    app.canvas.geometry = Some(CachedGeometry { layout: weak, placement, geometry: geometry.clone() });
+    geometry
+}
+
 pub fn geometry(app: &WordApp, l: &DocLayout, avail: egui::Vec2) -> Geometry {
-    let px_per_pt = screen_px_per_pt(app);
-    let v = &app.session.view;
-    let markup = markup_width(app);
+    place_layout(&Placement::new(app, avail), l)
+}
+
+fn place_layout(v: &Placement, l: &DocLayout) -> Geometry {
+    let (px_per_pt, markup, avail) = (v.px_per_pt, v.markup, v.avail);
     let maxw = l.pages.iter().map(|p| sane_dim(p.w, 1e5)).fold(0.0f32, f32::max).max(72.0) + markup;
     let maxh = l.pages.iter().map(|p| sane_dim(p.h, 20_000.0)).fold(0.0f32, f32::max).max(72.0);
     let web = v.mode != wordcraft_layout::ViewMode::Print;
     let mut scale = v.zoom.clamp(0.1, 5.0) * px_per_pt;
     if v.read_mode {
-        scale = v.read_zoom.clamp(0.75, 1.5) * px_per_pt;
+        scale = v.zoom.clamp(0.75, 1.5) * px_per_pt;
         let sizes: Vec<(f32, f32)> = l.pages.iter().map(|p| (p.w, p.h)).collect();
         let (rects, size) = place_read_pages(&sizes, scale, avail);
         // Reading columns show whole pages (Hide White Space doesn't apply).
@@ -218,8 +275,7 @@ pub fn geometry(app: &WordApp, l: &DocLayout, avail: egui::Vec2) -> Geometry {
     }
     let (mut rects, mut size) = place_pages(&sizes, markup, scale, cols, avail);
     let mut bands: Vec<(f32, f32)> = rects.iter().map(|r| (0.0, r.height())).collect();
-    let editing_part = matches!(app.session.sel.focus.story, StoryRef::Part(_));
-    if v.hide_white_space && v.mode == wordcraft_layout::ViewMode::Print && !v.read_mode && cols == 1 && !editing_part && rects.len() > 1 {
+    if v.hide_white_space && v.mode == wordcraft_layout::ViewMode::Print && !v.read_mode && cols == 1 && rects.len() > 1 {
         let bodies: Vec<(f32, f32)> = l.pages.iter().map(|p| (p.body.y, p.body.bottom())).collect();
         let (r, b, h) = collapse_white_space(&rects, &bodies, scale, avail.y);
         (rects, bands) = (r, b);

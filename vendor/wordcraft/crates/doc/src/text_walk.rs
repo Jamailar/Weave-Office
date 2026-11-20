@@ -70,6 +70,44 @@ pub(crate) fn walk(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, dept
     }
 }
 
+/// First paragraph in the given direction, starting at a story edge or immediately after
+/// `from` in traversal order. On the starting path, skip straight to its block, row and cell.
+/// Sibling subtrees are entered at their near edge. Empty cells and over-depth tables are skipped.
+pub(crate) fn seek_para(bl: &Blocks, from: Option<&[u32]>, reverse: bool, path: &mut Vec<u32>) -> Option<usize> {
+    fn siblings<'a, 'p, T>(items: &'a [T], from: Option<&'p [u32]>, reverse: bool) -> impl Iterator<Item = (u32, &'a T, Option<&'p [u32]>)> {
+        let bound = from.and_then(|p| p.split_first());
+        let index = bound.map(|(&i, _)| i as usize);
+        let start = if reverse { 0 } else { index.unwrap_or(0) };
+        let end = if reverse { index.map_or(items.len(), |i| i.saturating_add(1)) } else { items.len() };
+        let mut range = items.iter().enumerate().take(end).skip(start);
+        std::iter::from_fn(move || if reverse { range.next_back() } else { range.next() }).map(move |(i, item)| {
+            let tail = bound.filter(|(at, _)| **at as usize == i).map(|(_, tail)| tail);
+            (i as u32, item, tail)
+        })
+    }
+
+    for (i, block, within) in siblings(bl, from, reverse) {
+        path.push(i);
+        match &**block {
+            Block::Para(p) if within.is_none() => return Some(p.len()),
+            Block::Table(t) if path.len() / 3 < PARA_WALK_DEPTH => {
+                for (r, row, within_row) in siblings(&t.rows, within, reverse) {
+                    for (c, cell, within_cell) in siblings(&row.cells, within_row, reverse) {
+                        path.extend([r, c]);
+                        if let Some(len) = seek_para(&cell.blocks, within_cell, reverse, path) {
+                            return Some(len);
+                        }
+                        path.truncate(path.len() - 2);
+                    }
+                }
+            }
+            _ => {}
+        }
+        path.pop();
+    }
+    None
+}
+
 /// [`walk`] for the paragraphs from path `a` to `b` inclusive, skipping the blocks outside.
 pub(crate) fn walk_between(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize, (a, b): (&[u32], &[u32])) {
     use std::cmp::Ordering::{Greater, Less};
