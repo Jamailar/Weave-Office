@@ -1,5 +1,7 @@
 # WordCraft roadmap
 
+> **Performance update · 2026-11-23.** Desktop overview scrolling now prepares uncached page thumbnails in the background and reuses the table guides in each page texture.
+
 > **Performance update · 2026-11-20.** Paragraph navigation follows the current path through nested tables. The canvas reuses page positions and content-control ranges while scrolling. Text edits with unchanged line geometry reuse the other pages. Selection highlights are calculated for the visible pages.
 
 > **Highlight update:** 2026-10-25 · Highlight shortcut toggles the last chosen colour off when the whole selection has it; explicit colour commands remain setters (#4085). Readiness estimates unchanged.
@@ -684,6 +686,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-23 | minor | Desktop overview scrolling now prepares uncached page thumbnails in the background and reuses the table guides in each page texture. |
 | 2026-11-20 | minor | Paragraph navigation follows the current path through nested tables. The canvas reuses page positions and content-control ranges while scrolling. Text edits with unchanged line geometry reuse the other pages. Selection highlights are calculated for the visible pages. |
 | 2026-10-31 | trivial | Progress log: a paragraph naming an undefined DOCX style is formatted as Normal (#5077) |
 | 2026-10-31 | trivial | Progress log: TOC page numbers are PAGEREF fields (#5097) |

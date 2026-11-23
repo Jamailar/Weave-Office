@@ -26,6 +26,7 @@ mod pages;
 mod reading;
 mod rulers;
 mod story;
+mod thumbnails;
 
 #[cfg(test)]
 use balloons::balloon_text;
@@ -99,6 +100,7 @@ pub struct CanvasState {
     pub(crate) selection_info: std::cell::RefCell<Option<crate::selection_info::SelectionInfo>>,
     geometry: Option<geometry::CachedGeometry>,
     textures: HashMap<usize, (u64, TextureHandle)>,
+    thumbnails: Option<thumbnails::Worker>,
     /// Visible full-resolution tiles of pages too tall for one GPU texture.
     tiles: HashMap<(usize, usize), (u64, TextureHandle)>,
     /// Page content fingerprints of the current layout, for the texture cache (#811).
@@ -350,6 +352,7 @@ impl Default for CanvasState {
             selection_info: Default::default(),
             geometry: None,
             textures: HashMap::new(),
+            thumbnails: None,
             tiles: HashMap::new(),
             page_keys: PageKeys::default(),
             markup_facts: std::cell::Cell::new(None),
@@ -892,6 +895,28 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
     let mut visible_tile_keys = HashSet::new();
     let mut rendered = 0;
     let mut rects = Vec::with_capacity(geo.rects.len());
+    // A zoomed-out table can put thousands of cell outlines in one viewport. Composite
+    // them into the page texture once, so scrolling only submits the textured pages.
+    let guides =
+        (app.session.view.table_gridlines && geo.scale <= 0.5).then(|| (t.blue.linear_multiply(0.6).to_srgba_unmultiplied(), 0.5 / geo.scale));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (view, guides.map(|(rgba, width)| (rgba, width.to_bits()))).hash(&mut hasher);
+    let view = hasher.finish();
+    let overview = geo.scale <= 0.5 && !cfg!(target_arch = "wasm32");
+    let mut worker = app.canvas.thumbnails.take();
+    if overview && worker.is_none() {
+        worker = thumbnails::Worker::start();
+    }
+    let mut ready = match worker.as_mut().map(thumbnails::Worker::poll) {
+        Some(Ok(result)) => result.filter(|r| r.rev == app.session.rev() && r.layout.ptr_eq(&std::sync::Arc::downgrade(layout))),
+        Some(Err(_)) => {
+            worker = None;
+            None
+        }
+        None => None,
+    };
+    let mut next_thumbnail = None;
+    let mut best_distance = f32::INFINITY;
     let prefetch_rect = ui.clip_rect().expand(200.0);
     for (i, pr) in geo.rects.iter().enumerate() {
         let sr = pr.translate(content_origin.to_vec2());
@@ -915,13 +940,30 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
         let key =
             if visible || cached { page_key(app, layout, i, view, scale_px) ^ if tiled { (tile_height_px as u64) << 32 } else { 0 } } else { 0 };
         let mut fresh = cached && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
+        if !tiled
+            && ready.as_ref().is_some_and(|r| r.page == i && r.key == key)
+            && let Some(result) = ready.take()
+        {
+            let tex = ui.ctx().load_texture(format!("page{i}"), result.image, egui::TextureOptions::LINEAR);
+            app.canvas.textures.insert(i, (key, tex));
+            fresh = true;
+        }
         // The page a drag took an object off: render it this frame whatever the budget, or the
         // raster with the object still on it shows for a frame.
         let forced = hidden.as_ref().is_some_and(|(page, _)| *page == i);
         // Render before placing the page: a page re-rendered in this frame (a zoom step, an
         // edit) then sits on the pixel grid in this frame too, rather than a frame later.
-        if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
+        if overview && visible && !tiled && !fresh && !cached && !forced && worker.is_some() {
+            // Fill the viewport before spending time on the prefetch band.
+            let distance = sr.center().distance(ui.clip_rect().center())
+                + if sr.intersects(ui.clip_rect()) { 0.0 } else { sr.height() + ui.clip_rect().size().length() };
+            if distance < best_distance {
+                next_thumbnail = Some((i, key, scale_px));
+                best_distance = distance;
+            }
+        } else if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
             let mut opts = page_render_options(app, dim_body);
+            opts.table_guides = guides;
             // Only on the page it is on: the `Pos` can't match an object of another page.
             opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
             let img = wordcraft_render::render_page(page_doc(app), page, scale_px, &opts);
@@ -1020,6 +1062,9 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
         } else if let Some((_, tex)) = app.canvas.textures.get(&i) {
             painter.image(tex.id(), visual_sr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         }
+        if !band.intersects(ui.clip_rect()) {
+            continue;
+        }
         let page_scale = page_screen_scale(visual_sr, page, geo.scale);
         // Header/footer editing chrome.
         if let StoryRef::Part(id) = app.session.sel.focus.story {
@@ -1038,7 +1083,7 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
         draw_page_gridlines(app, &painter, t, page, visual_sr, page_scale);
         // The current header/footer's cells have editing guides; explicit View Gridlines
         // still outlines every table. Neither kind of guide is part of the document.
-        if app.session.view.table_gridlines || grid_story.is_some() {
+        if (tiled || guides.is_none()) && (app.session.view.table_gridlines || grid_story.is_some()) {
             for rect in gridline_cells(page, app.session.view.table_gridlines, grid_story) {
                 let r = Rect::from_min_size(
                     pos2(visual_sr.min.x + rect.x * page_scale, visual_sr.min.y + rect.y * page_scale),
@@ -1048,6 +1093,18 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
             }
         }
     }
+    if let Some(w) = &mut worker {
+        if !overview {
+            w.release_snapshot();
+        } else if !w.busy
+            && let Some(page) = next_thumbnail
+        {
+            let mut opts = page_render_options(app, dim_body);
+            opts.table_guides = guides;
+            w.submit(layout, page_doc(app), app.session.rev(), page, opts, ui.ctx());
+        }
+    }
+    app.canvas.thumbnails = worker;
     PagePaintOutput { rects, visible_tile_keys, rendered }
 }
 

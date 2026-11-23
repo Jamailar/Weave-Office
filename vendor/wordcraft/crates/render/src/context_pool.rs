@@ -237,7 +237,7 @@ mod tests {
     }
 
     /// A page with text, a highlight and a coloured background.
-    fn page() -> (Document, Page) {
+    fn page() -> (Document, std::sync::Arc<Page>) {
         let mut d = Document::from_text("Reused contexts draw the same page as new ones.");
         d.settings.page_color = Some(Rgb(0xF4, 0xEE, 0xD8));
         d.format_range(&Pos::body(0, 0), &Pos::body(0, 6), &|c| c.highlight = Some(Highlight::Yellow)).expect("highlight");
