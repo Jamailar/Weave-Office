@@ -85,7 +85,7 @@ impl Session {
                         .is_some_and(|entry| entry.10.is_none_or(|w| w.rev == edit.previous_paragraph) && matches_view(slot, edit.previous, entry.10))
                 })?
                 .as_ref()?;
-            slot.5.reflow_text(&self.doc, &self.cache, &opts, &edit.path)
+            slot.5.reflow_text_after(&self.doc, &self.cache, &opts, &edit.path, edit.changed_bytes.clone())
         });
         let l = Arc::new(local.unwrap_or_else(|| wordcraft_layout::layout(&self.doc, &mut self.cache, &opts)));
         let [newest, _] = std::mem::take(&mut self.layout);
@@ -101,7 +101,7 @@ impl Session {
         let t = self.typing.as_ref()?;
         let p = if self.sel.is_collapsed() && self.sel.focus == t.at { self.doc.para_at(&t.at) } else { None };
         match p {
-            Some(p) if typed_range(&p.text, t.at.off) == Some((t.start, t.end)) => {
+            Some(p) if p.rev == t.paragraph_rev || typed_range(&p.text, t.at.off) == Some((t.start, t.end)) => {
                 Some(wordcraft_layout::TypingWord { rev: p.rev, start: t.start, end: t.end })
             }
             _ => {
@@ -129,8 +129,12 @@ impl Session {
             return None;
         }
         let at = self.sel.focus.clone();
-        let (start, end) = typed_range(&self.doc.para_at(&at)?.text, at.off)?;
-        Some(TypedWord { at, start, end })
+        let paragraph = self.doc.para_at(&at)?;
+        if paragraph.len() > wordcraft_layout::para::MAX_PROOF_BYTES {
+            return None;
+        }
+        let (start, end) = typed_range(&paragraph.text, at.off)?;
+        Some(TypedWord { at, start, end, paragraph_rev: paragraph.rev })
     }
 
     /// The page as command `id` would leave it, for a live preview (Insert › Table's grid, #3931):

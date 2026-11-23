@@ -152,6 +152,13 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+fn inside_word(p: &wordcraft_doc::Paragraph, off: usize) -> bool {
+    let is_w = |c: char| c.is_alphanumeric() || c == '\'' || c == '_';
+    let before = p.text.get(..off).and_then(|text| text.chars().next_back());
+    let after = p.text.get(off..).and_then(|text| text.chars().next());
+    before.is_some_and(is_w) && after.is_some_and(is_w)
+}
+
 /// The selection to format: the selection, or the word around a collapsed caret (Word
 /// formats the whole word when the caret is inside one). `None` = caret between words.
 fn target(s: &Session) -> Option<(Pos, Pos)> {
@@ -160,10 +167,7 @@ fn target(s: &Session) -> Option<(Pos, Pos)> {
         return Some((a, b));
     }
     let p = s.doc.para_at(&a)?;
-    let is_w = |c: char| c.is_alphanumeric() || c == '\'' || c == '_';
-    let before = p.text.get(..a.off)?.chars().next_back();
-    let after = p.text.get(a.off..)?.chars().next();
-    if before.is_some_and(is_w) && after.is_some_and(is_w) {
+    if inside_word(p, a.off) {
         let (x, y) = p.word_at(a.off);
         // word_at includes trailing spaces; Word formats just the word.
         let word_end = p.text.get(x..y).map(|w| x + w.trim_end().len()).unwrap_or(y);
@@ -270,7 +274,19 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
             return out;
         }
     }
-    let Some((a, b)) = selected_text_box(s).or_else(|| target(s)) else {
+    let text_box = selected_text_box(s);
+    let at = &s.sel.focus;
+    // A uniform word has only one possible format. Reading ribbon state
+    // doesn't require finding its ends; applying a command still does.
+    if text_box.is_none()
+        && s.sel.is_collapsed()
+        && let Some(p) = s.doc.para_at(at)
+        && let [run] = p.runs.as_slice()
+        && inside_word(p, at.off)
+    {
+        return vec![s.doc.styles.resolve_char(p.props.style.as_deref(), &run.props)];
+    }
+    let Some((a, b)) = text_box.or_else(|| target(s)) else {
         let f = &s.sel.focus;
         let style = s.doc.para_at(f).and_then(|p| p.props.style.clone());
         out.push(s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()));

@@ -355,9 +355,26 @@ impl Document {
         }
         let para = self.para_at(cursor)?;
         let view = VisibleParagraph::new(para);
+        let budget = max_bytes.min(MAX_IME_TEXT_BYTES);
+        if para.objects.is_empty() && view.deleted.is_empty() {
+            let text = &para.text;
+            let (c, a) = (cursor.off, anchor.off);
+            let span = c.abs_diff(a);
+            if !text.is_char_boundary(c) || !text.is_char_boundary(a) || span > budget {
+                return None;
+            }
+            let start = c.min(a).saturating_sub((budget - span) / 2);
+            let end = text.floor_char_boundary(start.saturating_add(budget).min(text.len()));
+            let start = text.ceil_char_boundary(start);
+            let slice = text.get(start..end)?;
+            if slice.is_empty() && (c != 0 || a != 0) {
+                return None;
+            }
+            return Some(ImeWindow { text: slice.into(), cursor: c - start, anchor: a - start });
+        }
         let c = view.visible_offset(cursor.off)?;
         let a = view.visible_offset(anchor.off)?;
-        view.window(c, a, max_bytes.min(MAX_IME_TEXT_BYTES))
+        view.window(c, a, budget)
     }
 
     /// Delete-surrounding ranges in the stored paragraph text.
@@ -473,6 +490,21 @@ mod tests {
     use crate::para::Run;
     use crate::props::CharProps;
     use crate::{InlineObject, StoryRef};
+
+    #[test]
+    fn direct_surrounding_matches_visible_windows_at_utf8_edges() {
+        let doc = Document::from_text("甲a🙂βz");
+        let p = doc.para_at(&Pos::body(0, 0)).unwrap();
+        let view = VisibleParagraph::new(p);
+        for c in 0..=p.len() {
+            for a in 0..=p.len() {
+                for budget in 0..=p.len() + 1 {
+                    let expected = view.visible_offset(c).zip(view.visible_offset(a)).and_then(|(c, a)| view.window(c, a, budget));
+                    assert_eq!(doc.ime_surrounding(&Pos::body(0, c), &Pos::body(0, a), budget), expected);
+                }
+            }
+        }
+    }
 
     /// Builds a paragraph with one run per `(text, deleted)` part; deleted parts carry revision 0.
     fn para_with_runs(parts: &[(&str, bool)]) -> Paragraph {

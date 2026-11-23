@@ -54,15 +54,20 @@ struct Key {
 }
 
 impl Key {
-    /// Compares two AccessKit cache keys: layout identity, document id, table-preview flag, page range,
-    /// page rectangles and selection.
-    fn same(&self, o: &Key) -> bool {
-        Arc::ptr_eq(&self.layout, &o.layout)
-            && self.doc == o.doc
-            && self.previewing == o.previewing
-            && self.pages == o.pages
-            && self.rects == o.rects
-            && self.sel == o.sel
+    /// Scrolling translates screen bounds but preserves node contents and character
+    /// geometry. Rebuild on scale, page arrangement or selection changes.
+    fn translation(&self, other: &Key) -> Option<egui::Vec2> {
+        if !Arc::ptr_eq(&self.layout, &other.layout)
+            || self.doc != other.doc
+            || self.previewing != other.previewing
+            || self.pages != other.pages
+            || self.sel != other.sel
+            || self.rects.len() != other.rects.len()
+        {
+            return None;
+        }
+        let delta = self.rects.first().zip(other.rects.first()).map_or(egui::Vec2::ZERO, |(a, b)| b.min - a.min);
+        self.rects.iter().zip(&other.rects).all(|(a, b)| a.translate(delta) == *b).then_some(delta)
     }
 }
 
@@ -104,7 +109,8 @@ pub fn expose(app: &mut crate::WordApp, ctx: &egui::Context, doc_id: Id, layout:
         rects: rects.get(pages.0..pages.1).unwrap_or_default().to_vec(),
         sel,
     };
-    if !app.canvas.a11y.key.as_ref().is_some_and(|k| k.same(&key)) {
+    let translation = app.canvas.a11y.key.as_ref().and_then(|k| k.translation(&key));
+    if translation.is_none() {
         // Build before writing the cache: the preview document borrows `app`, and the tree is
         // owned, so the borrow ends with this statement.
         let tree = build(crate::canvas::page_doc(app), layout, doc_id, rects, pages, (&key.sel.0, &key.sel.1));
@@ -115,7 +121,18 @@ pub fn expose(app: &mut crate::WordApp, ctx: &egui::Context, doc_id: Id, layout:
     let tree = &app.canvas.a11y.tree;
     let ours: HashSet<NodeId> = tree.nodes.iter().map(|(id, _)| id.accesskit_id()).collect();
     for (id, node) in &tree.nodes {
-        ctx.accesskit_node_builder(*id, |n| *n = node.clone());
+        ctx.accesskit_node_builder(*id, |n| {
+            *n = node.clone();
+            if let Some(d) = translation.filter(|v| *v != egui::Vec2::ZERO)
+                && let Some(mut bounds) = n.bounds()
+            {
+                bounds.x0 += f64::from(d.x);
+                bounds.x1 += f64::from(d.x);
+                bounds.y0 += f64::from(d.y);
+                bounds.y1 += f64::from(d.y);
+                n.set_bounds(bounds);
+            }
+        });
     }
     // egui hangs every new node off the window; ours belong under the document.
     ctx.accesskit_node_builder(egui::accesskit_root_id(), |root| {
@@ -136,7 +153,15 @@ pub fn expose(app: &mut crate::WordApp, ctx: &egui::Context, doc_id: Id, layout:
 
 /// Build the description of pages `pages.0..pages.1`.
 pub fn build(doc: &Document, layout: &DocLayout, doc_id: Id, rects: &[Rect], pages: (usize, usize), sel: (&Pos, &Pos)) -> Tree {
-    let mut b = Builder { doc, doc_id, tree: Tree::default(), index: HashMap::new(), lists: HashMap::new(), offsets: HashMap::new() };
+    let mut b = Builder {
+        doc,
+        doc_id,
+        tree: Tree::default(),
+        index: HashMap::new(),
+        lists: HashMap::new(),
+        targets: [sel.0, sel.1],
+        positions: [None, None],
+    };
     for pi in pages.0..pages.1 {
         let (Some(page), Some(pr)) = (layout.pages.get(pi), rects.get(pi)) else { continue };
         let scale = crate::canvas::page_screen_scale(*pr, page, 1.0);
@@ -160,8 +185,10 @@ pub fn build(doc: &Document, layout: &DocLayout, doc_id: Id, rects: &[Rect], pag
             b.paragraph(path, para, *l0..*l1, &place, &pictures);
         }
     }
-    let at = |p: &Pos| if p.story == StoryRef::Body { b.position(&p.path, p.off) } else { None };
-    b.tree.selection = match (at(sel.0), at(sel.1)) {
+    let [anchor, focus] = b.positions.map(|entry| {
+        entry.and_then(|(_, id, character_index)| b.index.contains_key(&id).then(|| TextPosition { node: id.accesskit_id(), character_index }))
+    });
+    b.tree.selection = match (anchor, focus) {
         (Some(anchor), Some(focus)) => Some(TextSelection { anchor, focus }),
         (None, Some(focus)) => Some(TextSelection { anchor: focus, focus }),
         _ => None,
@@ -193,8 +220,9 @@ struct Builder<'a> {
     index: HashMap<Id, usize>,
     /// Per container: the list being filled and the block index of its last item.
     lists: HashMap<Id, (Id, usize)>,
-    /// Per paragraph: (byte offset, text run, character index) of each cluster, in text order.
-    offsets: HashMap<Vec<u32>, Vec<(usize, Id, usize)>>,
+    /// Only the two ends of the selection need a mapping to an AccessKit node.
+    targets: [&'a Pos; 2],
+    positions: [Option<(usize, Id, usize)>; 2],
 }
 
 /// One text run being gathered.
@@ -339,11 +367,12 @@ impl Builder<'_> {
         let first_top = para.lines.get(lines.start).map_or(0.0, |l| l.top);
         for li in lines {
             let Some(line) = para.lines.get(li) else { break };
-            if self.full() || self.index.contains_key(&pid.with(("run", li, 0usize))) {
+            let line_id = para.first_line + li;
+            if self.full() || self.index.contains_key(&pid.with(("run", line_id, 0usize))) {
                 // A repeated table header row shows the same lines again.
                 continue;
             }
-            let mut lb = LineBuild { pid, li, seg: 0, prev: None, top: line.top - first_top, run: Run::default(), map: Vec::new() };
+            let mut lb = LineBuild { pid, li: line_id, seg: 0, prev: None, top: line.top - first_top, run: Run::default(), map: Vec::new() };
             for k in line.c0..line.c1 {
                 let Some(cl) = para.clusters.get(k) else { break };
                 lb.map.push((cl.start, lb.seg, lb.run.lens.len()));
@@ -419,10 +448,15 @@ impl Builder<'_> {
             }
             // Offsets that fell into an empty last segment point at the end of the last run.
             let end = lb.prev;
-            let entries = self.offsets.entry(path.0.clone()).or_default();
-            for (off, seg, idx) in lb.map {
-                let (seg, idx) = if seg >= lb.seg { end.unwrap_or((seg, idx)) } else { (seg, idx) };
-                entries.push((off, pid.with(("run", li, seg)), idx));
+            for (target, position) in self.targets.iter().zip(&mut self.positions) {
+                if target.story != StoryRef::Body || target.path != *path || position.is_some_and(|(off, _, _)| off >= target.off) {
+                    continue;
+                }
+                let i = lb.map.partition_point(|entry| entry.0 < target.off);
+                if let Some(&(off, seg, idx)) = lb.map.get(i).or(lb.map.last()) {
+                    let (seg, idx) = if seg >= lb.seg { end.unwrap_or((seg, idx)) } else { (seg, idx) };
+                    *position = Some((off, pid.with(("run", line_id, seg)), idx));
+                }
             }
         }
     }
@@ -472,14 +506,6 @@ impl Builder<'_> {
             lb.prev = Some((lb.seg, run.lens.len()));
         }
         lb.seg += 1;
-    }
-
-    /// The text position of byte `off` of the paragraph at `path`, when it is described.
-    fn position(&self, path: &Path, off: usize) -> Option<TextPosition> {
-        let entries = self.offsets.get(&path.0)?;
-        let i = entries.partition_point(|e| e.0 < off);
-        let (_, run, idx) = entries.get(i).or(entries.last())?;
-        self.index.contains_key(run).then(|| TextPosition { node: run.accesskit_id(), character_index: *idx })
     }
 }
 

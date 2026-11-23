@@ -238,8 +238,17 @@ impl Ctx<'_> {
         self.cache.misses += 1;
         let typing = key.typing;
         let can_reflow = label.is_none() && exclusions.is_empty() && p.objects.is_empty() && !self.boxes.inside();
+        let mut windows = std::mem::take(&mut self.cache.tiles);
+        let env = self.para_env(ParaEnvInput { width, label, table, exclusions, eq_number, typing_word: typing, fitted: &fitted });
+        let tiled = can_reflow
+            && table.is_none()
+            && self.opts.view == super::ViewMode::Print
+            && self.doc.body.len() == 1
+            && self.doc.parts.is_empty()
+            && p.section.is_none();
         let mut pl =
-            para::layout_para(p, &self.para_env(ParaEnvInput { width, label, table, exclusions, eq_number, typing_word: typing, fitted: &fitted }));
+            if tiled { para::tiled_paragraph(p, &env, &mut windows, self.cache.env) } else { None }.unwrap_or_else(|| para::layout_para(p, &env));
+        self.cache.tiles = windows;
         if can_reflow {
             let cell = table.and_then(|t| self.table_keys.iter().find(|(c, _)| c.as_ref() == t).map(|(c, _)| c.clone()));
             if table.is_none() || cell.is_some() {

@@ -25,6 +25,7 @@ impl Selection {
 /// The word being typed, left without a spelling squiggle until the caret leaves it (#1552).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TypedWord {
+    pub(super) paragraph_rev: u64,
     /// Where the caret was when the word was typed.
     pub(super) at: Pos,
     /// The word's byte range in its paragraph.

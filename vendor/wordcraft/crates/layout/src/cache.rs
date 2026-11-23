@@ -33,6 +33,7 @@ pub(crate) struct Key {
 /// Memoised paragraph layouts.
 #[derive(Default)]
 pub struct LayoutCache {
+    pub(crate) tiles: super::para::TileCache,
     pub(crate) paras: HashMap<Key, Arc<ParaLayout>>,
     /// Representatives of short, repeated cell paragraphs. A weak reference keeps no document alive.
     cell_examples: Vec<Weak<Block>>,
@@ -64,6 +65,7 @@ impl LayoutCache {
         self.paras.is_empty()
     }
     pub fn clear(&mut self) {
+        self.tiles = Default::default();
         self.paras.clear();
         self.cell_examples.clear();
         self.measures.clear();

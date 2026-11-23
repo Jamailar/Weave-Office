@@ -1,5 +1,7 @@
 # Layout and pagination parity with Microsoft Word
 
+> **Plain-text performance · 2026-11-23.** The print layout shares unchanged glyphs after a local edit when the shaper certifies a wrap boundary. Repeated Latin text can share wrapped fragments even when an edit changes page count. The ordinary page fitter still determines page breaks.
+
 > **Performance update · 2026-11-23.** At 17% zoom, page textures include the visible table cell guides. The desktop canvas schedules one missing thumbnail at a time from the current viewport.
 
 > **Performance update · 2026-11-20.** Measured hosted frame times on a 1,511-page document and three synthetic documents. Repeated equal cell paragraphs share layout work. A verified change to one paragraph with unchanged line geometry reuses the page index and all other pages. Text selection highlights and whole-row shading are scoped to the visible pages.
@@ -205,6 +207,8 @@ No overall parity estimate changes from these probes.
 | The same word, with a font that pulls half its glyphs back so that its advances alternate in sign (#3412) | 8× the word costs 52× the time before the fix, 15× with it | not measured | measured 2026-10-22, release, on `00bc6a4b` before the fix and with it (`layout::tests::a_word_with_alternating_advances_lays_out_in_linear_time`) |
 | Pages, sections and paragraphs with thousands of clipped cells, tracked authors, comment authors, sections, header paragraphs, spanning cells, hidden bidi offsets or math characters (#3692, #3706) | linear: each lookup is indexed or walked once (was a rescan per item) | not measured | `layout::tests::linear`, `math::tests::a_long_text_run_lays_out_in_linear_time` |
 
+A regression covers a single plain paragraph spanning many pages. It types in the middle, deletes text, edits a previously reused page, and compares page counts, caret coordinates, line spans and page pixels with a fresh layout. A separate case checks repeated text against uninterrupted layout, including punctuation and an edit at the first character. The ribbon can report the format of a uniformly styled word without scanning to either end.
+
 On 2026-11-23 the native headless WordCraft UI replayed 60 wheel frames (120 points) and 90 trackpad frames (20 points) in a large table-rich DOCX at 17% zoom and 2048 × 1080. Against commit `f7fc934`, median frame time including CPU tessellation fell from 60.3 to 29.1 ms for the wheel and from 44.2 to 26.4 ms for the trackpad. Cold pages fill asynchronously. These timings cover input and foreground drawing, excluding GPU presentation and background completion.
 
 Hosted measurements on 2026-11-20 used the same scroll input and debug profile on Weave Office commit `67313c8` and with these changes. Each median covers 24 consecutive 60-point wheel frames after warm-up, including frames that needed a new page texture. Times cover input handling, layout and painting on the CPU. GPU presentation time is separate.
@@ -294,6 +298,7 @@ layout suite are pending; this is not a new Word/native-IME acceptance claim.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-23 | minor | The print layout shares unchanged glyphs after a local edit when the shaper certifies a wrap boundary. Repeated Latin text can share wrapped fragments even when an edit changes page count. The ordinary page fitter still determines page breaks. |
 | 2026-11-23 | minor | At 17% zoom, page textures include the visible table cell guides. The desktop canvas schedules one missing thumbnail at a time from the current viewport. |
 | 2026-11-20 | minor | Measured hosted frame times on a 1,511-page document and three synthetic documents. Repeated equal cell paragraphs share layout work. A verified change to one paragraph with unchanged line geometry reuses the page index and all other pages. Text selection highlights and whole-row shading are scoped to the visible pages. |
 | 2026-10-30 | trivial | Keep with next: a kept heading before a three-line paragraph under widow/orphan control needs room for all three lines, since that paragraph can only move over whole; with room for two, the heading goes to the next page with it instead of staying alone at the bottom, as in Word for Mac 16.93. `layout::tests::keep_with_next_carries_the_heading_when_a_three_line_paragraph_moves_whole` |

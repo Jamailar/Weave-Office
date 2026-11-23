@@ -9,6 +9,7 @@ pub struct TextEdit {
     pub previous: u64,
     pub path: Path,
     pub previous_paragraph: u64,
+    pub(super) changed_bytes: Option<std::ops::Range<usize>>,
     pub removed_words: usize,
     pub added_words: usize,
 }
@@ -36,14 +37,36 @@ impl Session {
             return None;
         }
         // Autoformat and controls may change other content in the same command.
-        before.same_except_paragraph(&self.doc, &at.path).then(|| TextEdit {
+        if !before.same_except_paragraph(&self.doc, &at.path) {
+            return None;
+        }
+        let prefix = selection.anchor.off.min(selection.focus.off).min(at.off);
+        let unchanged = old
+            .text
+            .get(..prefix)
+            .filter(|s| new.text.starts_with(*s))
+            .zip(new.text.get(at.off..).filter(|s| old.text.get(prefix..).is_some_and(|tail| tail.ends_with(*s))));
+        let (removed_words, added_words) = match unchanged {
+            Some((head, tail)) => {
+                // One unchanged ASCII letter/digit already qualifies its token as a
+                // word. Whitespace terminates it. Either bounds the word-count delta.
+                let boundary = |c: char| c.is_ascii_alphanumeric() || c.is_whitespace();
+                let left = head.rfind(boundary).unwrap_or(0);
+                let right = tail.find(boundary).and_then(|i| Some(i + tail.get(i..)?.chars().next()?.len_utf8())).unwrap_or(tail.len());
+                (count_words(old.text.get(left..old.len() - tail.len() + right)?), count_words(new.text.get(left..at.off + right)?))
+            }
+            None => (count_words(&old.text), count_words(&new.text)),
+        };
+        let uniform = matches!((old.runs.as_slice(), new.runs.as_slice()), ([a], [b]) if a.props == b.props);
+        Some(TextEdit {
             document: self.document_id(),
             after: self.rev(),
             previous,
             path: at.path.clone(),
             previous_paragraph: old.rev,
-            removed_words: count_words(&old.text),
-            added_words: count_words(&new.text),
+            changed_bytes: (unchanged.is_some() && uniform && old.len() > wordcraft_layout::para::MAX_PROOF_BYTES).then_some(prefix..at.off),
+            removed_words,
+            added_words,
         })
     }
 }

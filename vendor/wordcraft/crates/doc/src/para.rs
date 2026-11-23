@@ -250,13 +250,13 @@ impl Paragraph {
     }
     /// Byte offsets of all objects, in order.
     pub fn object_offsets(&self) -> Vec<usize> {
-        self.text.char_indices().filter(|(_, c)| *c == OBJ).map(|(i, _)| i).collect()
+        self.text.match_indices(OBJ).map(|(off, _)| off).collect()
     }
     /// (byte offset, object) for every object, in text order, in one pass. Prefer it to
     /// [`Paragraph::object_offsets`] + [`Paragraph::object_at`], which counts the objects before
     /// each offset again, so a loop over a paragraph's objects is quadratic (#3614).
     pub fn objects_with_offsets(&self) -> impl Iterator<Item = (usize, &InlineObject)> + '_ {
-        self.text.char_indices().filter(|(_, c)| *c == OBJ).map(|(i, _)| i).zip(self.objects.iter())
+        self.objects.iter().zip(self.text.match_indices(OBJ)).map(|(object, (off, _))| (off, object))
     }
 
     /// Insert plain text (U+FFFC is dropped) at `off` with `props`. Returns the inserted length.
