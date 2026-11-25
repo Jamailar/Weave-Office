@@ -785,7 +785,7 @@ fn glyph_id_above_u16_exports() {
     let (want, _) = count_glyphs_and_paths(&export_layout(&d, &lay, &opts).unwrap());
     assert!(want > 0);
     let mut wide = 0;
-    for item in lay.pages.iter_mut().flat_map(|p| p.items.iter_mut()) {
+    for item in lay.pages.iter_mut().flat_map(|p| std::sync::Arc::make_mut(p).items.iter_mut()) {
         if let Placed::Lines { para, .. } = item
             && let Some(g) = Arc::make_mut(para).glyphs.first_mut()
         {

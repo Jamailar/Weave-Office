@@ -80,6 +80,7 @@ pub mod ribbon;
 pub mod ribbon_fit;
 pub mod ruler_tabs;
 pub mod scroll;
+mod selection_info;
 pub mod system_clipboard;
 pub mod table_mouse;
 pub mod table_pen;

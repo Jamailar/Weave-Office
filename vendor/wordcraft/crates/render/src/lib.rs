@@ -156,6 +156,8 @@ fn color(c: Rgb, alpha: f32) -> peniko::Color {
 #[derive(Clone, Debug)]
 pub struct RenderOptions {
     pub display: DisplayOptions,
+    /// Screen-only table cell guides, as straight RGBA and stroke width in page points.
+    pub table_guides: Option<([u8; 4], f32)>,
     /// Paper colour (page colour from Design › Page Color, else white).
     pub paper: Rgb,
     /// Colour for formatting marks.
@@ -256,6 +258,7 @@ impl Default for RenderOptions {
     fn default() -> Self {
         RenderOptions {
             display: DisplayOptions::default(),
+            table_guides: None,
             paper: Rgb::WHITE,
             mark_color: Rgb(0x2B, 0x57, 0x9A),
             text_darkening: false,
@@ -308,6 +311,16 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
         }
         if faded {
             ctx.pop_layer();
+        }
+    }
+    if let Some(([r, g, b, a], width)) = opts.table_guides {
+        ctx.set_transform(view);
+        ctx.set_paint(peniko::Color::from_rgba8(r, g, b, a));
+        ctx.set_stroke(kurbo::Stroke::new(f64::from(width)));
+        for item in page.items.iter().chain(&page.header).chain(&page.footer) {
+            if let wordcraft_layout::Placed::Cell { rect, covered: false, .. } = item {
+                ctx.stroke_rect(&kurbo::Rect::new(rect.x.into(), rect.y.into(), rect.right().into(), rect.bottom().into()));
+            }
         }
     }
     ctx.flush();

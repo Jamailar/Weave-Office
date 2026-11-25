@@ -4,6 +4,32 @@ use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
 mod color_glyphs;
 
+#[test]
+fn thumbnail_guides_only_outline_uncovered_cells_when_enabled() {
+    let cell = |x, covered| wordcraft_layout::Placed::Cell {
+        rect: wordcraft_geom::Rect::new(x, 8.0, 16.0, 16.0),
+        story: wordcraft_doc::StoryRef::Body,
+        table: Default::default(),
+        row: 0,
+        cell: 0,
+        covered,
+        clip: false,
+    };
+    let page = Page { w: 64.0, h: 32.0, items: vec![cell(8.0, false), cell(36.0, true)], ..Default::default() };
+    let doc = Document::new();
+    let plain = render_page(&doc, &page, 0.25, &RenderOptions::default());
+    let opts = RenderOptions { table_guides: Some(([0, 0, 255, 160], 2.0)), ..Default::default() };
+    let guided = render_page(&doc, &page, 0.25, &opts);
+    let mut changed = 0;
+    for (i, (a, b)) in plain.pixels.chunks_exact(4).zip(guided.pixels.chunks_exact(4)).enumerate() {
+        if a != b {
+            assert!(i % (plain.width as usize) <= 6, "covered cells have no guide");
+            changed += 1;
+        }
+    }
+    assert!(changed > 0);
+}
+
 /// The first and last pixel rows with ink in a black-on-white [`render_text_line`] raster.
 fn ink_rows(img: &Rendered) -> Option<(usize, usize)> {
     let w = img.width as usize * 4;

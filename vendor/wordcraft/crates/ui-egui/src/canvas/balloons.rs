@@ -8,7 +8,15 @@ use super::{
 /// Comment balloons in the markup area right of each page, joined to their anchors, with each
 /// comment's replies under it. Clicking a balloon selects it, like Word: its text becomes editable
 /// in place, with Reply, Resolve and Delete (the same commands as the Comments pane).
-pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32, view: Rect) {
+pub(super) fn balloons(
+    app: &mut WordApp,
+    ui: &mut Ui,
+    painter: &egui::Painter,
+    rects: &[Rect],
+    layout: &std::sync::Arc<DocLayout>,
+    scale: f32,
+    view: Rect,
+) {
     app.canvas.balloon_rects.clear();
     let mw = markup_width(app);
     let float = floating_comments(app);
@@ -21,8 +29,28 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
     let t = Tokens::get(ui.ctx());
     let clip = view;
     let only_shown = app.session.prefs.markup.comment_display == CommentDisplay::Selected;
-    let shown = shown_comment(app);
-    let BalloonItems { replies, mut by_page } = collect_items(app, layout, only_shown, shown);
+    let shown = only_shown.then(|| shown_comment(app)).flatten();
+    let markup = &app.session.prefs.markup;
+    let stamp = (
+        app.session.document_id(),
+        app.session.rev(),
+        app.session.page_hint,
+        crate::i18n::current(),
+        [only_shown, markup.comments, markup.formatting, markup.insertions_deletions, app.session.revisions_in_balloons()],
+        shown,
+    );
+    let key = app.window_id("review_balloon_anchors");
+    type Cached = ((u64, u64, usize, crate::i18n::Lang, [bool; 5], Option<u32>), std::sync::Weak<DocLayout>, std::sync::Arc<BalloonItems>);
+    let owner = std::sync::Arc::downgrade(layout);
+    let items = match ui.data(|d| d.get_temp::<Cached>(key)) {
+        Some((saved, previous, items)) if saved == stamp && previous.ptr_eq(&owner) => items,
+        _ => {
+            let items = std::sync::Arc::new(collect_items(app, layout, only_shown, shown));
+            ui.data_mut(|d| d.insert_temp(key, (stamp, owner, items.clone())));
+            items
+        }
+    };
+    let BalloonItems { replies, by_page } = items.as_ref();
     let palette = t.author_colors;
     let leaders = t.leader_colors;
     let mut authors: Vec<String> = Vec::new();
@@ -36,15 +64,11 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
             painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, t.markup_edge));
         }
     }
-    let mut pages: Vec<usize> = by_page.keys().copied().collect();
-    pages.sort_unstable();
-    for pi in pages {
-        let Some(list) = by_page.get_mut(&pi) else { continue };
+    for (&pi, list) in by_page {
         let Some(pr) = rects.get(pi) else { continue };
         if !pr.expand(400.0).intersects(clip) {
             continue;
         }
-        list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
         // Beside the page in the column; floating, beside it when the view has room, else over its edge.
         let (x0, w, over_page) = if mw > 0.0 {
@@ -184,7 +208,7 @@ enum Balloon {
 
 struct BalloonItems {
     replies: HashMap<u32, Vec<u32>>,
-    by_page: HashMap<usize, Vec<(f32, f32, Balloon, Pos)>>,
+    by_page: std::collections::BTreeMap<usize, Vec<(f32, f32, Balloon, Pos)>>,
 }
 
 fn collect_items(app: &WordApp, layout: &DocLayout, only_shown: bool, shown: Option<u32>) -> BalloonItems {
@@ -197,7 +221,7 @@ fn collect_items(app: &WordApp, layout: &DocLayout, only_shown: bool, shown: Opt
             replies.entry(parent).or_default().push(*id);
         }
     }
-    let mut by_page: HashMap<usize, Vec<(f32, f32, Balloon, Pos)>> = HashMap::new();
+    let mut by_page = std::collections::BTreeMap::new();
     let markup = &app.session.prefs.markup;
     let comments = if markup.comments { wordcraft_engine::cmd::review::comment_list(&app.session) } else { Vec::new() };
     for (id, pos) in comments {
@@ -207,29 +231,39 @@ fn collect_items(app: &WordApp, layout: &DocLayout, only_shown: bool, shown: Opt
         }
         add_balloon_anchor(&mut by_page, layout, app.session.page_hint, pos, Balloon::Comment(id));
     }
-    if markup.formatting {
+    let [formats, moves, deletions] = app.canvas.markup_facts.get().map_or([true; 3], |(_, facts)| facts);
+    if markup.formatting && formats {
         for (pos, author, props) in wordcraft_engine::cmd::review::format_changes(&app.session).into_iter().take(500) {
             let what = crate::panes::describe_props(&props).join(", ");
             let text = if what.is_empty() { tl!("Formatted").to_string() } else { format!("{}: {what}", tl!("Formatted")) };
             add_balloon_anchor(&mut by_page, layout, app.session.page_hint, pos, Balloon::Format(author, text));
         }
     }
-    if markup.insertions_deletions {
+    if markup.insertions_deletions && moves {
         for (pos, author, from) in wordcraft_engine::cmd::review::move_changes(&app.session).into_iter().take(500) {
             let text = if from { tl!("Moved from") } else { tl!("Moved to") }.to_string();
             add_balloon_anchor(&mut by_page, layout, app.session.page_hint, pos, Balloon::Format(author, text));
         }
     }
-    if app.session.revisions_in_balloons() {
+    if app.session.revisions_in_balloons() && deletions {
         for deletion in wordcraft_engine::cmd::review::deletion_balloons(&app.session) {
             let text = format!("{}: {}", tl!("Deleted"), deletion.text);
             add_balloon_anchor(&mut by_page, layout, app.session.page_hint, deletion.at, Balloon::Format(deletion.author, text));
         }
     }
+    for list in by_page.values_mut() {
+        list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
+    }
     BalloonItems { replies, by_page }
 }
 
-fn add_balloon_anchor(by_page: &mut HashMap<usize, Vec<(f32, f32, Balloon, Pos)>>, layout: &DocLayout, page_hint: usize, pos: Pos, item: Balloon) {
+fn add_balloon_anchor(
+    by_page: &mut std::collections::BTreeMap<usize, Vec<(f32, f32, Balloon, Pos)>>,
+    layout: &DocLayout,
+    page_hint: usize,
+    pos: Pos,
+    item: Balloon,
+) {
     let Some(caret) = layout.caret_on(&pos, page_hint) else { return };
     by_page.entry(caret.page).or_default().push((caret.x, caret.top + caret.height, item, pos));
 }

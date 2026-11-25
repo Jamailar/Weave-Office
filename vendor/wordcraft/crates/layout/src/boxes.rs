@@ -231,13 +231,15 @@ pub(crate) fn layout_box(ctx: &mut Ctx, input: BoxInput<'_>) -> BoxLayout {
             Block::Para(p) => {
                 let label = ctx.next_label(p);
                 let listed = label.is_some();
-                let mut pl = ctx.para_labelled(p, width, table, &[], label.clone());
+                let matched = if in_cell { ctx.cache.matching_cell(b, ctx.opts.typing_word) } else { None };
+                let layout_para = matched.as_deref().and_then(Block::as_para).unwrap_or(p);
+                let mut pl = ctx.para_labelled(layout_para, width, table, &[], label.clone());
                 // A text frame (a footer's page number in a frame, say) is placed apart, like a
                 // floating object, and the text after it wraps around it; it takes no room in
                 // the flow.
                 if let Some(fr) = pl.rp.frame.clone().filter(|_| frames) {
                     let fw = fr.w.unwrap_or_else(|| natural_width(&pl)).clamp(1.0, 1584.0);
-                    let pf = if (fw - width).abs() > 0.01 { ctx.para_labelled(p, fw, table, &[], label) } else { pl };
+                    let pf = if (fw - width).abs() > 0.01 { ctx.para_labelled(layout_para, fw, table, &[], label) } else { pl };
                     let h = match fr.h {
                         Some(h) if fr.h_exact => h,
                         Some(h) => h.max(pf.height),
@@ -295,7 +297,7 @@ pub(crate) fn layout_box(ctx: &mut Ctx, input: BoxInput<'_>) -> BoxLayout {
                 }
                 let rel = rel_exclusions(&excl, 0.0, y);
                 if !rel.is_empty() {
-                    pl = ctx.para_labelled(p, width, table, &rel, label);
+                    pl = ctx.para_labelled(layout_para, width, table, &rel, label);
                 }
                 // Bordered paragraphs: room for their borders, those of a group joined in one box.
                 let cell = table.map(|t| &t.para);
@@ -625,7 +627,8 @@ pub(crate) fn push_para(
         let pad = pl.rp.borders.as_ref().map(|b| b.left.map(|l| l.space).unwrap_or(4.0)).unwrap_or(0.0);
         items.push(Placed::Fill { rect: Rect::new(left - pad, top, right - left + pad * 2.0, bottom - top), color: c });
     }
-    items.push(Placed::Lines { story, path: Path(path.to_vec()), para: pl.clone(), l0, l1, x, y, turn: TextDirection::Horizontal });
+    let (para, l0, l1) = pl.page_piece(l0, l1);
+    items.push(Placed::Lines { story, path: Path(path.to_vec()), para, l0, l1, x, y, turn: TextDirection::Horizontal });
     if let Some(b) = &pl.rp.borders {
         let sp = |o: &Option<Border>| o.map(|b| b.space).unwrap_or(0.0);
         let (lx, rx) = (left - sp(&b.left), right + sp(&b.right));

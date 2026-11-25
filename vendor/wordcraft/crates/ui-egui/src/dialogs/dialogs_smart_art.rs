@@ -280,7 +280,7 @@ pub fn items_without(g: &SmartArtSpec, i: usize) -> Value {
 /// the pane is closed.
 pub fn frame_button(app: &mut WordApp, ctx: &egui::Context, layout: &wordcraft_layout::DocLayout, pages: &[Rect], scale: f32, clip: Rect) {
     // The pane goes with the graphic: it opens again only on request.
-    if wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_none() {
+    if !app.selection_objects().smart_art {
         app.session.view.smart_art_pane = false;
         return;
     }

@@ -557,7 +557,16 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let rp = paragraph_props(p, env);
     let res = Resolver { doc, style: p.props.style.as_deref(), table: env.table.map(|t| &t.chr) };
     let levels = bidi_levels(&p.text, rp.bidi);
-    let b = Builder { env, styles: Vec::new(), style_index: Default::default(), glyphs: Vec::new(), clusters: Vec::new(), levels, shown: Vec::new() };
+    let b = Builder {
+        env,
+        safe_starts: Vec::new(),
+        styles: Vec::new(),
+        style_index: Default::default(),
+        glyphs: Vec::new(),
+        clusters: Vec::new(),
+        levels,
+        shown: Vec::new(),
+    };
     let cx = Cx { p, env, rp: &rp, res, math_props: doc.settings.math.clone().unwrap_or_default(), drop_first: drop_cap_char(p, &rp) };
     let mut sh = Shaped::new(b, env.eq_number);
     let mark_rc = cx.res.char(&p.mark);
@@ -579,12 +588,15 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let joined_cluster_starts = joined_cluster_starts(p, &sh.b.clusters);
     let Shaped { b, has_page_fields, notes, drop_cap, drop_cap_w, maths, enclosures, rubies, displays, ptabs, left, runs, .. } = sh;
     let mut pl = ParaLayout {
+        reflow: None,
+        plain_reflow: false,
+        safe_lines: Arc::default(),
+        first_line: 0,
+        shifted: None,
+        geometry: Arc::new(super::ParagraphGeometry { glyphs: b.glyphs, clusters: b.clusters, ..Default::default() }),
         rp,
         styles: b.styles,
-        glyphs: b.glyphs,
-        clusters: b.clusters,
         shown: b.shown,
-        lines: Vec::new(),
         label,
         height: 0.0,
         text_len: p.text.len(),
@@ -615,6 +627,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     pl.left_out = left;
     keep_graphemes_whole(&mut pl);
     break_lines(&mut pl, env, mark_style, env.label.as_ref().map(|(_, l)| l));
+    if b.safe_starts.len() == p.len() && !b.safe_starts.is_empty() {
+        pl.plain_reflow = p.text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b' ');
+        pl.safe_lines =
+            pl.lines.iter().filter_map(|l| b.safe_starts.get(l.start).copied().unwrap_or(false).then_some(l.start)).collect::<Vec<_>>().into();
+    }
     if gone {
         collapse(&mut pl);
     }
@@ -623,10 +640,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
 
 /// Neither ordinary nor hyphenated wrapping may split a drawing group inside a grapheme.
 fn keep_graphemes_whole(pl: &mut ParaLayout) {
-    for c in &mut pl.clusters {
+    let geometry = Arc::make_mut(&mut pl.geometry);
+    for c in &mut geometry.clusters {
         c.break_after &= pl.joined_cluster_starts.binary_search(&c.end).is_err();
     }
-    pl.hyph_after.retain(|&k| pl.clusters.get(k as usize).is_some_and(|c| pl.joined_cluster_starts.binary_search(&c.end).is_err()));
+    pl.hyph_after.retain(|&k| geometry.clusters.get(k as usize).is_some_and(|c| pl.joined_cluster_starts.binary_search(&c.end).is_err()));
     for k in pl.hyph_after.clone() {
         if let Some(c) = pl.clusters.get_mut(k as usize) {
             c.break_after = true;

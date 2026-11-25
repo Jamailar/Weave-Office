@@ -28,9 +28,9 @@ impl Session {
         let outline = (mode == ViewMode::Outline).then(|| self.view.outline.view());
         let shown = (self.view.marks || self.prefs.marks.hidden, self.view.field_codes);
         let (rev, proofing, numeral) = (self.rev, self.view.proofing, self.view.numeral);
-        let fits = |e: &Option<LayoutEntry>| {
+        let matches_view = |e: &Option<LayoutEntry>, wanted_rev, wanted_typing| {
             e.as_ref().is_some_and(|(r, w, h, m, sp, _, pf, o, hd, n, t, sh)| {
-                *r == rev
+                *r == wanted_rev
                     && (*w == width || mode == ViewMode::Print)
                     && *h == height
                     && *m == mode
@@ -39,10 +39,11 @@ impl Session {
                     && *n == numeral
                     && *hd == deleted
                     && *o == outline
-                    && *t == typing
+                    && *t == wanted_typing
                     && *sh == shown
             })
         };
+        let fits = |e: &Option<LayoutEntry>| matches_view(e, rev, typing);
         if !fits(&self.layout[0]) && fits(&self.layout[1]) {
             self.layout.swap(0, 1);
         }
@@ -72,7 +73,21 @@ impl Session {
             filename: filename.clone(),
             filepath: filepath.clone(),
         };
-        let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
+        let local = self.text_edit().and_then(|edit| {
+            if typing.is_some_and(|w| self.doc.para(StoryRef::Body, &edit.path).is_none_or(|p| p.rev != w.rev)) {
+                return None;
+            }
+            let slot = self
+                .layout
+                .iter()
+                .find(|slot| {
+                    slot.as_ref()
+                        .is_some_and(|entry| entry.10.is_none_or(|w| w.rev == edit.previous_paragraph) && matches_view(slot, edit.previous, entry.10))
+                })?
+                .as_ref()?;
+            slot.5.reflow_text_after(&self.doc, &self.cache, &opts, &edit.path, edit.changed_bytes.clone())
+        });
+        let l = Arc::new(local.unwrap_or_else(|| wordcraft_layout::layout(&self.doc, &mut self.cache, &opts)));
         let [newest, _] = std::mem::take(&mut self.layout);
         self.layout = [
             Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing, shown)),
@@ -86,7 +101,7 @@ impl Session {
         let t = self.typing.as_ref()?;
         let p = if self.sel.is_collapsed() && self.sel.focus == t.at { self.doc.para_at(&t.at) } else { None };
         match p {
-            Some(p) if typed_range(&p.text, t.at.off) == Some((t.start, t.end)) => {
+            Some(p) if p.rev == t.paragraph_rev || typed_range(&p.text, t.at.off) == Some((t.start, t.end)) => {
                 Some(wordcraft_layout::TypingWord { rev: p.rev, start: t.start, end: t.end })
             }
             _ => {
@@ -114,8 +129,12 @@ impl Session {
             return None;
         }
         let at = self.sel.focus.clone();
-        let (start, end) = typed_range(&self.doc.para_at(&at)?.text, at.off)?;
-        Some(TypedWord { at, start, end })
+        let paragraph = self.doc.para_at(&at)?;
+        if paragraph.len() > wordcraft_layout::para::MAX_PROOF_BYTES {
+            return None;
+        }
+        let (start, end) = typed_range(&paragraph.text, at.off)?;
+        Some(TypedWord { at, start, end, paragraph_rev: paragraph.rev })
     }
 
     /// The page as command `id` would leave it, for a live preview (Insert › Table's grid, #3931):

@@ -28,7 +28,9 @@ pub(super) fn bookmark_names(doc: &wordcraft_doc::Document, by_location: bool, h
 /// beside them, Sort by and Hidden bookmarks below. Add (Enter) closes the dialog; Delete and Go
 /// To leave it open, and once a bookmark is deleted Cancel reads Close.
 pub(super) fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut bool, hidden: &mut bool, deleted: &mut bool) -> bool {
-    let marks = bookmark_names(&app.session.doc, *by_location, *hidden);
+    let marks = app.document_query(ui, app.window_id("bookmark_names").with((*by_location, *hidden)), || {
+        bookmark_names(&app.session.doc, *by_location, *hidden)
+    });
     let t = Tokens::get(ui.ctx());
     let (mut add, mut delete, mut go_to) = (false, false, false);
     ui.horizontal_top(|ui| {
@@ -43,7 +45,7 @@ pub(super) fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_loc
                         // #1904: a blank box says nothing; reuse the Field dialog's wording.
                         ui.label(egui::RichText::new(tl!("The document has no bookmarks yet.")).small().color(t.text_dim));
                     }
-                    for n in &marks {
+                    for n in marks.iter() {
                         if ui.selectable_label(*n == *name, n.as_str()).clicked() {
                             *name = n.clone();
                         }

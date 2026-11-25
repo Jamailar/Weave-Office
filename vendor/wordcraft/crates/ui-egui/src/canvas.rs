@@ -26,6 +26,7 @@ mod pages;
 mod reading;
 mod rulers;
 mod story;
+mod thumbnails;
 
 #[cfg(test)]
 use balloons::balloon_text;
@@ -96,7 +97,11 @@ const TILE_HEIGHT_PX: usize = 1024;
 const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
+    pub(crate) navigation: crate::panes::Navigation,
+    pub(crate) selection_info: std::cell::RefCell<Option<crate::selection_info::SelectionInfo>>,
+    geometry: Option<geometry::CachedGeometry>,
     textures: HashMap<usize, (u64, TextureHandle)>,
+    thumbnails: Option<thumbnails::Worker>,
     /// Visible full-resolution tiles of pages too tall for one GPU texture.
     tiles: HashMap<(usize, usize), (u64, TextureHandle)>,
     /// Page content fingerprints of the current layout, for the texture cache (#811).
@@ -345,7 +350,11 @@ impl Default for CanvasState {
     /// visibility, and inactive drag and column-selection state.
     fn default() -> Self {
         CanvasState {
+            navigation: Default::default(),
+            selection_info: Default::default(),
+            geometry: None,
             textures: HashMap::new(),
+            thumbnails: None,
             tiles: HashMap::new(),
             page_keys: PageKeys::default(),
             markup_facts: std::cell::Cell::new(None),
@@ -493,13 +502,13 @@ struct CanvasView {
     sepia_page: bool,
     animate: bool,
     opts: egui::InputOptions,
-    geo: Geometry,
+    geo: std::sync::Arc<Geometry>,
     dim_body: bool,
     grid_story: Option<StoryRef>,
     caret: Option<wordcraft_layout::hit::Caret>,
 }
 
-fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &DocLayout) -> CanvasView {
+fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &std::sync::Arc<DocLayout>) -> CanvasView {
     use wordcraft_engine::cmd::view::ReadPageColor;
     let read_mode = app.session.view.read_mode;
     let dark_page = if read_mode { app.session.view.read_page_color == ReadPageColor::Inverse } else { app.session.view.dark_mode };
@@ -537,7 +546,7 @@ fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &DocLayout) -> C
         let _ = app.run(id, json!({"value": pct}));
     }
     let avail = if read_mode { area.size() } else { area.size() - vec2(SCROLLBAR, 0.0) };
-    let geo = geometry(app, layout, avail);
+    let geo = geometry::cached_geometry(app, layout, avail);
     if read_mode {
         app.canvas.scroll_max = (geo.size - area.size()).max(egui::Vec2::ZERO);
     }
@@ -888,31 +897,75 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
     let mut visible_tile_keys = HashSet::new();
     let mut rendered = 0;
     let mut rects = Vec::with_capacity(geo.rects.len());
+    // A zoomed-out table can put thousands of cell outlines in one viewport. Composite
+    // them into the page texture once, so scrolling only submits the textured pages.
+    let guides =
+        (app.session.view.table_gridlines && geo.scale <= 0.5).then(|| (t.blue.linear_multiply(0.6).to_srgba_unmultiplied(), 0.5 / geo.scale));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (view, guides.map(|(rgba, width)| (rgba, width.to_bits()))).hash(&mut hasher);
+    let view = hasher.finish();
+    let overview = geo.scale <= 0.5 && !cfg!(target_arch = "wasm32");
+    let mut worker = app.canvas.thumbnails.take();
+    if overview && worker.is_none() {
+        worker = thumbnails::Worker::start();
+    }
+    let mut ready = match worker.as_mut().map(thumbnails::Worker::poll) {
+        Some(Ok(result)) => result.filter(|r| r.rev == app.session.rev() && r.layout.ptr_eq(&std::sync::Arc::downgrade(layout))),
+        Some(Err(_)) => {
+            worker = None;
+            None
+        }
+        None => None,
+    };
+    let mut next_thumbnail = None;
+    let mut best_distance = f32::INFINITY;
+    let prefetch_rect = ui.clip_rect().expand(200.0);
     for (i, pr) in geo.rects.iter().enumerate() {
         let sr = pr.translate(content_origin.to_vec2());
         let Some(page) = layout.pages.get(i) else { continue };
         let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
+        // Hide White Space shows only a band of the page; everything below paints into it.
+        let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
+        let visible = band_of(sr).intersects(prefetch_rect);
+        if !visible && !app.canvas.textures.contains_key(&i) {
+            rects.push(sr);
+            continue;
+        }
         // A Web/Draft page can be arbitrarily tall. Shrinking the whole page into one GPU
         // texture makes the text blurry; split those pages into native-resolution tiles.
         let width_scale = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).max(0.05);
         let tiled = page.h.clamp(1.0, 1e6) * width_scale > max_tex;
         let scale_px = if tiled { width_scale } else { width_scale.min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05) };
         let tile_height_px = TILE_HEIGHT_PX.min(max_tex as usize).max(1);
-        // Hide White Space shows only a band of the page; everything below paints into it.
-        let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
-        let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
         // Only pages on screen or with a texture need their key (#811).
         let cached = !tiled && app.canvas.textures.contains_key(&i);
         let key =
             if visible || cached { page_key(app, layout, i, view, scale_px) ^ if tiled { (tile_height_px as u64) << 32 } else { 0 } } else { 0 };
         let mut fresh = cached && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
+        if !tiled
+            && ready.as_ref().is_some_and(|r| r.page == i && r.key == key)
+            && let Some(result) = ready.take()
+        {
+            let tex = ui.ctx().load_texture(format!("page{i}"), result.image, egui::TextureOptions::LINEAR);
+            app.canvas.textures.insert(i, (key, tex));
+            fresh = true;
+        }
         // The page a drag took an object off: render it this frame whatever the budget, or the
         // raster with the object still on it shows for a frame.
         let forced = hidden.as_ref().is_some_and(|(page, _)| *page == i);
         // Render before placing the page: a page re-rendered in this frame (a zoom step, an
         // edit) then sits on the pixel grid in this frame too, rather than a frame later.
-        if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
+        if overview && visible && !tiled && !fresh && !cached && !forced && worker.is_some() {
+            // Fill the viewport before spending time on the prefetch band.
+            let distance = sr.center().distance(ui.clip_rect().center())
+                + if sr.intersects(ui.clip_rect()) { 0.0 } else { sr.height() + ui.clip_rect().size().length() };
+            if distance < best_distance {
+                next_thumbnail = Some((i, key, scale_px));
+                best_distance = distance;
+            }
+        } else if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
             let mut opts = page_render_options(app, dim_body);
+            opts.table_guides = guides;
             // Only on the page it is on: the `Pos` can't match an object of another page.
             opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
             let img = wordcraft_render::render_page(page_doc(app), page, scale_px, &opts);
@@ -1011,6 +1064,9 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
         } else if let Some((_, tex)) = app.canvas.textures.get(&i) {
             painter.image(tex.id(), visual_sr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         }
+        if !band.intersects(ui.clip_rect()) {
+            continue;
+        }
         let page_scale = page_screen_scale(visual_sr, page, geo.scale);
         // Header/footer editing chrome.
         if let StoryRef::Part(id) = app.session.sel.focus.story {
@@ -1029,7 +1085,7 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
         draw_page_gridlines(app, &painter, t, page, visual_sr, page_scale);
         // The current header/footer's cells have editing guides; explicit View Gridlines
         // still outlines every table. Neither kind of guide is part of the document.
-        if app.session.view.table_gridlines || grid_story.is_some() {
+        if (tiled || guides.is_none()) && (app.session.view.table_gridlines || grid_story.is_some()) {
             for rect in gridline_cells(page, app.session.view.table_gridlines, grid_story) {
                 let r = Rect::from_min_size(
                     pos2(visual_sr.min.x + rect.x * page_scale, visual_sr.min.y + rect.y * page_scale),
@@ -1039,6 +1095,18 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
             }
         }
     }
+    if let Some(w) = &mut worker {
+        if !overview {
+            w.release_snapshot();
+        } else if !w.busy
+            && let Some(page) = next_thumbnail
+        {
+            let mut opts = page_render_options(app, dim_body);
+            opts.table_guides = guides;
+            w.submit(layout, page_doc(app), app.session.rev(), page, opts, ui.ctx());
+        }
+    }
+    app.canvas.thumbnails = worker;
     PagePaintOutput { rects, visible_tile_keys, rendered }
 }
 
@@ -1099,11 +1167,14 @@ fn handle_primary_pointer(
 }
 
 fn paint_white_space_seams(painter: &egui::Painter, rects: &[Rect], geo: &Geometry, t: &Tokens) {
-    for (i, pair) in rects.windows(2).enumerate() {
-        let Some(&(_, bot)) = geo.bands.get(i) else { continue };
-        if white_space_hidden(&geo.rects, &geo.bands) {
-            let y = pair[0].min.y + bot;
-            painter.rect_filled(Rect::from_min_max(pos2(pair[0].min.x, y), pos2(pair[0].max.x, y + SEAM)), 0.0, t.border_strong);
+    if !white_space_hidden(&geo.rects, &geo.bands) {
+        return;
+    }
+    for (page, &(_, bottom)) in rects.iter().take(rects.len().saturating_sub(1)).zip(&geo.bands) {
+        let y = page.min.y + bottom;
+        let seam = Rect::from_min_max(pos2(page.min.x, y), pos2(page.max.x, y + SEAM));
+        if seam.intersects(painter.clip_rect()) {
+            painter.rect_filled(seam, 0.0, t.border_strong);
         }
     }
 }
@@ -1387,11 +1458,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         } else {
             balloons(app, ui, &painter, &rects, &layout, geo.scale, view_rect);
         }
-        // Find › Reading Highlight. Its places are the document's, not the preview's.
-        let marks: Vec<(Pos, Pos)> =
-            if preview_sel(app).is_some() { Vec::new() } else { app.session.find_highlights().iter().take(5000).cloned().collect() };
-        for (a, b) in &marks {
-            for (pi, r) in layout.selection_rects(&app.session.doc, a, b, app.session.page_hint) {
+        let on_screen = |r: &Rect| r.intersects(view_rect);
+        let visible = rects.iter().position(on_screen).unwrap_or(0)..rects.iter().rposition(on_screen).map_or(0, |i| i + 1);
+        // Reading Highlight searches the body. Resolve only the visible fragments of its matches.
+        if preview_sel(app).is_none() {
+            let marks = app.session.find_highlights();
+            for (pi, r) in layout.body_match_rects(&marks[..marks.len().min(5000)], visible.clone()) {
                 if let Some(pr) = rects.get(pi) {
                     let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
                     let hr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
@@ -1399,26 +1471,30 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
         }
-        // Selection (a selected object shows its frame instead): whole table cells shade the
-        // cells (an empty one too), a column selection each row's piece, text running into or
-        // across a table the whole cells of the rows it takes.
         let selected: Vec<_> = if let Some(sel) = preview_sel(app) {
             let (a, b) = sel.ordered();
             if a == b {
                 Vec::new()
             } else {
-                wordcraft_engine::cmd::table_mouse::selection_rects(&layout, page_doc(app), &a, &b, app.session.page_hint)
+                wordcraft_engine::cmd::table_mouse::selection_rects_on_pages(&layout, page_doc(app), &a, &b, app.session.page_hint, visible.clone())
             }
         } else if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
-            wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
+            wordcraft_engine::cmd::table_mouse::cell_rects_on_pages(&layout, &app.session.doc, range, visible.clone())
         } else if !app.session.sel.is_collapsed() {
             match app.session.column_segments() {
-                Some(segs) => segs.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect(),
+                Some(segs) => layout.column_rects_on_pages(&app.session.doc, segs, app.session.page_hint, visible.clone()),
                 None => {
                     let (a, b) = app.session.sel.ordered();
-                    wordcraft_engine::cmd::table_mouse::selection_rects(&layout, &app.session.doc, &a, &b, app.session.page_hint)
+                    wordcraft_engine::cmd::table_mouse::selection_rects_on_pages(
+                        &layout,
+                        &app.session.doc,
+                        &a,
+                        &b,
+                        app.session.page_hint,
+                        visible.clone(),
+                    )
                 }
             }
         } else {

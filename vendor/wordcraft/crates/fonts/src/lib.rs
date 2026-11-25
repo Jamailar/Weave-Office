@@ -23,8 +23,10 @@ macro_rules! bundled_font {
 
 pub mod color;
 mod fontdb;
+mod long_run;
 pub mod math;
 mod script;
+pub use long_run::shape_long_latin;
 mod ui_fallback;
 pub mod word;
 

@@ -27,6 +27,37 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+#[test]
+fn repeated_cells_share_layout_but_keep_their_formatting_typing_and_edits() {
+    let mut doc = Document::new();
+    let mut table = Table::new(4, 1, 200.0);
+    for row in &mut table.rows {
+        row.cells[0] = wordcraft_doc::table::Cell::with_text("repeat");
+    }
+    doc.body = vec![Arc::new(Block::Table(table))];
+    let path = |row| Path(vec![0, row, 0, 0]);
+    let story = StoryRef::Body;
+    let styled = doc.para_mut(story, &path(3)).unwrap();
+    styled.runs[0].props.bold = Some(true);
+    styled.touch();
+    let mut cache = LayoutCache::new();
+    let placed = |layout: &DocLayout, row| {
+        let (page, item) = layout.index[&(story, path(row))][0];
+        let Placed::Lines { para, .. } = &layout.pages[page].items[item] else { panic!("expected paragraph") };
+        para.clone()
+    };
+    let first = layout(&doc, &mut cache, &LayoutOptions::default());
+    assert!(Arc::ptr_eq(&placed(&first, 0), &placed(&first, 2)));
+    assert!(!Arc::ptr_eq(&placed(&first, 0), &placed(&first, 3)));
+    let typing = TypingWord { rev: doc.para(story, &path(0)).unwrap().rev, start: 0, end: 6 };
+    let typed = layout(&doc, &mut cache, &LayoutOptions { typing_word: Some(typing), ..Default::default() });
+    assert!(!Arc::ptr_eq(&placed(&typed, 0), &placed(&typed, 1)));
+    doc.para_mut(story, &path(1)).unwrap().insert_text(6, "ed", &Default::default()).unwrap();
+    let edited = layout(&doc, &mut cache, &LayoutOptions::default());
+    assert_eq!(placed(&edited, 1).text_len, 8);
+    assert_eq!(placed(&edited, 0).text_len, 6);
+}
+
 /// These pagination fixtures test physical boundaries, not the host's Aptos substitution.
 /// Keep their explicit spacing local; ordinary document/layout defaults remain unchanged.
 pub(super) fn pagination_fixture_document(text: &str) -> Document {
@@ -2518,6 +2549,21 @@ fn selection_rects_cover_range() {
     let r = l.selection_rects(&d, &Pos::body(0, 6), &Pos::body(1, 6), 0);
     assert_eq!(r.len(), 2);
     assert!(r[0].1.w > 20.0);
+}
+
+#[test]
+fn visible_find_rects_agree_with_selection_across_pages_and_paragraphs() {
+    let d = Document::from_text(&format!("First line\n{}\nLast line", "one two three ".repeat(2400)));
+    let l = lay(&d);
+    assert!(l.pages.len() >= 3);
+    let middle_len = d.para_at(&Pos::body(1, 0)).unwrap().len();
+    let matches =
+        [(Pos::body(0, 3), Pos::body(1, 7)), (Pos::body(1, 8), Pos::body(1, middle_len - 4)), (Pos::body(1, middle_len - 2), Pos::body(2, 4))];
+    let all: Vec<_> = matches.iter().flat_map(|(a, b)| l.selection_rects(&d, a, b, 0)).collect();
+    for pi in 0..l.pages.len() {
+        let expected: Vec<_> = all.iter().filter(|(page, _)| *page == pi).cloned().collect();
+        assert_eq!(l.body_match_rects(&matches, pi..pi + 1), expected);
+    }
 }
 
 #[test]

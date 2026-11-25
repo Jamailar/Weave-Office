@@ -25,6 +25,7 @@ impl Selection {
 /// The word being typed, left without a spelling squiggle until the caret leaves it (#1552).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TypedWord {
+    pub(super) paragraph_rev: u64,
     /// Where the caret was when the word was typed.
     pub(super) at: Pos,
     /// The word's byte range in its paragraph.
@@ -42,7 +43,7 @@ pub struct ColumnBlock {
     pub anchor_x: f32,
     pub focus_x: f32,
     /// One `(start, end)` per line, in document order, each inside one paragraph.
-    pub segments: Vec<(Pos, Pos)>,
+    pub segments: std::sync::Arc<[(Pos, Pos)]>,
     /// Set when the block is whole table cells (Select Cell, Row, Column or Table, or the mouse in
     /// a table's selection areas): one segment per paragraph of the cells.
     pub cells: Option<CellRange>,
@@ -65,19 +66,31 @@ pub struct CellRange {
 impl CellRange {
     /// The selected cells of table `t` (row, cell index), in document order.
     pub fn cells(&self, t: &Table) -> Vec<(usize, usize)> {
-        let ((r0, r1), (g0, g1)) = (self.rows, self.cols);
-        let mut out = Vec::new();
-        for (r, row) in t.rows.iter().enumerate().take(r1.saturating_add(1)).skip(r0) {
-            let mut g = row.first_grid();
-            for (c, cell) in row.cells.iter().enumerate() {
-                let end = g.saturating_add(cell.span());
-                if g <= g1 && end > g0 {
-                    out.push((r, c));
-                }
-                g = end;
+        t.rows
+            .iter()
+            .enumerate()
+            .take(self.rows.1.saturating_add(1))
+            .skip(self.rows.0)
+            .flat_map(|(r, row)| self.cells_in_row(row).map(move |c| (r, c)))
+            .collect()
+    }
+
+    /// Cell indices that overlap the selected grid columns in this row.
+    pub(crate) fn cells_in_row(&self, row: &wordcraft_doc::Row) -> std::ops::Range<usize> {
+        let mut grid = row.first_grid();
+        let mut first = row.cells.len();
+        let mut stop = first;
+        for (c, cell) in row.cells.iter().enumerate() {
+            if grid > self.cols.1 {
+                break;
+            }
+            grid = grid.saturating_add(cell.span());
+            if grid > self.cols.0 {
+                first = first.min(c);
+                stop = c + 1;
             }
         }
-        out
+        first..stop
     }
 }
 

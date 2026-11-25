@@ -14,7 +14,7 @@ impl Session {
         self.note_body_replaced();
         self.bib_style = doc_bib_style(&doc);
         self.doc = doc;
-        self.doc.ensure_nonempty();
+        self.doc.ensure_nonempty_cached(&mut self.validated_tables);
         self.password = None;
         self.file_name = None;
         // The old document's equation is gone: its editing session cannot carry over.
@@ -101,6 +101,8 @@ impl Session {
             join_anchor,
             autocap: _,
             rev: _,
+            validated_tables: _,
+            control_ranges: _,
             protect_facts: _,
             cache: _,
             layout: _,
@@ -130,6 +132,7 @@ impl Session {
             // state: a rollback must not reuse a revision.
             ime_state_revision: _,
             ime_state_seen: _,
+            text_edit: _,
             ime_edit_outcome: _,
             #[cfg(any(test, feature = "test-support"))]
                 ime_state_exhausted: _,
@@ -256,6 +259,7 @@ impl Session {
         if self.rev == rev {
             return;
         }
+        self.text_edit = None;
         self.rev = rev;
         for slot in &mut self.layout {
             if slot.as_ref().is_some_and(|l| l.0 != rev) {

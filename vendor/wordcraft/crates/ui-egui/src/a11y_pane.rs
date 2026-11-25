@@ -11,14 +11,14 @@ use crate::theme::{regular, semibold};
 /// Review › Check Accessibility: the findings for the document as it is now.
 pub fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     let issues = issues(app, ui);
-    if issues.is_empty() {
+    if issues.iter().all(Vec::is_empty) {
         ui.label(egui::RichText::new(tl!("No accessibility issues found.")).weak());
         return;
     }
     let mut picked: Option<(Value, Option<Value>)> = None;
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for (kind, title) in [("error", "Errors ({n})"), ("warning", "Warnings ({n})"), ("tip", "Tips ({n})")] {
-            let group: Vec<&Value> = issues.iter().filter(|i| i["kind"] == kind).collect();
+        for ((kind, title), group) in [("error", "Errors ({n})"), ("warning", "Warnings ({n})"), ("tip", "Tips ({n})")].into_iter().zip(issues.iter())
+        {
             if group.is_empty() {
                 continue;
             }
@@ -26,7 +26,7 @@ pub fn accessibility(app: &mut WordApp, ui: &mut Ui) {
             egui::CollapsingHeader::new(egui::RichText::new(heading).font(semibold(13.0))).id_salt(("a11y", kind)).default_open(true).show(
                 ui,
                 |ui| {
-                    for (k, i) in group.into_iter().enumerate() {
+                    for (k, i) in group.iter().enumerate() {
                         ui.push_id(k, |ui| {
                             let text = i["issue"].as_str().unwrap_or("");
                             let r = ui.add(egui::Button::new(egui::RichText::new(text).font(regular(12.5))).frame(false).wrap());
@@ -60,17 +60,21 @@ pub fn accessibility(app: &mut WordApp, ui: &mut Ui) {
 }
 
 /// The checker's findings, kept until the document changes.
-fn issues(app: &mut WordApp, ui: &Ui) -> Vec<Value> {
-    let key = egui::Id::unique("a11y_issues");
-    let stamp = (app.session.document_id(), app.session.rev());
-    if let Some((s, v)) = ui.data(|d| d.get_temp::<((u64, u64), Vec<Value>)>(key))
-        && s == stamp
-    {
-        return v;
-    }
-    let v = wordcraft_engine::cmd::accessibility::check(&app.session.doc);
-    ui.data_mut(|d| d.insert_temp(key, (stamp, v.clone())));
-    v
+type Groups = std::sync::Arc<[Vec<Value>; 3]>;
+
+fn issues(app: &WordApp, ui: &Ui) -> Groups {
+    app.document_query(ui, app.window_id("a11y_issues"), || {
+        let mut groups: [Vec<Value>; 3] = Default::default();
+        for issue in wordcraft_engine::cmd::accessibility::check(&app.session.doc) {
+            match issue["kind"].as_str() {
+                Some("error") => groups[0].push(issue),
+                Some("warning") => groups[1].push(issue),
+                Some("tip") => groups[2].push(issue),
+                _ => {}
+            }
+        }
+        groups
+    })
 }
 
 /// Select the object an issue is about, or put the caret where it is.

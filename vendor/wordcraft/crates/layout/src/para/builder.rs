@@ -9,6 +9,7 @@ use super::{Arc, Document, FaceRef, NumeralMode, ResolvedChar, RubyAlign, SOFT_H
 
 pub(super) struct Builder<'a> {
     pub(super) env: &'a ParaEnv<'a>,
+    pub(super) safe_starts: Vec<bool>,
     pub(super) styles: Vec<StyleRun>,
     /// Hash of a style's format → (index in `styles`, small caps), see `style`.
     pub(super) style_index: std::collections::HashMap<u64, Vec<(u32, bool)>>,
@@ -71,6 +72,19 @@ impl<'a> Builder<'a> {
     fn segment_keys(&self, input: SegmentInput<'_>) -> Vec<(usize, usize, SegKey)> {
         let SegmentInput { text, rc, rc_cs, primary, primary_cs, primary_ea, run_face, ea_face, sym, levels, lbase, use_levels, context } = input;
         let show = |c: char| sym.map_or(c, |m| m.show(c));
+        if text.len() >= 4096
+            && !use_levels
+            && sym.is_none()
+            && rc_cs.is_none()
+            && run_face.is_none()
+            && !rc.small_caps
+            && text.is_ascii()
+            && (32u8..=126).all(|b| primary.covers(char::from(b)))
+            && text.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
+            && (b'0'..=b'9').all(|b| self.numeral_char(context, 0, char::from(b), false) == char::from(b))
+        {
+            return vec![(0, text.len(), SegKey { face: None, small: false, complex: false, rtl: false })];
+        }
         let mut seg_start = 0;
         let mut cur: Option<SegKey> = None;
         let mut segs = Vec::new();
@@ -317,13 +331,55 @@ impl<'a> Builder<'a> {
             let from = usize::from(rc.kerned());
             let to = if ligatures.is_some() { all.len() } else { 1 };
             let features: &[wordcraft_fonts::Feature] = all.get(from..to).unwrap_or_default();
-            let shaped = if use_levels {
+            let cached = if !upper && sym.is_none() && !key.rtl && !substituted {
+                wordcraft_fonts::shape_long_latin(&st.face, shape_text, features)
+            } else {
+                None
+            };
+            let shaped = if let Some(run) = cached {
+                if base == 0 && a == 0 && b == text.len() && self.clusters.is_empty() {
+                    self.safe_starts = run.safe_starts;
+                }
+                run.glyphs
+            } else if use_levels {
                 wordcraft_fonts::shape_run(&st.face, shape_text, features, map, key.rtl)
             } else {
                 wordcraft_fonts::shape(&st.face, shape_text, features, map)
             };
             let k = st.size / st.face.upem.max(1.0) as f32;
             let hscale = rc.scale / 100.0;
+            // A one-to-one ASCII run has no grapheme or ligature groups to assemble.
+            // Check the actual shaper output so a font with substitutions stays exact.
+            if kind_override.is_none()
+                && shape_text.len() >= 4096
+                && !substituted
+                && shape_text.is_ascii()
+                && !shape_text.contains('\r')
+                && shaped.len() == shape_text.len()
+                && shaped.iter().enumerate().all(|(i, g)| g.cluster == i)
+            {
+                self.clusters.reserve(shaped.len());
+                self.glyphs.reserve(shaped.len());
+                for (g, byte) in shaped.iter().zip(shape_text.bytes()) {
+                    let start = base + a + g.cluster;
+                    let g0 = self.glyphs.len() as u32;
+                    self.glyphs.push(Glyph { gid: g.gid, dx: g.x_offset as f32 * k * hscale, dy: g.y_offset as f32 * k });
+                    self.clusters.push(Cluster {
+                        start,
+                        end: start + 1,
+                        adv: g.x_advance as f32 * k * hscale + rc.spacing,
+                        kind: if byte == b' ' { ClKind::Space } else { ClKind::Text },
+                        style: si,
+                        g0,
+                        g1: g0 + 1,
+                        break_after: false,
+                        obj_h: 0.0,
+                        obj_d: 0.0,
+                        dot: matches!(byte, b'.' | b','),
+                    });
+                }
+                continue;
+            }
             // Group glyphs by cluster byte offset; graphemes may span several shaper clusters.
             // Complex-script syllables the graphemes split (Myanmar vowel signs, stacked
             // consonants) stay one cluster: the caret never stops inside them.

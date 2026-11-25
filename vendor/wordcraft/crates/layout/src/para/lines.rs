@@ -190,7 +190,7 @@ impl<'e> Breaker<'e> {
             expand_break: !settings.do_not_expand_shift_return,
             zone: Some(settings.hyphenation_zone).filter(|z| z.is_finite() && *z >= 0.0).unwrap_or(HYPHENATION_ZONE).min(1584.0),
             hyph_limit: settings.consecutive_hyphen_limit as usize,
-            widths: word_widths(&pl.clusters, &pl.hyph_after),
+            widths: if exclusions.is_empty() { Vec::new() } else { word_widths(&pl.clusters, &pl.hyph_after) },
             rtl_para: rp.bidi,
             grid: Some(env.grid).filter(|g| g.line.is_some() && rp.snap_to_grid),
             bidi: rp.bidi || !pl.bidi_levels.is_empty(),

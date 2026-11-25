@@ -80,7 +80,7 @@ pub(super) fn snap_chars(b: &mut Builder, text: &str, grid: &Grid) {
 /// by cluster index.
 pub(super) fn auto_space(b: &mut Builder, text: &str, de: bool, dn: bool) -> Vec<(usize, f32)> {
     let mut out = Vec::new();
-    if !de && !dn {
+    if (!de && !dn) || (b.shown.is_empty() && text.is_ascii()) {
         return out;
     }
     let mut shown = b.shown.iter().map(|s| (s.0, s.1.as_str())).peekable();

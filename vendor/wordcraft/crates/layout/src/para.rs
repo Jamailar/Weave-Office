@@ -19,13 +19,17 @@ use crate::fields::{FIELD_SHADING, FieldCtx, field_code_text, field_text_on, ref
 mod bidi;
 mod builder;
 mod chars;
+mod geometry;
 mod grid;
+pub use geometry::ParagraphGeometry;
 mod justify;
 mod lines;
 mod model;
 mod paragraph;
 mod proof;
 mod tabs;
+mod tiles;
+pub(crate) use tiles::{TileCache, tiled_paragraph};
 
 pub use bidi::{bidi_levels, visual_order};
 pub(crate) use builder::left_out;
@@ -41,16 +45,20 @@ pub use model::{CellText, ClKind, Cluster, Enclosed, Glyph, Label, LabelRun, Lin
 pub use paragraph::layout_para;
 #[cfg(test)]
 pub(crate) use paragraph::word_widths;
-pub use proof::{ProofRun, is_list_item, paragraph_issues, proof_runs, proof_text};
+pub use proof::{MAX_PROOF_BYTES, ProofRun, is_list_item, paragraph_issues, proof_runs, proof_text};
 
 /// A laid-out paragraph.
 #[derive(Clone, Debug)]
 pub struct ParaLayout {
+    pub(crate) plain_reflow: bool,
+    pub(crate) safe_lines: Arc<Vec<usize>>,
+    geometry: Arc<ParagraphGeometry>,
+    shifted: Option<Arc<geometry::PageSlice>>,
+    /// Absolute line number of the first line in a local reflow fragment.
+    pub first_line: usize,
+    pub(crate) reflow: Option<crate::incremental::ParagraphMeasure>,
     pub rp: ResolvedPara,
     pub styles: Vec<StyleRun>,
-    pub glyphs: Vec<Glyph>,
-    pub clusters: Vec<Cluster>,
-    pub lines: Vec<Line>,
     pub label: Option<Label>,
     /// Sum of line heights (without space before/after).
     pub height: f32,
@@ -198,19 +206,33 @@ impl ParaLayout {
     }
     /// The line holding offset `off` (a position at a wrap point belongs to the next line).
     pub fn line_of(&self, off: usize) -> usize {
-        for (i, l) in self.lines.iter().enumerate() {
-            let next_start = self.lines.get(i + 1).map(|n| n.start);
-            match next_start {
-                Some(ns) if off < ns => return i,
-                Some(_) => {}
-                None => return i,
-            }
-            if matches!(l.end, LineEnd::LineBreak | LineEnd::PageBreak | LineEnd::ColumnBreak) && off < l.stop {
-                return i;
-            }
+        if let Some(slice) = &self.shifted {
+            // Using the source index avoids materializing pages during caret searches.
+            let local = off.saturating_add_signed(-slice.delta);
+            return line_index(&self.geometry.lines, local).saturating_sub(slice.lines.start).min(slice.lines.len().saturating_sub(1));
         }
-        self.lines.len().saturating_sub(1)
+        line_index(&self.lines, off)
     }
+}
+fn line_index(lines: &[Line], off: usize) -> usize {
+    // Consecutive lines follow logical byte order, including in bidi paragraphs.
+    // A forced break owns its bytes; a soft wrap gives the boundary to the next line.
+    let mut lo = 0;
+    let mut hi = lines.len().saturating_sub(1);
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        let line = &lines[mid];
+        let next = lines[mid + 1].start;
+        let boundary = if matches!(line.end, LineEnd::LineBreak | LineEnd::PageBreak | LineEnd::ColumnBreak) { next.max(line.stop) } else { next };
+        if off < boundary {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    lo
+}
+impl ParaLayout {
     /// Caret x on a bidirectional line: the leading edge of the cluster after `off` (the right
     /// edge of right-to-left text), except where `off` leaves an embedded run (the cluster before
     /// it has the higher level), which keeps the caret at that run's trailing edge, so each
@@ -351,7 +373,7 @@ mod label_spacing_tests {
         }
         let mark_style = pl.clusters[0].style;
         break_lines(&mut pl, &env, mark_style, Some(&level));
-        pl.lines
+        std::mem::take(&mut pl.lines)
     }
 
     #[test]

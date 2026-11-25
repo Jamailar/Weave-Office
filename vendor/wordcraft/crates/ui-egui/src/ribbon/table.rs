@@ -120,29 +120,38 @@ fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
     let Some(t) = app.session.doc.table(story, &tp) else { return };
     let row = t.rows.get(r).map(|x| x.props.clone()).unwrap_or_default();
     let stored_w = t.grid.get(t.grid_col(r, c)).copied();
-    let laid = app.session.layout().pages.iter().flat_map(|pg| pg.items.iter()).find_map(|it| match it {
-        wordcraft_layout::Placed::Cell { rect, table, row, cell, story: st, .. } if *table == tp && *row == r && *cell == c && *st == story => {
-            Some(*rect)
+    let layout = app.session.layout();
+    let key = app.window_id("table_cell_dimensions");
+    let cell = (story, tp, r, c);
+    type Dimensions =
+        (std::sync::Weak<wordcraft_layout::DocLayout>, (wordcraft_doc::StoryRef, wordcraft_doc::Path, usize, usize), (Option<f32>, Option<f32>));
+    let (width, row_h) = match ui.data(|d| d.get_temp::<Dimensions>(key)) {
+        Some((saved, selected, dimensions)) if saved.ptr_eq(&std::sync::Arc::downgrade(&layout)) && cell == selected => dimensions,
+        _ => {
+            // A merged cell spans rows. The shortest fragment in the row gives its height.
+            let mut width = None;
+            let mut height: Option<f32> = None;
+            for item in layout.pages.iter().flat_map(|page| &page.items) {
+                if let wordcraft_layout::Placed::Cell { rect, table, row: ri, cell: ci, story: st, .. } = item
+                    && (*st, table, *ri) == (story, &cell.1, r)
+                {
+                    if *ci == c && width.is_none() {
+                        width = Some(rect.w);
+                        if row.height.is_some() {
+                            break;
+                        }
+                    }
+                    height = Some(height.map_or(rect.h, |h| h.min(rect.h)));
+                }
+            }
+            ui.data_mut(|d| d.insert_temp(key, (std::sync::Arc::downgrade(&layout), cell, (width, height))));
+            (width, height)
         }
-        _ => None,
-    });
-    // The row's own height: a vertically merged cell's box spans several rows, so take the
-    // shortest box in this row.
-    let row_h = app
-        .session
-        .layout()
-        .pages
-        .iter()
-        .flat_map(|pg| pg.items.iter())
-        .filter_map(|it| match it {
-            wordcraft_layout::Placed::Cell { rect, table, row, story: st, .. } if *table == tp && *row == r && *st == story => Some(rect.h),
-            _ => None,
-        })
-        .reduce(f32::min);
+    };
     let unit = crate::options::unit();
     let k = unit.pt_per_unit();
     let h0 = row.height.or(row_h).unwrap_or(0.0);
-    let w0 = laid.map(|x| x.w).or(stored_w).unwrap_or(0.0);
+    let w0 = width.or(stored_w).unwrap_or(0.0);
     let exact = row.height_rule == wordcraft_doc::props::HeightRule::Exact;
     // The edited value in points, and whether it continues a drag (joins the previous Undo step).
     let boxed = |ui: &mut Ui, label: &str, pt: f32| -> Option<(f32, bool)> {

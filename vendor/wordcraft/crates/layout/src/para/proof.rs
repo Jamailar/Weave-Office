@@ -29,6 +29,9 @@ pub(super) fn lang_at(runs: &[ProofRun], off: usize) -> wordcraft_proof::ProofLa
     runs.get(k).filter(|r| r.range.start <= off).map(|r| r.lang).unwrap_or_default()
 }
 
+/// Largest paragraph checked for spelling and grammar as text is edited.
+pub const MAX_PROOF_BYTES: usize = 100_000;
+
 /// Spelling and grammar issues in a paragraph, in order: each word in its run's language
 /// ([`wordcraft_proof::check_text_with`]: what spelling skips, and grammar only with `grammar`),
 /// and none touching a run left unchecked.
@@ -41,7 +44,7 @@ pub fn paragraph_issues(
     grammar: bool,
     list_item: bool,
 ) -> Vec<wordcraft_proof::Issue> {
-    if p.text.trim().is_empty() || p.text.len() > 100_000 {
+    if p.text.len() > MAX_PROOF_BYTES || p.text.trim().is_empty() {
         return Vec::new();
     }
     let text = proof_text(p);

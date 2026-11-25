@@ -3537,3 +3537,181 @@ fn backspace_cannot_join_into_locked_content_control() {
     assert!(s.run("text.backspace", &json!({})).is_err());
     assert_eq!(s.doc, before);
 }
+
+#[test]
+fn local_text_edits_match_fresh_pagination() {
+    use std::sync::Arc;
+    use wordcraft_doc::{Document, Path};
+    for table in [false, true] {
+        let mut doc = if table { super::table_doc().doc } else { Document::from_text(&"short paragraph\n".repeat(110)) };
+        let at = if table {
+            doc.table_mut(StoryRef::Body, &Path(vec![1])).unwrap().props.fixed = true;
+            Pos::new(StoryRef::Body, Path(vec![1, 0, 0, 0]), 1)
+        } else {
+            Pos::body(12, 2)
+        };
+        let mut s = Session::new(doc);
+        s.sel = crate::Selection::caret(at);
+        let before = s.layout();
+        for (id, text) in [("text.insert", "z"), ("text.backspace", "")] {
+            run(&mut s, id, json!({"text":text}));
+            let updated = s.layout();
+            assert!(Arc::ptr_eq(&before.index, &updated.index), "table {table}, {id}, delta {:?}", s.text_edit());
+            for (i, page) in before.pages.iter().enumerate() {
+                if i != updated.caret(&s.sel.focus).unwrap().page {
+                    assert!(Arc::ptr_eq(page, &updated.pages[i]));
+                }
+            }
+        }
+        run(&mut s, "text.insert", json!({"text":"z"}));
+        let updated = s.layout();
+        s.relayout();
+        let full = s.layout();
+        assert_eq!(updated.pages.len(), full.pages.len());
+        let page = full.caret(&s.sel.focus).unwrap().page;
+        for pos in [s.doc.start_of(StoryRef::Body), s.sel.focus.clone(), s.doc.end_of(StoryRef::Body)] {
+            assert_eq!(updated.caret(&pos), full.caret(&pos));
+        }
+        let render = |page| wordcraft_render::render_page(&s.doc, page, 1.0, &Default::default()).pixels;
+        assert!(render(&updated.pages[page]) == render(&full.pages[page]));
+        run(&mut s, "text.insert", json!({"text":"wrap ".repeat(600)}));
+        let wrapped = s.layout();
+        assert!(!Arc::ptr_eq(&full.index, &wrapped.index));
+        let caret = wrapped.caret(&s.sel.focus);
+        s.relayout();
+        assert_eq!(caret, s.layout().caret(&s.sel.focus));
+    }
+}
+
+#[test]
+fn visible_selection_matches_the_full_range_on_each_page() {
+    use crate::cmd::table_mouse::{selection_rects, selection_rects_on_pages};
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&"abc אבג 中文\n".repeat(120)));
+    let l = s.layout();
+    assert!(l.pages.len() > 1);
+    let a = Pos::body(0, 2);
+    let b = Pos::body(112, 3);
+    let full = selection_rects(&l, &s.doc, &a, &b, 0);
+    for page in 0..l.pages.len() {
+        let expected: Vec<_> = full.iter().copied().filter(|(pi, _)| *pi == page).collect();
+        assert_eq!(selection_rects_on_pages(&l, &s.doc, &b, &a, 0, page..page + 1), expected);
+    }
+    let column = l.column_segments(
+        &s.doc,
+        wordcraft_layout::hit::ColumnSelection { start: &a, end: &b, left: 96.0, right: 112.0, page_hint: 0, max_lines: 500 },
+    );
+    assert!(!column.is_empty());
+    let expected: Vec<_> = column.iter().flat_map(|(a, b)| l.selection_rects(&s.doc, a, b, 0)).filter(|(p, _)| *p == 1).collect();
+    assert_eq!(l.column_rects_on_pages(&s.doc, &column, 0, 1..2), expected);
+}
+
+#[test]
+fn selection_word_count_matches_copied_words() {
+    let mut s = super::table_doc();
+    let paths = s.doc.para_paths(StoryRef::Body);
+    for start in &paths {
+        for end in &paths {
+            let a = Pos::new(StoryRef::Body, start.clone(), 0);
+            let b = Pos::new(StoryRef::Body, end.clone(), s.doc.para(StoryRef::Body, end).unwrap().len());
+            s.sel = crate::Selection { anchor: a, focus: b };
+            assert_eq!(s.selected_word_count(), wordcraft_doc::count_words(&s.selected_text()));
+        }
+    }
+}
+
+#[test]
+fn long_paragraph_tail_matches_full_layout_after_repeated_edits() {
+    let text = "alphabeticSequence".repeat(14000);
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&text));
+    s.sel = crate::Selection::caret(Pos::body(0, text.len()));
+    let before = s.layout();
+    for (cmd, param) in [("text.insert", json!({"text":"x"})), ("text.backspace", json!({})), ("text.insert", json!({"text":"yy"}))] {
+        run(&mut s, cmd, param);
+        let updated = s.layout();
+        let fresh = Session::new(s.doc.clone()).layout();
+        assert!(std::sync::Arc::ptr_eq(&before.pages[0], &updated.pages[0]));
+        assert_eq!(fresh.pages.len(), updated.pages.len());
+        let end = s.sel.focus.off;
+        for off in (end.saturating_sub(12000)..=end).step_by(19).chain([0, end]) {
+            let pos = Pos::body(0, off);
+            assert_eq!(updated.caret(&pos), fresh.caret(&pos));
+            assert_eq!(updated.line_span(&pos, 0), fresh.line_span(&pos, 0));
+        }
+        let render = |page| wordcraft_render::render_page(&s.doc, page, 0.75, &Default::default()).pixels;
+        assert!(render(updated.pages.last().unwrap()) == render(fresh.pages.last().unwrap()));
+    }
+}
+
+#[test]
+fn converged_wraps_preserve_shifted_pages_across_edits() {
+    // Vary the letter advances so wrapping can regain its previous boundary.
+    let mut seed = 32768_u32;
+    let text: String = (0..315000)
+        .map(|_| {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            char::from(b'a' + ((seed >> 16) % 26) as u8)
+        })
+        .collect();
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&text));
+    let mut shared_prefix = false;
+    for (offset, cmd, data) in [
+        (140000, "text.insert", json!({"text":"x"})),
+        (140001, "text.backspace", json!({})),
+        (195000, "text.insert", json!({"text":"word"})),
+        (100050, "text.insert", json!({"text":" "})),
+    ] {
+        let old = s.layout();
+        s.sel = crate::Selection::caret(Pos::body(0, offset));
+        run(&mut s, cmd, data);
+        let got = s.layout();
+        shared_prefix |= std::sync::Arc::ptr_eq(&old.pages[0], &got.pages[0]);
+        let want = Session::new(s.doc.clone()).layout();
+        assert_eq!(got.pages.len(), want.pages.len());
+        let len = s.doc.para_at(&s.sel.focus).unwrap().len();
+        for off in (0..len).step_by(713).chain([offset, len]) {
+            let p = Pos::body(0, off);
+            assert_eq!(got.caret(&p), want.caret(&p), "{cmd} at {offset}: caret {off}");
+            assert_eq!(got.line_span(&p, 0), want.line_span(&p, 0), "{cmd} at {offset}: span {off}");
+        }
+        for page in [got.caret(&s.sel.focus).unwrap().page, got.pages.len() - 2] {
+            let render = |p| wordcraft_render::render_page(&s.doc, p, 0.75, &Default::default()).pixels;
+            assert!(render(&got.pages[page]) == render(&want.pages[page]), "page {page}");
+        }
+    }
+    assert!(shared_prefix, "a middle edit reused placed pages");
+}
+
+#[test]
+fn repeated_text_repaginates_like_uninterrupted_layout() {
+    let text = "Widerlettersnarrowi".repeat(11000);
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&text));
+    s.sel = crate::Selection::caret(Pos::body(0, text.len() / 2));
+    for step in 0..6 {
+        if step == 5 {
+            s.sel = crate::Selection::caret(Pos::body(0, 0));
+        }
+        if step != 0 {
+            run(&mut s, "text.insert", json!({"text": if step >= 4 {".5!"} else {"x"}}));
+        }
+        let got = s.layout();
+        // An unreferenced part selects the uninterrupted paragraph shaper. It
+        // contributes no layout and leaves every page in the body comparable.
+        let mut ordinary = s.doc.clone();
+        ordinary.add_part(wordcraft_doc::PartKind::Header, Default::default());
+        let want = Session::new(ordinary).layout();
+        assert_eq!(got.pages.len(), want.pages.len());
+        if step == 0 {
+            assert!(got.pages[3].items.iter().any(|it| matches!(it, wordcraft_layout::Placed::Lines{para,..} if para.first_line>0)));
+        }
+        let len = s.doc.para_at(&s.sel.focus).unwrap().len();
+        for off in (0..len).step_by(101).chain([s.sel.focus.off, len]) {
+            let p = Pos::body(0, off);
+            assert_eq!(got.line_span(&p, 0), want.line_span(&p, 0));
+            assert_eq!(got.caret(&p), want.caret(&p));
+        }
+        for pi in [0, got.pages.len() / 2, got.pages.len() - 1] {
+            let render = |page| wordcraft_render::render_page(&s.doc, page, 0.5, &Default::default()).pixels;
+            assert!(render(&got.pages[pi]) == render(&want.pages[pi]), "page {pi}, edit {step}");
+        }
+    }
+}

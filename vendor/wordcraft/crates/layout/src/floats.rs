@@ -442,6 +442,9 @@ pub(crate) struct ObjectPlacement<'a> {
 /// worked out from `at`. Returns what goes behind the text, and what goes in front.
 pub(crate) fn place_objects(ctx: &mut Ctx, req: &ObjectPlacement) -> (Vec<Placed>, Vec<Placed>) {
     let ObjectPlacement { story, path, p, pl, lines: (l0, l1), origin: (x, y), at, floats, depth } = *req;
+    if p.objects.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
     // Each object's items (behind the text, in front), with its stacking order: drawn lowest
     // first once all are placed, as Word stacks floating objects by `relativeHeight`, not by
     // their order in the paragraph. Inline objects and objects without one keep their order.
@@ -458,11 +461,9 @@ pub(crate) fn place_objects(ctx: &mut Ctx, req: &ObjectPlacement) -> (Vec<Placed
     // every floating object, whichever of its lines holds the anchor, and later pieces none;
     // inline objects go with their own line.
     let first = l0 == 0;
-    for li in 0..pl.lines.len() {
+    let scan = if first { 0..pl.lines.len() } else { l0..l1.min(pl.lines.len()) };
+    for li in scan {
         let in_piece = (l0..l1).contains(&li);
-        if !in_piece && !first {
-            continue;
-        }
         let Some(line) = pl.lines.get(li) else { continue };
         for k in line.c0..line.c1 {
             let Some(c) = pl.clusters.get(k) else { continue };

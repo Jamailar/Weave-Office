@@ -1,9 +1,10 @@
 use super::ctx::Outlines;
 use super::placed::Placed;
 use super::{
-    Arc, Blocks, Document, Hash, HashMap, HashSet, Hasher, HideDeleted, InlineObject, LayoutOptions, Page, ParaLayout, Paragraph, SectionProps,
-    StoryRef, ViewMode, fields, styleref,
+    Arc, Block, Blocks, Document, Hash, HashMap, HashSet, Hasher, HideDeleted, InlineObject, LayoutOptions, Page, ParaLayout, Paragraph,
+    SectionProps, StoryRef, TypingWord, ViewMode, fields, styleref,
 };
+use std::sync::Weak;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Key {
@@ -32,7 +33,10 @@ pub(crate) struct Key {
 /// Memoised paragraph layouts.
 #[derive(Default)]
 pub struct LayoutCache {
+    pub(crate) tiles: super::para::TileCache,
     pub(crate) paras: HashMap<Key, Arc<ParaLayout>>,
+    /// Representatives of short, repeated cell paragraphs. A weak reference keeps no document alive.
+    cell_examples: Vec<Weak<Block>>,
     /// Narrowest and widest content of paragraphs measured for table autofit ([`Ctx::para_measured`]).
     pub(crate) measures: HashMap<Key, (f32, f32)>,
     /// Outlines of pictures' opaque pixels (Tight and Through wrapping), by media key, the
@@ -61,10 +65,38 @@ impl LayoutCache {
         self.paras.is_empty()
     }
     pub fn clear(&mut self) {
+        self.tiles = Default::default();
         self.paras.clear();
+        self.cell_examples.clear();
         self.measures.clear();
         self.outlines.clear();
         self.styleref = None;
+    }
+
+    /// An equal cell paragraph whose revision can share this one's measurements and line layout.
+    /// The normal layout key still distinguishes width, table formatting, lists and the document
+    /// environment. Keep the paragraph being typed separate because its proofing depends on identity.
+    pub(crate) fn matching_cell(&mut self, block: &Arc<Block>, typing: Option<TypingWord>) -> Option<Arc<Block>> {
+        const SLOTS: usize = 1024;
+        let p = block.as_para()?;
+        let being_typed = |p: &Paragraph| typing.is_some_and(|word| word.rev == p.rev);
+        if p.text.len() > 256 || p.runs.len() > 4 || !p.objects.is_empty() || p.section.is_some() || being_typed(p) {
+            return None;
+        }
+        if self.cell_examples.is_empty() {
+            self.cell_examples.resize_with(SLOTS, Weak::new);
+        }
+        let slot = self.cell_examples.get_mut(hash_of(&p.text) as usize % SLOTS)?;
+        if let Some(previous) = slot.upgrade() {
+            if Arc::ptr_eq(&previous, block) {
+                return None;
+            }
+            if previous.as_para().is_some_and(|q| !being_typed(q) && q == p) {
+                return Some(previous);
+            }
+        }
+        *slot = Arc::downgrade(block);
+        None
     }
 
     /// The STYLEREF style index for `doc`, rebuilt only when the body or the styles changed.

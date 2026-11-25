@@ -73,6 +73,26 @@ fn hosted_screen_baseline_preserves_layout_and_zoom() {
     assert!(std::sync::Arc::ptr_eq(&layout, &app.session.layout()), "screen density and zoom do not reflow Print Layout");
 }
 
+#[test]
+fn page_placement_is_reused_on_scroll_and_refreshed_on_view_changes() {
+    use std::sync::Arc;
+    let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let layout = app.session.layout();
+    let avail = vec2(1200.0, 800.0);
+    let first = geometry::cached_geometry(&mut app, &layout, avail);
+    app.canvas.scroll_offset.y = 400.0;
+    let scrolled = geometry::cached_geometry(&mut app, &layout, avail);
+    assert!(Arc::ptr_eq(&first, &scrolled));
+    app.session.view.fit = "pageWidth".into();
+    let fit = geometry::cached_geometry(&mut app, &layout, avail);
+    let narrow = geometry::cached_geometry(&mut app, &layout, vec2(660.0, 800.0));
+    assert!(!Arc::ptr_eq(&first, &fit));
+    assert!(narrow.scale < fit.scale);
+    app.run("text.insert", json!({"text": "edit"})).unwrap();
+    let updated = app.session.layout();
+    assert!(!Arc::ptr_eq(&fit, &geometry::cached_geometry(&mut app, &updated, avail)));
+}
+
 /// The rendered page, ruler, hit testing and outgoing IME candidate rect all share the same
 /// native screen transform at 100% and 150%; backing pixels are applied exactly once.
 #[test]
@@ -4959,4 +4979,27 @@ fn the_view_key_changes_when_a_drag_takes_an_object_off_the_page() {
     let hidden = view_key(&app, false, Some(&object));
     assert_ne!(hidden, view_key(&app, false, None), "the page without the dragged object is rendered again");
     assert_eq!(hidden, view_key(&app, false, Some(&object)), "the same drag keeps the key: no re-render every frame");
+}
+
+/// Cold overview pages finish painting even after wheel input stops. A guide toggle
+/// changes the raster key so a late result cannot restore the previous view.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn overview_finishes_cold_pages_and_refreshes_gridlines() {
+    let mut h = table_window();
+    h.state_mut().session.run("view.zoom", &json!({"value": 17})).unwrap();
+    h.state_mut().canvas.textures.clear();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        h.step();
+        if h.state().canvas.textures.contains_key(&0) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "cold page never arrived");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let before = h.state().canvas.textures[&0].0;
+    h.state_mut().session.view.table_gridlines = false;
+    h.step();
+    assert_ne!(before, h.state().canvas.textures[&0].0);
 }
