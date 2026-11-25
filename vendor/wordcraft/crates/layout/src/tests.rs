@@ -2552,6 +2552,21 @@ fn selection_rects_cover_range() {
 }
 
 #[test]
+fn visible_find_rects_agree_with_selection_across_pages_and_paragraphs() {
+    let d = Document::from_text(&format!("First line\n{}\nLast line", "one two three ".repeat(2400)));
+    let l = lay(&d);
+    assert!(l.pages.len() >= 3);
+    let middle_len = d.para_at(&Pos::body(1, 0)).unwrap().len();
+    let matches =
+        [(Pos::body(0, 3), Pos::body(1, 7)), (Pos::body(1, 8), Pos::body(1, middle_len - 4)), (Pos::body(1, middle_len - 2), Pos::body(2, 4))];
+    let all: Vec<_> = matches.iter().flat_map(|(a, b)| l.selection_rects(&d, a, b, 0)).collect();
+    for pi in 0..l.pages.len() {
+        let expected: Vec<_> = all.iter().filter(|(page, _)| *page == pi).cloned().collect();
+        assert_eq!(l.body_match_rects(&matches, pi..pi + 1), expected);
+    }
+}
+
+#[test]
 fn column_segments_take_the_same_x_range_on_every_line() {
     let d = Document::from_text("abcdef\nabcdef\nab");
     let l = lay(&d);

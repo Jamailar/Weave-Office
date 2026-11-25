@@ -1,5 +1,7 @@
 # WordCraft roadmap
 
+> **Large-document navigation · 2026-11-25.** Navigation indexes body headings and measures wrapped rows as they enter the viewport. Review and reference panes share revision-scoped document queries.
+
 > **Plain-text performance · 2026-11-23.** Long plain paragraphs use indexed caret lookup, bounded IME queries and incremental wrapping. Repeating text can share its shaping and line geometry across pages.
 
 > **Performance update · 2026-11-23.** Desktop overview scrolling now prepares uncached page thumbnails in the background and reuses the table guides in each page texture.
@@ -230,6 +232,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 
 | Date | What landed |
 |---|---|
+| 2026-11-25 | Navigation indexes body headings and measures wrapped rows as they enter the viewport. Review and reference panes share revision-scoped document queries. |
 | 2026-11-20 | Reduced idle, selection scrolling and local text editing work in the hosted document editor. [Frame measurements](docs/layout-parity.md#performance) |
 | 2026-10-28 | **Arabic diacritic editing (#4757):** Backspace removes the last stored Arabic combining mark, so its base letter can stay while the mark is replaced. Caret movement and forward Delete keep their cluster rules. Synthetic command, history, protection and native/DOCX fresh-reopen checks; no native Word comparison or readiness change. |
 | 2026-10-29 | Insert › Shapes shows the basic shapes as a grid of code-drawn icon tiles, each with an accessible name and tooltip, instead of a text list (#4349) |

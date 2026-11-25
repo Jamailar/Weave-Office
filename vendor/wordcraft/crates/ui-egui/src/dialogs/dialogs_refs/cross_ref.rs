@@ -11,10 +11,9 @@ const REF_TYPES: [(&str, &str); 5] =
 
 /// The Reference types to pick from: [`REF_TYPES`], then each caption label of the person's own
 /// (Insert Caption › New Label, or already in the document's captions) as `label:<Name>` (#2940).
-pub(super) fn ref_types(app: &WordApp) -> Vec<(String, String)> {
+pub(super) fn ref_types(app: &WordApp, in_document: &[String]) -> Vec<(String, String)> {
     let mut types: Vec<(String, String)> = REF_TYPES.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
-    let in_document = wordcraft_engine::cmd::citations::caption_labels(&app.session);
-    for l in app.ui.caption_labels.iter().chain(&in_document) {
+    for l in app.ui.caption_labels.iter().chain(in_document) {
         let value = format!("label:{l}");
         if !BUILT_IN_LABELS.contains(&l.as_str()) && !types.iter().any(|(v, _)| *v == value) {
             types.push((value, l.clone()));
@@ -67,7 +66,8 @@ pub(super) fn cross_ref_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CrossRefForm)
     let was = f.to.clone();
     egui::Grid::new("xref_opts").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         let type_label = ui.label(tl!("Reference type:"));
-        let types = ref_types(app);
+        let labels = app.document_query(ui, app.window_id("caption_labels"), || wordcraft_engine::cmd::citations::caption_labels(&app.session));
+        let types = ref_types(app, &labels);
         let types: Vec<(String, &str)> = types.iter().map(|(v, l)| (v.clone(), l.as_str())).collect();
         choice(ui, "xref_type", &mut f.to, &types, &type_label);
         ui.end_row();

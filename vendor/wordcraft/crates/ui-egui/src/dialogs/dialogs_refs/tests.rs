@@ -127,7 +127,8 @@ fn cross_reference_dialog_lists_targets_and_inserts_a_ref_field() {
 #[test]
 fn cross_reference_dialog_offers_custom_caption_labels() {
     let mut a = app("Rock\nSee ");
-    let types = |a: &WordApp| ref_types(a).into_iter().map(|(v, _)| v).collect::<Vec<_>>();
+    let types =
+        |a: &WordApp| ref_types(a, &wordcraft_engine::cmd::citations::caption_labels(&a.session)).into_iter().map(|(v, _)| v).collect::<Vec<_>>();
     assert_eq!(types(&a), ["heading", "bookmark", "equation", "figure", "table"]);
     // Made in the Caption dialog but not used yet: listed, with nothing to pick.
     a.ui.caption_labels.push("Plate".into());

@@ -852,6 +852,28 @@ impl DocLayout {
         out
     }
 
+    /// Search matches in reading order do not overlap. A visible body fragment needs only
+    /// the matches intersecting its byte range, even when the paragraph spans many pages.
+    pub fn body_match_rects(&self, matches: &[(Pos, Pos)], pages: std::ops::Range<usize>) -> Vec<(usize, Rect)> {
+        let mut out = Vec::new();
+        if matches.is_empty() {
+            return out;
+        }
+        for pi in pages {
+            let Some(page) = self.pages.get(pi) else { break };
+            for item in &page.items {
+                let Placed::Lines { story: StoryRef::Body, path, para, l0, l1, .. } = item else { continue };
+                let Some(lines) = para.lines.get(*l0..*l1) else { continue };
+                let Some((first, last)) = lines.first().zip(lines.last()) else { continue };
+                let start = matches.partition_point(|(_, b)| (&b.path, b.off) < (path, first.start));
+                for (a, b) in matches[start..].iter().take_while(|(a, _)| (&a.path, a.off) <= (path, last.stop)) {
+                    Self::selected_lines(&mut out, pi, item, a, b);
+                }
+            }
+        }
+        out
+    }
+
     fn selected_lines(out: &mut Vec<(usize, Rect)>, pi: usize, it: &Placed, a: &Pos, b: &Pos) {
         let Placed::Lines { path, para, l0, l1, x, y, turn, .. } = it else { return };
         let Some(first) = para.lines.get(*l0) else { return };

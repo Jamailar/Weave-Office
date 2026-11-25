@@ -97,6 +97,7 @@ const TILE_HEIGHT_PX: usize = 1024;
 const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
+    pub(crate) navigation: crate::panes::Navigation,
     pub(crate) selection_info: std::cell::RefCell<Option<crate::selection_info::SelectionInfo>>,
     geometry: Option<geometry::CachedGeometry>,
     textures: HashMap<usize, (u64, TextureHandle)>,
@@ -349,6 +350,7 @@ impl Default for CanvasState {
     /// visibility, and inactive drag and column-selection state.
     fn default() -> Self {
         CanvasState {
+            navigation: Default::default(),
             selection_info: Default::default(),
             geometry: None,
             textures: HashMap::new(),
@@ -1456,11 +1458,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         } else {
             balloons(app, ui, &painter, &rects, &layout, geo.scale, view_rect);
         }
-        // Find › Reading Highlight. Its places are the document's, not the preview's.
-        let marks: Vec<(Pos, Pos)> =
-            if preview_sel(app).is_some() { Vec::new() } else { app.session.find_highlights().iter().take(5000).cloned().collect() };
-        for (a, b) in &marks {
-            for (pi, r) in layout.selection_rects(&app.session.doc, a, b, app.session.page_hint) {
+        let on_screen = |r: &Rect| r.intersects(view_rect);
+        let visible = rects.iter().position(on_screen).unwrap_or(0)..rects.iter().rposition(on_screen).map_or(0, |i| i + 1);
+        // Reading Highlight searches the body. Resolve only the visible fragments of its matches.
+        if preview_sel(app).is_none() {
+            let marks = app.session.find_highlights();
+            for (pi, r) in layout.body_match_rects(&marks[..marks.len().min(5000)], visible.clone()) {
                 if let Some(pr) = rects.get(pi) {
                     let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
                     let hr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
@@ -1468,11 +1471,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
         }
-        // Selection (a selected object shows its frame instead): whole table cells shade the
-        // cells (an empty one too), a column selection each row's piece, text running into or
-        // across a table the whole cells of the rows it takes.
-        let on_screen = |r: &Rect| r.intersects(view_rect);
-        let visible = rects.iter().position(on_screen).unwrap_or(0)..rects.iter().rposition(on_screen).map_or(0, |i| i + 1);
         let selected: Vec<_> = if let Some(sel) = preview_sel(app) {
             let (a, b) = sel.ordered();
             if a == b {

@@ -25,6 +25,20 @@ pub(crate) use hosted::HostedSavePoint;
 pub(crate) use input::control_click_as_secondary;
 
 impl WordApp {
+    /// A read-only projection shared by redraws of this window. The caller includes any
+    /// display options affecting the projection in the key.
+    pub(crate) fn document_query<T: Send + Sync + 'static>(&self, ui: &egui::Ui, key: egui::Id, read: impl FnOnce() -> T) -> std::sync::Arc<T> {
+        let stamp = (self.session.document_id(), self.session.rev());
+        if let Some((saved, value)) = ui.data(|d| d.get_temp::<((u64, u64), std::sync::Arc<T>)>(key))
+            && saved == stamp
+        {
+            return value;
+        }
+        let value = std::sync::Arc::new(read());
+        ui.data_mut(|d| d.insert_temp(key, (stamp, value.clone())));
+        value
+    }
+
     /// Creates the app: adopts the system locale, then initializes the document session, UI state,
     /// services, printing, canvas, dialogs, previews, control and screenshot state, font and theme
     /// tracking.

@@ -213,18 +213,20 @@ pub fn comment_list(s: &Session) -> Vec<(u32, Option<Pos>)> {
     if s.doc.comments.is_empty() {
         return found;
     }
+    let mut anchored = std::collections::HashSet::new();
     for story in s.doc.shown_stories() {
-        for path in s.doc.para_paths(story) {
-            let Some(p) = s.doc.para(story, &path) else { continue };
-            for o in p.object_offsets() {
-                if let Some(InlineObject::CommentStart { id }) = p.object_at(o) {
-                    found.push((*id, Some(Pos { story, path: path.clone(), off: o })));
+        s.doc.visit_paras_between(&s.doc.start_of(story), &s.doc.end_of(story), |path, p| {
+            for (off, object) in p.objects_with_offsets() {
+                if let InlineObject::CommentStart { id } = object {
+                    found.push((*id, Some(Pos { story, path: wordcraft_doc::Path(path.to_vec()), off })));
+                    anchored.insert(*id);
                 }
             }
-        }
+            true
+        });
     }
     for id in s.doc.comments.keys() {
-        if !found.iter().any(|(x, _)| x == id) {
+        if !anchored.contains(id) {
             found.push((*id, None));
         }
     }

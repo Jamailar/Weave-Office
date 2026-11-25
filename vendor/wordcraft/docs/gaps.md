@@ -1,5 +1,7 @@
 # Where WordCraft falls short of Word
 
+> **Large-document navigation · 2026-11-25.** Opening the outline still requires one body walk. Structural or style changes invalidate it. Large search queries and document repagination can still block the UI.
+
 > **Plain-text performance · 2026-11-23.** Long plain paragraphs can reuse wrapping after an edit. Changing styles, complex scripts or pagination dependencies can still require a full layout. Windows GPU presentation latency has not been measured.
 
 > **Performance update · 2026-11-23.** Overview pages fill progressively on the desktop. Zoomed-out table guides are cached with the page. GPU presentation time on Windows still needs measurement.
@@ -158,6 +160,7 @@ Recipient label generation (#4880) now includes all selected recipients across a
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-25 | minor | Opening the outline still requires one body walk. Structural or style changes invalidate it. Large search queries and document repagination can still block the UI. |
 | 2026-11-23 | minor | Long plain paragraphs can reuse wrapping after an edit. Changing styles, complex scripts or pagination dependencies can still require a full layout. Windows GPU presentation latency has not been measured. |
 | 2026-11-23 | minor | Overview pages fill progressively on the desktop. Zoomed-out table guides are cached with the page. GPU presentation time on Windows still needs measurement. |
 | 2026-11-20 | minor | Measured hosted scrolling with prose, distinct table cells and nested tables. Print-layout edits with unchanged line geometry can reuse pagination. Changes to line counts, AutoFit table contents and text-dependent headers can still require full pagination. Newly rasterized pages still contribute latency. |

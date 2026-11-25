@@ -33,6 +33,7 @@ pub use host::show;
 pub(crate) use host::{dock_command, overlay_open};
 pub(crate) use inspector::describe_props;
 use inspector::inspector;
+pub(crate) use nav::Navigation;
 use nav::nav;
 #[cfg(test)]
 use nav::{nav_heading, nav_headings, visible_headings};
@@ -197,7 +198,7 @@ mod navigation_tests {
             para("Method", "Heading1", Some(0)),
             para("Appendix", "Heading1", None),
         ];
-        let texts: Vec<String> = nav_headings(&doc).into_iter().map(|(_, _, t)| t).collect();
+        let texts: Vec<String> = nav_headings(&doc).into_iter().map(|h| h.label).collect();
         assert_eq!(texts, ["1. Intro", "1.1. Scope", "1.3. Terms", "2. Method", "Appendix"]);
     }
 
