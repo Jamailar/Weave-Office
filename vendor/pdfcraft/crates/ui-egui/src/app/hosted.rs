@@ -3,6 +3,26 @@ use super::*;
 use std::path::Path;
 
 impl PdfCraftApp {
+    fn toggle_host_night_reading(&mut self) {
+        let Some((index, id)) = self.active_ids() else { return };
+        let Some(current) = self.session.reading_colors(id) else { return };
+        let colors = self.host_day_colors.take().unwrap_or_else(|| {
+            self.host_day_colors = Some(current);
+            pdfcraft_render::ReadingColors {
+                params: Some(pdfcraft_render::ReadingParams { text: [220, 222, 225], background: [28, 30, 34], only_black: false, line_art: true }),
+            }
+        });
+        if self.session.set_reading_colors(id, colors) {
+            self.views[index].invalidate_content();
+        }
+    }
+
+    fn host_night_button(&mut self, ui: &mut egui::Ui) {
+        if self.active_ids().is_some() && !self.combine_showing() && ui.selectable_label(self.host_day_colors.is_some(), tl!("Night reading")).clicked() {
+            self.toggle_host_night_reading();
+        }
+    }
+
     /// Install the host's File and quick access controls in the editor mode row.
     pub fn set_host_header_prefix(&mut self, prefix: Option<HostHeaderPrefix>) {
         self.host_header_prefix = prefix;
@@ -325,6 +345,7 @@ impl PdfCraftApp {
                                         self.open_hosted_tab(id);
                                     }
                                 }
+                                self.host_night_button(ui);
                             });
                         });
                 });
@@ -451,6 +472,22 @@ mod tests {
             progress: Arc::new(Mutex::new(ocr_ui::OcrProgress { done: 1, total: 1, result: Some(Ok(vec![page])), cancel: false })),
             automatic: automatic.then_some(ocr_ui::AutoOcr { page: 0, generation: app.session.get(doc).unwrap().edit_generation() }),
         }
+    }
+
+    #[test]
+    fn hosted_night_reading_restores_palette_without_editing() {
+        let mut app = background_app();
+        let (_, id) = app.active_ids().unwrap();
+        let prior = pdfcraft_render::ReadingColors::GREEN_ON_BLACK;
+        app.session.set_reading_colors(id, prior);
+        let generation = app.session.get(id).unwrap().edit_generation();
+        let dirty = app.hosted_dirty();
+        app.toggle_host_night_reading();
+        assert_eq!(app.session.reading_colors(id).unwrap().params.unwrap().background, [28, 30, 34]);
+        app.toggle_host_night_reading();
+        assert_eq!(app.session.reading_colors(id), Some(prior));
+        assert_eq!(app.hosted_dirty(), dirty);
+        assert_eq!(app.session.get(id).unwrap().edit_generation(), generation);
     }
 
     #[test]
@@ -719,6 +756,10 @@ impl PdfCraftApp {
 
 #[cfg(feature = "host-ribbon")]
 impl weave_ribbon::HostedRibbon for PdfCraftApp {
+    fn ribbon_trailing(&mut self, ui: &mut egui::Ui) {
+        self.host_night_button(ui);
+    }
+
     fn ribbon_tabs(&self, _: &egui::Context) -> weave_ribbon::Tabs {
         // Combining files is a page of its own, without the switcher.
         if self.combine_showing() {

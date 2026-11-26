@@ -79,6 +79,7 @@ impl PdfCraftApp {
             left: LeftPanel::AllTools,
             hosted: false,
             host_tabs: false,
+            host_day_colors: None,
             host_header_prefix: None,
             host_commands: Vec::new(),
             host_export_writer: std::sync::Arc::new(|path, bytes| {
