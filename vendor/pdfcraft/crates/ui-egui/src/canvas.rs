@@ -512,12 +512,11 @@ pub struct DocView {
     /// Sharp renders of the pages the grid shows larger than a thumbnail: only those in view,
     /// at the size drawn (device pixels wide).
     grid_pages: HashMap<usize, (u32, TextureHandle)>,
-    /// Zoom-settle debounce for heavy pages: the last requested device scale, and the egui
-    /// time until which sharp whole-page/tile re-renders are held back. While the zoom is
-    /// still moving, every frame would otherwise cancel the in-flight full-page interpret
-    /// (seconds on image-heavy CAD plots) and start it over, so a sharp raster never
-    /// arrives. The stale raster stays on screen stretched meanwhile.
+    /// The last requested device scale and its change time. Repeated changes get a short
+    /// hold for all pages; expensive pages have a longer hold even after a single change.
     last_scale: f32,
+    last_scale_change: f64,
+    rapid_zoom: bool,
     sharp_hold_until: f64,
     /// Pan-settle debounce for tiled pages: the scroll offset last frame, and the egui time
     /// until which sharp tile re-renders are held back. Each tile costs a full page
@@ -530,8 +529,7 @@ pub struct DocView {
     /// The page widget's id, by which the Hand tool finds its drag before the pages are laid out.
     page_widget: Option<egui::Id>,
     pan_hold_until: f64,
-    /// Pages whose raster proved slow (see `SLOW_MILLIS`): only these get the zoom/pan
-    /// settle holds. Fast pages render straight through, with no added latency.
+    /// Pages whose raster proved slow (see `SLOW_MILLIS`): these get the longer zoom/pan holds.
     slow_pages: HashSet<usize>,
 }
 
@@ -708,6 +706,8 @@ impl DocView {
             grid_reveal: None,
             grid_pages: HashMap::new(),
             last_scale: 0.0,
+            last_scale_change: f64::NEG_INFINITY,
+            rapid_zoom: false,
             sharp_hold_until: 0.0,
             last_scroll: Vec2::ZERO,
             sync_scroll: None,
@@ -2426,6 +2426,7 @@ struct RenderPlan<'a> {
     tag: u64,
     scale: f32,
     sharp_held: bool,
+    rapid_zoom: bool,
     pan_held: bool,
     hand: bool,
 }
@@ -2434,7 +2435,7 @@ struct RenderPlan<'a> {
 /// rows either side, frees tiles of far pages and old zooms, and asks for the text layers.
 fn plan_renders(ui: &egui::Ui, view: &mut DocView, info: &DocInfo, renders: PageRenders, plan: &RenderPlan<'_>) {
     let (mut wanted, visible_now) = renders;
-    let RenderPlan { visible_pages, tag, scale, sharp_held, pan_held, hand } = *plan;
+    let RenderPlan { visible_pages, tag, scale, sharp_held, rapid_zoom, pan_held, hand } = *plan;
     // Single-page and two-page views draw only the current row, so the next one was first asked
     // for on the turn and showed blank paper until it rendered. Prefetch the rows either side,
     // as continuous scrolling does for the pages just off screen.
@@ -2510,8 +2511,7 @@ fn plan_renders(ui: &egui::Ui, view: &mut DocView, info: &DocInfo, renders: Page
     if sharp_held || pan_held {
         let main_tag = tag;
         queue.retain(|req| {
-            // Fast pages render straight through: the hold only protects heavy pages
-            // whose full-page interpret costs seconds.
+            // The longer holds only protect heavy pages whose interpret can take seconds.
             if !view.slow_pages.contains(&req.page) {
                 return true;
             }
@@ -2533,6 +2533,9 @@ fn plan_renders(ui: &egui::Ui, view: &mut DocView, info: &DocInfo, renders: Page
             }
         });
     }
+    if rapid_zoom {
+        queue.retain_mut(|req| keep_rapid_zoom_request(view, &on_screen, req, tag));
+    }
     // Text layers: visible pages for selection, every page while a search is active. (Select All
     // of the document needs no more: shown pages highlight as their text comes, and Copy reads
     // the rest, as text far away is let go to bound memory.)
@@ -2553,6 +2556,28 @@ fn plan_renders(ui: &egui::Ui, view: &mut DocView, info: &DocInfo, renders: Page
     }));
     view.frame_queue = queue;
     view.frame_visible = visible_now.iter().copied().collect();
+}
+
+/// Avoid work for transient scales while a gesture is moving. A newly visible page or a
+/// page whose colours/content changed still gets a raster. The scale-independent backdrop
+/// beneath tiles can also render without chasing a moving target.
+fn keep_rapid_zoom_request(view: &DocView, on_screen: &HashSet<usize>, req: &mut RenderRequest, main_tag: u64) -> bool {
+    if req.tag != main_tag {
+        return true;
+    }
+    if !on_screen.contains(&req.page) {
+        return false;
+    }
+    let cached = view.pages.get(&req.page).filter(|page| page.tag != STALE_TAG);
+    if req.tile.is_some() {
+        return cached.is_none() && !view.tiles.keys().any(|key| key.0 == req.page && !view.stale_tiles.contains(key));
+    }
+    if let Some(page) = cached {
+        // Keep the old texture in the visible byte budget, even with many pages on screen.
+        req.tag = page.tag;
+        req.scale = tag_scale(page.tag);
+    }
+    true
 }
 
 /// Acts on the notice bar button that was clicked.
@@ -2970,18 +2995,28 @@ fn tool_selects_text(tool: QuickTool, preparing: bool) -> bool {
     }
 }
 
-/// Holds sharp re-renders while the zoom is still moving: a new scale every frame would cancel the
-/// in-flight full-page interpret and restart it, so on a heavy page (a CAD plot with ~1000 images
-/// renders for seconds) the sharp raster never arrives and the view looks stuck on a soft image.
-/// The stale raster stays stretched meanwhile; the sharp request goes out once the zoom settles.
-fn hold_sharp_renders(ui: &egui::Ui, view: &mut DocView, scale: f32) -> bool {
+/// Returns the heavy-page hold and the short hold for repeated zoom updates. A single zoom
+/// step still renders fast pages immediately. During a gesture the previous raster stretches
+/// with the layout; once input stops, a repaint requests the exact device-scale raster.
+fn hold_sharp_renders(ui: &egui::Ui, view: &mut DocView, scale: f32) -> (bool, bool) {
+    const RAPID_ZOOM_SETTLE: f64 = 0.12;
     let now_scale = ui.input(|i| i.time);
     if (scale - view.last_scale).abs() > f32::EPSILON {
+        view.rapid_zoom = now_scale - view.last_scale_change < RAPID_ZOOM_SETTLE;
+        view.last_scale_change = now_scale;
         view.last_scale = scale;
         view.sharp_hold_until = now_scale + 0.35;
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(380));
     }
-    now_scale < view.sharp_hold_until
+    let until_rapid = view.last_scale_change + RAPID_ZOOM_SETTLE;
+    let rapid = view.rapid_zoom && now_scale < until_rapid;
+    let heavy = now_scale < view.sharp_hold_until;
+    // egui keeps the earliest repaint. Re-arm on intermediate frames so an animation or
+    // a render result cannot swallow the final wake-up after the user stops zooming.
+    if rapid || heavy {
+        let until = if rapid { until_rapid } else { view.sharp_hold_until };
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(until - now_scale) + std::time::Duration::from_millis(20));
+    }
+    (heavy, rapid)
 }
 
 /// A destination's position (bookmarks, links) refines `goto`: its point at the window's top-left,
@@ -3132,12 +3167,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let ppp = ui.ctx().pixels_per_point();
     let scale = view.render_scale(ppp);
     let tag = scale_tag(scale);
-    // Hold sharp re-renders while the zoom is still moving: a new scale every frame would
-    // cancel the in-flight full-page interpret and restart it, so on a heavy page (a CAD
-    // plot with ~1000 images renders for seconds) the sharp raster never arrives and the
-    // view looks stuck on a soft image. The stale raster stays stretched meanwhile; the
-    // sharp request goes out once the zoom settles.
-    let sharp_held = hold_sharp_renders(ui, view, scale);
+    let (sharp_held, rapid_zoom) = hold_sharp_renders(ui, view, scale);
     view.current_scale_tag = tag;
     let hand = app.quick_tool == QuickTool::Hand;
     let tool = app.quick_tool;
@@ -3292,7 +3322,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     // the workers cannot cancel mid-operator. Fresh tiles go out once the pan settles;
     // pages with nothing on screen yet still queue.
     let pan_held = track_scroll(ui, view, &out, glide);
-    plan_renders(ui, view, info, out.inner, &RenderPlan { visible_pages: &visible_pages, tag, scale, sharp_held, pan_held, hand });
+    plan_renders(ui, view, info, out.inner, &RenderPlan { visible_pages: &visible_pages, tag, scale, sharp_held, rapid_zoom, pan_held, hand });
 
     let text_done = frame_overlays(ui, view, &env, primary_down, hover_text);
     if let Some(why) = view.objects.notice.take() {

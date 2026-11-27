@@ -350,6 +350,12 @@ impl weave_ribbon::HostedRibbon for SheetApp {
     fn ribbon_tab_rects(&mut self, rects: Vec<(String, Rect)>) {
         self.host_tabs = Some(rects);
     }
+
+    fn ribbon_trailing(&mut self, ui: &mut Ui) {
+        if ui.selectable_label(self.night_reading, self.ui.language.tr("Night reading")).clicked() {
+            self.run_or_alert("view.nightReading", json!({}));
+        }
+    }
 }
 
 const CONTEXTUAL_TABS: [&str; 3] = ["Table Design", "Chart Design", crate::paper_view::TAB];

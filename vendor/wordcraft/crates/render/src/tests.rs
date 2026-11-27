@@ -4,6 +4,23 @@ use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
 mod color_glyphs;
 
+#[test]
+fn adaptive_night_keeps_dark_paper_and_light_ink() {
+    let mut doc = Document::from_text("Night reading");
+    let dark_paper = Rgb(17, 24, 33);
+    doc.settings.page_color = Some(dark_paper);
+    let page = &layout(&doc, &mut LayoutCache::new(), &LayoutOptions::default()).pages[0];
+    let night = RenderOptions { dark: true, adaptive_night: true, ..Default::default() };
+    let image = render_page(&doc, page, 1.0, &night);
+    assert_eq!(&image.pixels[..4], &[17, 24, 33, 255]);
+    assert_eq!(night.ink_bg(dark_paper), dark_paper);
+    assert_eq!(night.ink_text(Rgb::WHITE, Some(dark_paper)), Rgb::WHITE);
+    assert!(contrast(night.ink_text(Rgb::BLACK, None), night.paper_of(&doc)) >= 4.5);
+    doc.settings.page_color = None;
+    assert_eq!(night.paper_of(&doc), Rgb(DARK_PAPER, DARK_PAPER, DARK_PAPER));
+    assert_eq!(RenderOptions::default().paper_of(&doc), Rgb::WHITE);
+}
+
 /// The first and last pixel rows with ink in a black-on-white [`render_text_line`] raster.
 fn ink_rows(img: &Rendered) -> Option<(usize, usize)> {
     let w = img.width as usize * 4;

@@ -281,6 +281,16 @@ impl Editor {
             app.hosted_prepare_close();
         }
     }
+    pub(crate) fn set_night_reading(&mut self, on: bool) {
+        match self {
+            Self::Word(app) => app.session.view.dark_mode = on,
+            Self::Pdf(app) => app.set_host_night_reading(on),
+            Self::Sheet(_) | Self::Rich(_) => {
+                let _ = self.command("view.nightReading", json!({"on": on}));
+            }
+            Self::Slides(_) | Self::TextFile(_) => {}
+        }
+    }
     /// Draw the editor under the ribbon tab row the host draws for it. Returns the commands
     /// of the host's file controls in that row.
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Vec<crate::chrome::Command> {

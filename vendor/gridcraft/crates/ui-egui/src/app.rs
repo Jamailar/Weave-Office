@@ -29,6 +29,7 @@ impl SheetApp {
     pub fn new(session: Session, services: Services) -> SheetApp {
         SheetApp {
             hosted: false,
+            night_reading: false,
             host_tabs: None,
             host_dispatch: false,
             host_commands: Vec::new(),
@@ -244,7 +245,7 @@ impl SheetApp {
             tabs::sheet_tabs(self, ui);
             pivot_pane::show(self, ui);
             panes::show(self, ui);
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.grid_bg)).show(ui, |ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.worksheet(self.night_reading).grid_bg)).show(ui, |ui| {
                 let g0 = now_ms();
                 grid::show(self, ui);
                 self.perf.grid_ms = now_ms() - g0;

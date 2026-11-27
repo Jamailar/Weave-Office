@@ -284,6 +284,8 @@ pub struct PdfCraftApp {
     hosted: bool,
     /// Set when the host draws the tab row.
     host_tabs: bool,
+    /// Palette to restore when the hosted reader leaves night mode (never persisted).
+    host_day_colors: Option<pdfcraft_render::ReadingColors>,
     host_header_prefix: Option<HostHeaderPrefix>,
     host_commands: Vec<(String, serde_json::Value)>,
     host_export_writer: HostExportWriter,

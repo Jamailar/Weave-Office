@@ -1304,11 +1304,14 @@ fn dialog_print(ui: &mut egui::Ui, app: &mut PdfCraftApp, req: &mut Pending) -> 
         ui.ctx().input(|i| i.max_texture_side) as f32,
     );
     let view = &mut app.views[i];
+    let original_thumbnail = app.session.reading_colors(id).is_some_and(|colors| colors.params.is_none());
     view.set_print_grayscale(app.print_draft.grayscale);
     view.queue_print_previews(&rasters);
     let (go, cancel) = crate::print_ui::body(ui, &mut app.print_draft, &t, &sizes, &labels, &mut |p| {
-        view.need_thumbnail(p, true);
-        view.page_preview(p)
+        if original_thumbnail {
+            view.need_thumbnail(p, true);
+        }
+        view.page_preview(p, original_thumbnail)
     });
     req.print_go = go;
     req.close = go || cancel;

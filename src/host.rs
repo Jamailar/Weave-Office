@@ -10,6 +10,7 @@ use weave_workspace::{CloseResult, DocumentKind, TabId, Workspace};
 
 pub struct Document {
     pub editor: Editor,
+    applied_appearance: Option<(crate::app::DocumentAppearance, bool)>,
     pub file_services: crate::office_files::OfficeFiles,
     pub memory: egui::Memory,
     /// The fonts this tab's editor installed: its part of the shared set ([`crate::font_set`]).
@@ -18,6 +19,18 @@ pub struct Document {
     pub origin: Option<PathBuf>,
     /// Reopened from a recovery copy and not saved since: unsaved whatever the editor says.
     pub recovered: bool,
+}
+
+impl Document {
+    /// A ribbon toggle is local to this tab until its appearance default changes.
+    pub(crate) fn sync_appearance(&mut self, policy: crate::app::DocumentAppearance, theme: egui::Theme) {
+        let on = policy.night(theme);
+        let appearance = Some((policy, on));
+        if self.applied_appearance != appearance {
+            self.editor.set_night_reading(on);
+            self.applied_appearance = appearance;
+        }
+    }
 }
 #[derive(Default)]
 pub struct Host {
@@ -175,6 +188,7 @@ impl Host {
             id,
             Document {
                 editor,
+                applied_appearance: None,
                 file_services,
                 memory: Default::default(),
                 fonts: None,
@@ -264,6 +278,7 @@ impl Host {
             id,
             Document {
                 editor,
+                applied_appearance: None,
                 file_services,
                 memory: Default::default(),
                 fonts: None,
@@ -311,6 +326,7 @@ impl Host {
             id,
             Document {
                 editor,
+                applied_appearance: None,
                 file_services,
                 memory: Default::default(),
                 fonts: None,
@@ -357,6 +373,7 @@ impl Host {
             id,
             Document {
                 editor,
+                applied_appearance: None,
                 file_services,
                 memory: Default::default(),
                 fonts: None,

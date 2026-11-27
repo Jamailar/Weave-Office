@@ -301,6 +301,9 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
     let refs = formula_refs(&ed.text);
     let t = Tokens::get(ui.ctx());
     let on_sheet = id == egui::Id::unique("gridcraft.cell_editor");
+    let night_cell = on_sheet && app.night_reading;
+    let t = t.worksheet(night_cell);
+    let cell_fill = ui.visuals().extreme_bg_color;
     let cell_text_color = if on_sheet { t.cell_text } else { t.text };
     let font2 = font.clone();
     let mut layouter = move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
@@ -314,7 +317,9 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
                 continue;
             }
             job.append(s.get(pos..a).unwrap_or(""), 0.0, egui::TextFormat::simple(font2.clone(), cell_text_color));
-            job.append(s.get(a..b).unwrap_or(""), 0.0, egui::TextFormat::simple(font2.clone(), t.ref_color(idx, on_sheet)));
+            let color = t.ref_color(idx, on_sheet);
+            let color = if night_cell { theme::night_cell_ink(color, cell_fill) } else { color };
+            job.append(s.get(a..b).unwrap_or(""), 0.0, egui::TextFormat::simple(font2.clone(), color));
             pos = b;
         }
         job.append(s.get(pos..).unwrap_or(""), 0.0, egui::TextFormat::simple(font2.clone(), cell_text_color));

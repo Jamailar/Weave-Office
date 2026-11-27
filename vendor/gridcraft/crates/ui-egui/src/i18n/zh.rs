@@ -257,6 +257,7 @@ pub(super) fn translate(text: &str) -> Option<&'static str> {
         "Formula Bar" => "编辑栏",
         "Name Box" => "名称框",
         "Cell Editor" => "单元格编辑器",
+        "Night reading" => "夜间阅读",
         "Font Size" => "字号",
         "Gridlines" => "网格线",
         "Headings" => "标题",

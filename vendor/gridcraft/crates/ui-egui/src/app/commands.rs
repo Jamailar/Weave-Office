@@ -170,6 +170,10 @@ impl SheetApp {
                 self.ui.formula_bar_expanded = p.get("on").and_then(Json::as_bool).unwrap_or(!self.ui.formula_bar_expanded);
                 Ok(json!({"on": self.ui.formula_bar_expanded}))
             }
+            "view.nightReading" => {
+                self.night_reading = p.get("on").and_then(Json::as_bool).unwrap_or(!self.night_reading);
+                Ok(json!({"on": self.night_reading}))
+            }
             "view.darkMode" => {
                 let current = if self.ui.system_theme { self.effective_dark } else { self.ui.dark };
                 self.ui.dark = p.get("on").and_then(Json::as_bool).unwrap_or(!current);

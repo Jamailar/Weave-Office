@@ -60,6 +60,7 @@ pub struct RichApp {
     source: TextApp,
     view: View,
     canvas: Canvas,
+    night_reading: bool,
     zh: bool,
     ribbon_tab: Option<String>,
     host_commands: Vec<(String, Value)>,
@@ -85,6 +86,7 @@ impl RichApp {
             source,
             view: View::Design,
             canvas: Canvas::Phone,
+            night_reading: false,
             zh: true,
             ribbon_tab: Some("home".into()),
             host_commands: Vec::new(),
@@ -188,6 +190,14 @@ impl RichApp {
 
     pub fn command(&mut self, id: &str, params: Value) -> Result<Value, String> {
         match id {
+            "view.nightReading" => {
+                let on = params.get("on").and_then(Value::as_bool).unwrap_or(!self.night_reading);
+                if self.night_reading != on {
+                    self.night_reading = on;
+                    self.cache.page = None;
+                }
+                return Ok(json!({ "on": on }));
+            }
             "view.mode" => {
                 self.view = match params.get("value").and_then(Value::as_str) {
                     Some("source") => View::Source,
@@ -491,6 +501,9 @@ impl weave_ribbon::HostedRibbon for RichApp {
         if ui.selectable_label(!source, self.tr("设计")).clicked() && source {
             let _ = self.command("view.mode", json!({ "value": "design" }));
         }
+        if !source && ui.selectable_label(self.night_reading, self.tr("夜间阅读")).clicked() {
+            let _ = self.command("view.nightReading", json!({}));
+        }
     }
 }
 
@@ -513,6 +526,18 @@ mod tests {
         let app = RichApp::from_bytes("a.html", bytes).unwrap();
         assert!(!app.dirty());
         assert_eq!(app.bytes().unwrap(), bytes);
+    }
+
+    #[test]
+    fn night_reading_does_not_edit_html_or_history() {
+        let bytes = b"<p style='color:red;background:white'>Hello</p>\r\n";
+        let mut app = RichApp::from_bytes("a.html", bytes).unwrap();
+        for on in [true, false] {
+            assert_eq!(app.command("view.nightReading", json!({})).unwrap()["on"], on);
+            assert!(!app.dirty());
+            assert_eq!(app.bytes().unwrap(), bytes);
+            assert_eq!(weave_ribbon::HostedRibbon::undo_redo(&app), (false, false));
+        }
     }
 
     #[test]

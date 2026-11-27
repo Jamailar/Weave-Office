@@ -202,6 +202,8 @@ pub struct Perf {
 
 pub struct SheetApp {
     pub(crate) hosted: bool,
+    /// Session-only worksheet palette; never stored in the workbook or print settings.
+    pub(crate) night_reading: bool,
     /// Set when the host draws the ribbon's tab row: where it drew each tab this frame.
     pub(crate) host_tabs: Option<Vec<(String, egui::Rect)>>,
     host_dispatch: bool,

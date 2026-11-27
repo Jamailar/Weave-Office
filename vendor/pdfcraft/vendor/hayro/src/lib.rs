@@ -101,6 +101,8 @@ pub struct ColorReplacement {
     pub only_black: bool,
     /// When `true`, line-art paints are mapped in addition to text paints.
     pub line_art: bool,
+    /// Do not invert lightness; treat recognized paper fills separately from ink.
+    pub adaptive_night: bool,
 }
 
 impl ColorReplacement {
@@ -115,6 +117,16 @@ impl ColorReplacement {
         let t = (0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b)) / 255.0;
         if self.only_black && t > 0.10 {
             return rgba8;
+        }
+        if self.adaptive_night {
+            // Preserve light ink (e.g. white text on an already-dark page). Lift dark
+            // ink monotonically toward the reading foreground, rather than reversing it.
+            if t >= 0.65 {
+                return rgba8;
+            }
+            let amount = 1.0 - t / 0.65;
+            let lift = |v: u8, target: u8| (f32::from(v) + (f32::from(target.max(v)) - f32::from(v)) * amount).round() as u8;
+            return [lift(r, self.text[0]), lift(g, self.text[1]), lift(b, self.text[2]), a];
         }
         let [text_r, text_g, text_b] = self.text;
         let [background_r, background_g, background_b] = self.background;
@@ -253,6 +265,12 @@ pub fn render_into<'a>(
         interpreter_settings.preview,
     );
 
+    if render_settings.color_replacement.is_some_and(|mode| mode.adaptive_night) {
+        // This must be the whole crop box in the current device coordinates, not the
+        // canvas bounds: a graphic must not become paper when zoom crops it to a tile.
+        device.reading_page = Some(initial_transform.transform_rect_bbox(page.intersected_crop_box().to_kurbo()));
+    }
+
     // PdfCraft patch (18): the page renders as one transparency group (the page group). Its
     // objects composite with an initially transparent backdrop, and the group is then put on
     // the paper (ISO 32000-2, page group), so a blend mode only blends where something was
@@ -365,6 +383,7 @@ mod color_replacement_tests {
             background,
             only_black,
             line_art,
+            adaptive_night: false,
         }
     }
 
@@ -487,6 +506,7 @@ mod color_replacement_render_tests {
             background: [0x00, 0x00, 0x00],
             only_black: false,
             line_art,
+            adaptive_night: false,
         }
     }
 

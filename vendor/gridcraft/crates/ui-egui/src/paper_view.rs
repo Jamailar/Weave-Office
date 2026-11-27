@@ -162,7 +162,7 @@ pub(crate) fn paint_pages(input: PagePaintInput<'_>, cf: &mut CfCache) -> Vec<gr
         }
         painted += 1;
         let pc = p.with_clip_rect(clip);
-        grid::paint_quadrant(grid::QuadrantPaint { painter: &pc, geo, workbook: wb, sheet_index: si, sheet: sh, rows, cols, cf, tokens: t });
+        grid::paint_quadrant(grid::QuadrantPaint { painter: &pc, geo, workbook: wb, sheet_index: si, sheet: sh, rows, cols, cf, tokens: t, night: app.night_reading });
         if !pg.is_data_page(i, j) {
             // "Click to add data" pages: faded until something is typed there.
             pc.rect_filled(clip, 0.0, t.grid_bg.gamma_multiply(0.75));
@@ -218,6 +218,7 @@ pub(crate) fn paint_headers_footers(app: &SheetApp, ui: &egui::Ui, p: &Painter, 
     let Some(pg) = geo.paper.clone() else { return };
     let Some(d) = app.session.active() else { return };
     let p = p.with_clip_rect(geo.cells);
+    let ink = Tokens::get(ui.ctx()).worksheet(app.night_reading).cell_text;
     let editing = app.grid.hf_edit.as_ref().map(|e| (e.page, e.footer));
     let hover = ui.input(|i| i.pointer.hover_pos()).filter(|q| geo.cells.contains(*q)).and_then(|q| {
         let (x, y) =
@@ -279,7 +280,7 @@ pub(crate) fn paint_headers_footers(app: &SheetApp, ui: &egui::Ui, p: &Painter, 
                 let block = line_h * lines.len() as f32;
                 let top = if footer { screen(geo, 0.0, py + h - fm).y - block } else { screen(geo, 0.0, py + hm).y };
                 for (li, line) in lines.iter().enumerate() {
-                    p.text(pos2(x, top + li as f32 * line_h), anchor, *line, font.clone(), Color32::BLACK);
+                    p.text(pos2(x, top + li as f32 * line_h), anchor, *line, font.clone(), ink);
                 }
             }
         }
@@ -459,14 +460,14 @@ fn editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, pg: &PageGrid) {
     }
     let rects = section_rects(geo, pg, e.page, e.footer);
     let p = ui.painter().with_clip_rect(geo.cells);
-    let t = Tokens::get(ui.ctx());
+    let t = Tokens::get(ui.ctx()).worksheet(app.night_reading);
     let font = hf_font(geo, pg, Some(10.0), false);
     let mut switch_to = None;
     for (k, r) in rects.iter().enumerate() {
         if !r.intersects(geo.cells) {
             continue;
         }
-        p.rect_filled(*r, 0.0, Color32::WHITE);
+        p.rect_filled(*r, 0.0, t.grid_bg);
         let active = k == e.section;
         p.rect_stroke(
             *r,
@@ -480,7 +481,7 @@ fn editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, pg: &PageGrid) {
         let Some(text) = e.texts.get(k) else { continue };
         let anchor = [Align2::LEFT_TOP, Align2::CENTER_TOP, Align2::RIGHT_TOP][k];
         let x = [r.left() + 3.0, r.center().x, r.right() - 3.0][k];
-        p.text(pos2(x, r.top() + 2.0), anchor, text, font.clone(), Color32::BLACK);
+        p.text(pos2(x, r.top() + 2.0), anchor, text, font.clone(), t.cell_text);
         if ui.interact(*r, ui.scope_id().with(("hf_section", k)), egui::Sense::click()).clicked() {
             switch_to = Some(k);
         }
@@ -492,14 +493,17 @@ fn editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, pg: &PageGrid) {
     };
     let id = egui::Id::unique("gridcraft.header_footer_editor");
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(3.0, 2.0)).intersect(geo.cells)));
+    if app.night_reading {
+        child.visuals_mut().text_cursor.stroke.color = t.cell_text;
+    }
     let align = [egui::Align2::LEFT_TOP, egui::Align2::CENTER_TOP, egui::Align2::RIGHT_TOP][e.section.min(2)];
     if let Some(text) = e.texts.get_mut(e.section) {
         let mut output = TextEdit::multiline(text)
             .id(id)
             .frame(egui::Frame::NONE)
             .font(font)
-            .text_color(Color32::BLACK)
-            .background_color(Color32::WHITE)
+            .text_color(t.cell_text)
+            .background_color(t.grid_bg)
             .align(align)
             .desired_width(r.width() - 6.0)
             .desired_rows(1)

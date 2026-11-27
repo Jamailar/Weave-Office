@@ -84,7 +84,7 @@ pub fn show(app: &mut RichApp, ui: &mut Ui) {
                 }
             });
         });
-    let surround = if ui.visuals().dark_mode {
+    let surround = if app.night_reading || ui.visuals().dark_mode {
         Color32::from_gray(30)
     } else {
         Color32::from_gray(236)
@@ -124,7 +124,11 @@ fn ensure_page(app: &mut RichApp, ctx: &egui::Context, width: f32) {
     };
     if stale && let Some(doc) = &app.cache.doc {
         let families = families(ctx);
-        let page = layout::layout(doc, width, ctx, &families, &mut app.images);
+        let page = if app.night_reading {
+            layout::layout_with_colors(doc, width, ctx, &families, &mut app.images, true)
+        } else {
+            layout::layout(doc, width, ctx, &families, &mut app.images)
+        };
         app.cache.characters = page
             .items
             .iter()
@@ -211,7 +215,8 @@ fn canvas(app: &mut RichApp, ui: &mut Ui) {
                 }
                 .as_shape(sheet, CornerRadius::same(2)),
             );
-            painter.rect_filled(sheet, 2.0, page.background.unwrap_or(Color32::WHITE));
+            let paper = if app.night_reading { layout::NIGHT_PAPER } else { Color32::WHITE };
+            painter.rect_filled(sheet, 2.0, page.background.unwrap_or(paper));
             let visible = ui.clip_rect();
             for item in &page.items {
                 let moved = item.rect().translate(origin.to_vec2());
@@ -518,28 +523,30 @@ fn paint_selection(
         return;
     }
     let mut caret_rect = caret;
+    let ink = if app.night_reading { layout::NIGHT_INK } else { Color32::from_gray(20) };
     if !app.cache.preedit.is_empty() {
         // The composition shows at the caret, underlined, over the text after it.
         let height = caret.height().max(12.0);
         let galley = painter.layout_no_wrap(
             app.cache.preedit.clone(),
             egui::FontId::proportional((height * 0.75).clamp(12.0, 32.0)),
-            Color32::from_gray(20),
+            ink,
         );
         let at = pos2(caret.min.x, caret.max.y - galley.size().y);
         let rect = Rect::from_min_size(at, galley.size());
-        painter.rect_filled(rect.expand(1.0), 2.0, Color32::from_rgb(255, 255, 240));
-        painter.galley(at, galley, Color32::from_gray(20));
+        let fill = if app.night_reading { layout::NIGHT_PAPER } else { Color32::from_rgb(255, 255, 240) };
+        painter.rect_filled(rect.expand(1.0), 2.0, fill);
+        painter.galley(at, galley, ink);
         painter.line_segment(
             [rect.left_bottom(), rect.right_bottom()],
-            Stroke::new(1.0, Color32::from_gray(60)),
+            Stroke::new(1.0, if app.night_reading { ink } else { Color32::from_gray(60) }),
         );
         caret_rect =
             Rect::from_min_max(pos2(rect.max.x, caret.min.y), pos2(rect.max.x, caret.max.y));
     } else {
         painter.line_segment(
             [caret.center_top(), caret.center_bottom()],
-            Stroke::new(1.5, Color32::from_rgb(20, 20, 20)),
+            Stroke::new(1.5, ink),
         );
     }
     let to_global = ui
@@ -595,11 +602,16 @@ fn paint(app: &mut RichApp, ui: &Ui, painter: &egui::Painter, item: &Item, offse
                     painter.add(shape);
                 }
                 None => {
-                    painter.rect_filled(rect, *radius, Color32::from_gray(232));
+                    let (fill, border, ink) = if app.night_reading {
+                        (layout::NIGHT_PAPER, Color32::from_gray(85), layout::NIGHT_INK)
+                    } else {
+                        (Color32::from_gray(232), Color32::from_gray(205), Color32::from_gray(120))
+                    };
+                    painter.rect_filled(rect, *radius, fill);
                     painter.rect_stroke(
                         rect,
                         *radius,
-                        Stroke::new(1.0, Color32::from_gray(205)),
+                        Stroke::new(1.0, border),
                         StrokeKind::Inside,
                     );
                     let label = if alt.is_empty() { "🖼" } else { alt.as_str() };
@@ -608,7 +620,7 @@ fn paint(app: &mut RichApp, ui: &Ui, painter: &egui::Painter, item: &Item, offse
                         egui::Align2::CENTER_CENTER,
                         label,
                         egui::FontId::proportional(13.0),
-                        Color32::from_gray(120),
+                        ink,
                     );
                 }
             }

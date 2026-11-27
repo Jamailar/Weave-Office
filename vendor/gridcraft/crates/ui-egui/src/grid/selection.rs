@@ -114,7 +114,7 @@ pub(crate) fn paint_selection(input: SelectionPaintInput<'_>) {
                 continue;
             }
             let rr = geo.range_rect(sh, r);
-            let col = Tokens::get(p.ctx()).ref_color(idx, true);
+            let col = t.ref_color(idx, true);
             p.rect_filled(rr, 0.0, col.gamma_multiply(0.12));
             p.rect_stroke(rr, 0.0, Stroke::new(1.5, col), StrokeKind::Inside);
             for corner in [rr.left_top(), rr.right_top(), rr.left_bottom(), rr.right_bottom()] {

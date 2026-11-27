@@ -278,6 +278,54 @@ pub fn contrast(a: Color32, b: Color32) -> f32 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
+impl Tokens {
+    /// Apply the night palette only to the worksheet, not to the formula bar or ribbon.
+    pub(crate) fn worksheet(mut self, night: bool) -> Self {
+        if night {
+            let dark = Self::dark();
+            self.grid_bg = Color32::from_rgb(28, 30, 34);
+            self.desk = Color32::from_gray(22);
+            self.gridline = Color32::from_gray(64);
+            self.cell_text = Color32::from_gray(224);
+            self.header_bg = dark.header_bg;
+            self.header_text = dark.header_text;
+            self.header_line = dark.header_line;
+            self.header_sel_bg = dark.header_sel_bg;
+            self.header_sel_text = dark.header_sel_text;
+            self.header_all_bg = dark.header_all_bg;
+            self.sel_border = dark.accent;
+            self.sheet_ref_colors = dark.ref_colors;
+        }
+        self
+    }
+}
+
+/// Dim deliberate fills without reversing the order of a heatmap or changing the stored colors.
+pub(crate) fn night_cell_fill(color: Color32) -> Color32 {
+    let peak = u16::from(color.r().max(color.g()).max(color.b()));
+    if peak <= 51 {
+        return color;
+    }
+    let target = 51 + (peak - 51) * 23 / 204;
+    let dim = |c: u8| (u16::from(c) * target / peak) as u8;
+    Color32::from_rgb(dim(color.r()), dim(color.g()), dim(color.b()))
+}
+
+pub(crate) fn night_cell_ink(color: Color32, fill: Color32) -> Color32 {
+    if contrast(color, fill) >= 4.5 {
+        return color;
+    }
+    // Lighten colored ink toward white while retaining its hue (e.g. negative numbers in red).
+    for amount in [64_u16, 128, 192, 255] {
+        let brighten = |c: u8| (u16::from(c) + (255 - u16::from(c)) * amount / 255) as u8;
+        let light = Color32::from_rgb(brighten(color.r()), brighten(color.g()), brighten(color.b()));
+        if contrast(light, fill) >= 4.5 {
+            return light;
+        }
+    }
+    Color32::WHITE
+}
+
 /// Installs light and dark token visuals in both theme slots, keeps the 2-3 px widget and 8-10 px window/menu corner radii from 0.36, and sets spacing, text styles and the active theme.
 pub fn apply(ctx: &egui::Context, dark: bool) {
     // Install both palettes before System can switch between the style slots.

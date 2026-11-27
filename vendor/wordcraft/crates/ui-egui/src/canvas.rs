@@ -89,16 +89,49 @@ const GAP: f32 = 18.0;
 /// Width reserved for the vertical scrollbar beside the canvas.
 const SCROLLBAR: f32 = 14.0;
 const RULER: f32 = 22.0;
-/// Maximum device-pixel height of a tile on very tall Web/Draft pages.
-const TILE_HEIGHT_PX: usize = 1024;
+/// Bound the size of each synchronous tile at high zoom and on HiDPI displays.
+const TILE_SIDE_PX: usize = 640;
+const FULL_RASTER_PIXELS: usize = 1_500_000;
+const ZOOM_SETTLE: f64 = 0.12;
+type TileId = (usize, usize, usize);
+type RasterKey = (u64, u32, usize);
+
+#[derive(Default)]
+struct RasterZoom {
+    observed: Option<f32>,
+    held: f32,
+    changed_at: f64,
+}
+
+impl RasterZoom {
+    fn scale(&mut self, target: f32, now: f64, ctx: &egui::Context) -> f32 {
+        match self.observed.replace(target) {
+            None => self.held = target,
+            Some(previous) if previous.to_bits() != target.to_bits() => self.changed_at = now,
+            _ => {}
+        }
+        if self.held != target {
+            let remaining = ZOOM_SETTLE - (now - self.changed_at);
+            if remaining > 0.0 {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
+            } else {
+                self.held = target;
+            }
+        }
+        self.held
+    }
+}
 /// Page textures are kept for pages within this many viewport heights of the view; farther ones
 /// are rendered again when they come back.
 const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
-    textures: HashMap<usize, (u64, TextureHandle)>,
-    /// Visible full-resolution tiles of pages too tall for one GPU texture.
-    tiles: HashMap<(usize, usize), (u64, TextureHandle)>,
+    textures: HashMap<usize, (RasterKey, TextureHandle)>,
+    /// Visible full-resolution tiles, indexed by page and both raster axes.
+    tiles: HashMap<TileId, (RasterKey, TextureHandle)>,
+    /// Previous zoom's visible tiles while the sharper tiles replace them.
+    zoom_fallback: HashMap<TileId, (RasterKey, TextureHandle)>,
+    raster_zoom: RasterZoom,
     /// Page content fingerprints of the current layout, for the texture cache (#811).
     pub(crate) page_keys: PageKeys,
     /// Whether the document has tracked formatting changes, moves and deletions, by document
@@ -347,6 +380,8 @@ impl Default for CanvasState {
         CanvasState {
             textures: HashMap::new(),
             tiles: HashMap::new(),
+            zoom_fallback: HashMap::new(),
+            raster_zoom: RasterZoom::default(),
             page_keys: PageKeys::default(),
             markup_facts: std::cell::Cell::new(None),
             scroll_to_caret: true,
@@ -489,8 +524,6 @@ struct CanvasView {
     area: Rect,
     hruler: Option<Rect>,
     vruler: Option<Rect>,
-    dark_page: bool,
-    sepia_page: bool,
     animate: bool,
     opts: egui::InputOptions,
     geo: Geometry,
@@ -500,10 +533,7 @@ struct CanvasView {
 }
 
 fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &DocLayout) -> CanvasView {
-    use wordcraft_engine::cmd::view::ReadPageColor;
     let read_mode = app.session.view.read_mode;
-    let dark_page = if read_mode { app.session.view.read_page_color == ReadPageColor::Inverse } else { app.session.view.dark_mode };
-    let sepia_page = read_mode && app.session.view.read_page_color == ReadPageColor::Sepia;
     let show_ruler = app.session.view.ruler
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
         && !read_mode
@@ -571,7 +601,7 @@ fn prepare_view(app: &mut WordApp, ui: &Ui, full: Rect, layout: &DocLayout) -> C
     {
         app.session.page_hint = c.page;
     }
-    CanvasView { area, hruler, vruler, dark_page, sepia_page, animate, opts, geo, dim_body, grid_story, caret }
+    CanvasView { area, hruler, vruler, animate, opts, geo, dim_body, grid_story, caret }
 }
 
 fn update_caret_scroll(app: &mut WordApp, view: &CanvasView) -> Option<Rect> {
@@ -835,8 +865,6 @@ struct PagePaint<'a> {
     t: &'a Tokens,
     painter: &'a egui::Painter,
     dim_body: bool,
-    dark_page: bool,
-    sepia_page: bool,
     hidden: Option<(usize, Pos)>,
     view: u64,
     content_origin: Pos2,
@@ -847,7 +875,7 @@ struct PagePaint<'a> {
 
 struct PagePaintOutput {
     rects: Vec<Rect>,
-    visible_tile_keys: HashSet<(usize, usize)>,
+    visible_tile_keys: HashSet<TileId>,
     rendered: usize,
 }
 
@@ -883,38 +911,46 @@ fn draw_page_gridlines(app: &WordApp, painter: &egui::Painter, t: &Tokens, page:
 }
 
 fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
-    let PagePaint { app, ui, layout, geo, t, painter, dim_body, dark_page, sepia_page, hidden, view, content_origin, ppp, max_tex, grid_story } =
+    let PagePaint { app, ui, layout, geo, t, painter, dim_body, hidden, view, content_origin, ppp, max_tex, grid_story } =
         pass;
     let mut visible_tile_keys = HashSet::new();
     let mut rendered = 0;
     let mut rects = Vec::with_capacity(geo.rects.len());
+    let current_scale = geo.scale * ppp;
+    let now = ui.input(|input| input.time);
+    let previous_scale = app.canvas.raster_zoom.held;
+    let scale_px = app.canvas.raster_zoom.scale(current_scale, now, ui.ctx());
+    if previous_scale != scale_px {
+        app.canvas.zoom_fallback = std::mem::take(&mut app.canvas.tiles);
+    }
+    let mut refining = false;
+    let tile_side = TILE_SIDE_PX.min(max_tex as usize).max(1);
+    let opts = page_render_options(app, dim_body);
+    let wordcraft_doc::props::Rgb(r, g, b) = opts.paper_of(page_doc(app));
+    let paper = Color32::from_rgb(r, g, b);
+    let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
     for (i, pr) in geo.rects.iter().enumerate() {
         let sr = pr.translate(content_origin.to_vec2());
         let Some(page) = layout.pages.get(i) else { continue };
         let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
-        // A Web/Draft page can be arbitrarily tall. Shrinking the whole page into one GPU
-        // texture makes the text blurry; split those pages into native-resolution tiles.
-        let width_scale = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).max(0.05);
-        let tiled = page.h.clamp(1.0, 1e6) * width_scale > max_tex;
-        let scale_px = if tiled { width_scale } else { width_scale.min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05) };
-        let tile_height_px = TILE_HEIGHT_PX.min(max_tex as usize).max(1);
+        let width_px = (page.w * scale_px).ceil() as usize;
+        let height_px = (page.h.clamp(1.0, 1e6) * scale_px).ceil() as usize;
+        let tiled = width_px.max(height_px) > max_tex as usize || width_px.saturating_mul(height_px) > FULL_RASTER_PIXELS;
         // Hide White Space shows only a band of the page; everything below paints into it.
         let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
-        let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
-        // Only pages on screen or with a texture need their key (#811).
-        let cached = !tiled && app.canvas.textures.contains_key(&i);
-        let key =
-            if visible || cached { page_key(app, layout, i, view, scale_px) ^ if tiled { (tile_height_px as u64) << 32 } else { 0 } } else { 0 };
-        let mut fresh = cached && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
-        // The page a drag took an object off: render it this frame whatever the budget, or the
-        // raster with the object still on it shows for a frame.
+        let clip = ui.clip_rect().intersect(band_of(sr));
+        if !clip.is_positive() || !sr.intersects(clip) {
+            rects.push(sr);
+            continue;
+        }
+        let content = page_key(app, layout, i, view);
+        let key = (content, scale_px.to_bits(), if tiled { tile_side } else { 0 });
+        let mut fresh = !tiled && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
         let forced = hidden.as_ref().is_some_and(|(page, _)| *page == i);
-        // Render before placing the page: a page re-rendered in this frame (a zoom step, an
-        // edit) then sits on the pixel grid in this frame too, rather than a frame later.
-        if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
-            let mut opts = page_render_options(app, dim_body);
-            // Only on the page it is on: the `Pos` can't match an object of another page.
-            opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
+        let mut opts = opts.clone();
+        opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
+        // An edit or palette change invalidates both the sharp raster and any zoom fallback.
+        if !tiled && !fresh && (forced || rendered < 2) {
             let img = wordcraft_render::render_page(page_doc(app), page, scale_px, &opts);
             let ci = page_image(&img);
             match app.canvas.textures.get_mut(&i) {
@@ -929,87 +965,84 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
             }
             rendered += 1;
             fresh = true;
-        } else if visible && !tiled && !fresh {
+        } else if !tiled && !fresh {
+            refining = true;
             ui.ctx().request_repaint();
         }
-        let current_scale = geo.scale * ppp;
         let visual_sr = if fresh && (scale_px - current_scale).abs() <= 0.0001_f32.max(current_scale.abs() * 0.0001) {
             app.canvas.textures.get(&i).map_or(sr, |(_, tex)| texel_aligned_rect(sr, tex.size_vec2(), ppp))
         } else {
             sr
         };
         rects.push(visual_sr);
-        if !visible {
-            continue;
-        }
         let band = band_of(visual_sr);
         let painter =
             if band_top <= 0.0 && band_bot >= sr.height() { painter.clone() } else { painter.with_clip_rect(painter.clip_rect().intersect(band)) };
-        // Shadow and paper.
         painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
-        let paper = if dark_page {
-            Color32::from_gray(wordcraft_render::DARK_PAPER)
-        } else if sepia_page {
-            let s = wordcraft_render::SEPIA_PAPER;
-            Color32::from_rgb(s.0, s.1, s.2)
-        } else {
-            Color32::WHITE
-        };
         painter.rect_filled(visual_sr, 0.0, paper);
-        if tiled {
-            // Render before painting to keep the frame sharp immediately after an edit or
-            // zoom. Tiles are fixed to raster-pixel boundaries, independent of scrolling.
-            app.canvas.textures.remove(&i);
-            let total_px = (page.h.clamp(1.0, 1e6) * scale_px).ceil() as usize;
-            let screen_per_raster_px = geo.scale / scale_px;
-            let base = pos2((sr.min.x * ppp).round() / ppp, (sr.min.y * ppp).round() / ppp);
-            for tile in visible_tiles(sr, ui.clip_rect().expand(200.0).intersect(band), geo.scale, scale_px, tile_height_px) {
-                let start_px = tile.saturating_mul(tile_height_px);
-                let height_px = total_px.saturating_sub(start_px).min(tile_height_px);
-                if height_px == 0 {
+        // Keep a same-content full raster underneath the sharp tiles while they arrive.
+        if let Some((_, tex)) = app.canvas.textures.get(&i).filter(|((k, _, _), _)| *k == content) {
+            painter.image(tex.id(), visual_sr, uv, Color32::WHITE);
+        } else if !fresh {
+            for (&(page, x, y), &((painted, scale, side), ref tex)) in &app.canvas.zoom_fallback {
+                if page != i || painted != content {
                     continue;
                 }
-                let id = (i, tile);
-                visible_tile_keys.insert(id);
-                let fresh = app.canvas.tiles.get(&id).is_some_and(|(k, _)| *k == key);
-                if !fresh && rendered < 4 {
-                    let mut opts = page_render_options(app, dim_body);
-                    // Only on the page it is on: the `Pos` can't match an object of another page.
-                    opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
-                    // The tiny subtraction avoids a 1px overshoot from round-tripping f32
-                    // pixels through page points and render_area's ceil() conversion.
-                    let img = wordcraft_render::render_area(
-                        page_doc(app),
-                        page,
-                        wordcraft_geom::Rect::new(0.0, start_px as f32 / scale_px, page.w, (height_px as f32 - 0.01).max(0.01) / scale_px),
-                        scale_px,
-                        &opts,
-                    );
-                    let ci = page_image(&img);
-                    match app.canvas.tiles.get_mut(&id) {
-                        Some((k, tex)) => {
-                            tex.set(ci, egui::TextureOptions::LINEAR);
-                            *k = key;
-                        }
-                        None => {
-                            let tex = ui.ctx().load_texture(format!("page{i}-tile{tile}"), ci, egui::TextureOptions::LINEAR);
-                            app.canvas.tiles.insert(id, (key, tex));
-                        }
-                    }
-                    rendered += 1;
-                } else if !fresh {
-                    ui.ctx().request_repaint();
-                }
-                if let Some((_, tex)) = app.canvas.tiles.get(&id) {
-                    let rect = Rect::from_min_size(
-                        pos2(base.x, base.y + start_px as f32 * screen_per_raster_px),
-                        vec2(tex.size_vec2().x * screen_per_raster_px, height_px as f32 * screen_per_raster_px),
-                    );
-                    painter.image(tex.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                let factor = geo.scale / f32::from_bits(scale);
+                let rect = Rect::from_min_size(
+                    sr.min + vec2((x * side) as f32, (y * side) as f32) * factor,
+                    tex.size_vec2() * factor,
+                );
+                if rect.intersects(clip) {
+                    painter.image(tex.id(), rect, uv, Color32::WHITE);
                 }
             }
-        } else if let Some((_, tex)) = app.canvas.textures.get(&i) {
-            painter.image(tex.id(), visual_sr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        }
+        if tiled {
+            let screen_per_raster_px = geo.scale / scale_px;
+            let base = pos2((sr.min.x * ppp).round() / ppp, (sr.min.y * ppp).round() / ppp);
+            // Use the same snapped origin for demand and paint so edge tiles and clipped
+            // panes agree. Swapping axes lets the same range calculation handle x and y.
+            let raster_rect = Rect::from_min_size(base, vec2(width_px as f32, height_px as f32) * screen_per_raster_px);
+            let transpose = |r: Rect| Rect::from_min_max(pos2(r.min.y, r.min.x), pos2(r.max.y, r.max.x));
+            let ys = visible_tiles(raster_rect, clip, geo.scale, scale_px, tile_side);
+            let xs = visible_tiles(transpose(raster_rect), transpose(clip), geo.scale, scale_px, tile_side);
+            for y in ys {
+                for x in xs.clone() {
+                    let (x0, y0) = (x * tile_side, y * tile_side);
+                    let w = width_px.saturating_sub(x0).min(tile_side);
+                    let h = height_px.saturating_sub(y0).min(tile_side);
+                    if w == 0 || h == 0 {
+                        continue;
+                    }
+                    let id = (i, x, y);
+                    visible_tile_keys.insert(id);
+                    let fresh = app.canvas.tiles.get(&id).is_some_and(|(k, _)| *k == key);
+                    if !fresh && (forced || rendered < 3) {
+                        // Subtract a fraction of one pixel to avoid a ceil overshoot when
+                        // converting the integer tile size through page points.
+                        let area = wordcraft_geom::Rect::new(
+                            x0 as f32 / scale_px, y0 as f32 / scale_px,
+                            (w as f32 - 0.01) / scale_px, (h as f32 - 0.01) / scale_px,
+                        );
+                        let img = wordcraft_render::render_area(page_doc(app), page, area, scale_px, &opts);
+                        let ci = page_image(&img);
+                        let tex = ui.ctx().load_texture(format!("page{i}-tile{x}-{y}"), ci, egui::TextureOptions::LINEAR);
+                        app.canvas.tiles.insert(id, (key, tex));
+                        rendered += 1;
+                    } else if !fresh {
+                        refining = true;
+                        ui.ctx().request_repaint();
+                    }
+                    if let Some((_, tex)) = app.canvas.tiles.get(&id).filter(|(k, _)| *k == key) {
+                        let rect = Rect::from_min_size(
+                            base + vec2(x0 as f32, y0 as f32) * screen_per_raster_px,
+                            vec2(w as f32, h as f32) * screen_per_raster_px,
+                        );
+                        painter.image(tex.id(), rect, uv, Color32::WHITE);
+                    }
+                }
+            }
         }
         let page_scale = page_screen_scale(visual_sr, page, geo.scale);
         // Header/footer editing chrome.
@@ -1038,6 +1071,9 @@ fn paint_pages(pass: PagePaint<'_>) -> PagePaintOutput {
                 painter.rect_stroke(r, 0.0, Stroke::new(0.5, t.blue.linear_multiply(0.6)), egui::StrokeKind::Middle);
             }
         }
+    }
+    if !refining {
+        app.canvas.zoom_fallback.clear();
     }
     PagePaintOutput { rects, visible_tile_keys, rendered }
 }
@@ -1324,7 +1360,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let scroll_target = update_caret_scroll(app, &view);
     let motion = scroll_motion(app, ui, full, &view);
     let scroll_area = configure_scroll_area(app, ui, &view, motion);
-    let CanvasView { area, hruler, vruler, dark_page, sepia_page, geo, dim_body, grid_story, caret, .. } = view;
+    let CanvasView { area, hruler, vruler, geo, dim_body, grid_story, caret, .. } = view;
     let mut origin = area.min;
     let mut ui_area = ui.new_child(egui::UiBuilder::new().max_rect(area));
     let mut ime_geometry: Option<(Rect, Rect)> = None;
@@ -1351,8 +1387,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             t: &t,
             painter: &painter,
             dim_body,
-            dark_page,
-            sepia_page,
             hidden,
             view: page_view,
             content_origin,

@@ -16,6 +16,8 @@ struct Running {
     frame: eframe::Frame,
     output: egui::FullOutput,
     time: f64,
+    texture_bytes: usize,
+    system_theme: Option<egui::Theme>,
 }
 
 impl Running {
@@ -33,6 +35,7 @@ impl Running {
         app.mounted = None;
         app.ui_font = Some(crate::ui_fonts::UiFonts::load());
         let ctx = egui::Context::default();
+        ctx.set_theme(theme_preference(&app.settings.theme));
         ctx.enable_accesskit();
         let mut running = Self {
             app,
@@ -40,6 +43,8 @@ impl Running {
             frame: eframe::Frame::_new_kittest(),
             output: egui::FullOutput::default(),
             time: 0.0,
+            texture_bytes: 0,
+            system_theme: None,
         };
         for _ in 0..20 {
             running.pass(Vec::new());
@@ -61,7 +66,11 @@ impl Running {
 
     /// One window frame, as eframe runs it.
     fn pass(&mut self, events: Vec<egui::Event>) -> usize {
-        self.time += 1.0 / 30.0;
+        self.pass_at_rate(events, 30.0)
+    }
+
+    fn pass_at_rate(&mut self, events: Vec<egui::Event>, hz: f64) -> usize {
+        self.time += 1.0 / hz;
         let mut input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -69,6 +78,7 @@ impl Running {
             )),
             time: Some(self.time),
             focused: true,
+            system_theme: self.system_theme,
             events,
             ..Default::default()
         };
@@ -78,6 +88,13 @@ impl Running {
             eframe::App::logic(app, ui.ctx(), frame);
             eframe::App::ui(app, ui, frame);
         });
+        self.texture_bytes = output
+            .textures_delta
+            .set
+            .iter()
+            .flat_map(|(_, deltas)| deltas.iter())
+            .map(|delta| delta.image.size().iter().product::<usize>() * 4)
+            .sum();
         output.textures_delta.clear();
         let passes = output.platform_output.num_completed_passes;
         self.output = output;
@@ -141,6 +158,275 @@ impl Running {
     fn editor(&mut self, id: TabId) -> &mut crate::editor::Editor {
         &mut self.app.host.documents.get_mut(&id).unwrap().editor
     }
+}
+
+fn pdf(running: &mut Running, id: TabId) -> &mut pdfcraft_ui_egui::PdfCraftApp {
+    let crate::editor::Editor::Pdf(app) = running.editor(id) else {
+        panic!("PDF did not open");
+    };
+    app
+}
+
+fn settle_pdf(running: &mut Running, id: TabId) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    // Advance past the zoom holds before treating an empty queue as settled.
+    running.idle(13);
+    loop {
+        running.pass(Vec::new());
+        if !pdf(running, id).render_pending() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "PDF raster did not settle");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(pdf(running, id).views[0].page_errors().is_empty());
+}
+
+#[test]
+fn pdf_rapid_zoom_reuses_the_page_then_sharpens_at_the_final_scale() {
+    let (mut running, id) = Running::new(DocumentKind::Pdf);
+    pdf(&mut running, id).views[0].set_zoom(0.9);
+    settle_pdf(&mut running, id);
+    let page = pdf(&mut running, id).views[0].page_screen_rect(0).unwrap();
+    let pos = page.intersect(egui::Rect::from_min_max(egui::pos2(250.0, 220.0), egui::pos2(1390.0, 840.0))).center();
+    let manager = running.ctx.tex_manager();
+    let raster = || {
+        manager.read().allocated().find(|(_, meta)| meta.name.starts_with("page-")).map(|(id, meta)| (*id, meta.size)).unwrap()
+    };
+    let zoom = || vec![egui::Event::PointerMoved(pos), egui::Event::Zoom(1.05)];
+    let before = raster();
+    // The first notch can submit work; all later transient scales must leave the texture
+    // alone. The warm cache is important: a page without pixels must still be able to render.
+    running.pass_at_rate(zoom(), 60.0);
+    let during = raster();
+    for _ in 1..8 {
+        running.pass_at_rate(zoom(), 60.0);
+        assert_eq!(raster(), during);
+        assert!(!pdf(&mut running, id).render_pending(), "no transient raster should be queued");
+    }
+    assert!(pdf(&mut running, id).views[0].zoom > 1.3);
+    settle_pdf(&mut running, id);
+    let after = raster();
+    assert_ne!(after.0, during.0);
+    assert!(after.1[0] > before.1[0]);
+    let page = pdf(&mut running, id).views[0].page_screen_rect(0).unwrap();
+    assert!((after.1[0] as f32 - page.width() * running.ctx.pixels_per_point()).abs() <= 2.0);
+}
+
+/// Replays sustained PDF zoom at a 60 Hz input cadence, with workers but without a GPU.
+/// Use the same PDF and run alone for comparable p95 CPU time and texture upload demand.
+#[test]
+#[ignore = "set WEAVE_ZOOM_PDF to a local test PDF and run with --nocapture"]
+fn pdf_zoom_replay() {
+    use std::time::{Duration, Instant};
+
+    let path = std::env::var_os("WEAVE_ZOOM_PDF").expect("WEAVE_ZOOM_PDF");
+    let (mut running, blank_id) = Running::new(DocumentKind::Pdf);
+    running.app.actions.push_back(Action::Open(path.into()));
+    running.idle(4);
+    let id = running.app.mounted.unwrap();
+    assert_ne!(id, blank_id, "the requested benchmark PDF did not open");
+    let at = ["夜间阅读", "Night reading"].into_iter()
+        .find_map(|label| running.widget(label)).expect("night button").center();
+    for night in [false, true, true, false] {
+        let app = pdf(&mut running, id);
+        let (_, doc) = app.active_ids().unwrap();
+        if app.session.reading_colors(doc).unwrap().params.is_some() != night {
+            running.click(at);
+        }
+        pdf(&mut running, id).views[0].set_zoom(1.0);
+        settle_pdf(&mut running, id);
+        let pos = pdf(&mut running, id).views[0].page_screen_rect(0).unwrap().intersect(
+            egui::Rect::from_min_max(egui::pos2(250.0, 220.0), egui::pos2(1390.0, 840.0))
+        ).center();
+        let mut times = Vec::new();
+        let mut bytes = 0;
+        let started = Instant::now();
+        for k in 0..120 {
+            let frame = Instant::now();
+            let factor = if k % 60 < 30 { 1.045 } else { 1.0 / 1.045 };
+            running.pass_at_rate(vec![egui::Event::PointerMoved(pos), egui::Event::Zoom(factor)], 60.0);
+            times.push(frame.elapsed().as_secs_f64() * 1000.0);
+            bytes += running.texture_bytes;
+            if k == 29 {
+                assert!(pdf(&mut running, id).views[0].zoom > 3.0, "gesture reached the page");
+            }
+            let next = started + Duration::from_secs_f64((k + 1) as f64 / 60.0);
+            if let Some(remaining) = next.checked_duration_since(Instant::now()) {
+                std::thread::sleep(remaining);
+            }
+        }
+        let ended = started.elapsed();
+        times.sort_by(f64::total_cmp);
+        eprintln!("night={night} p50={:.2}ms p95={:.2}ms max={:.2}ms over16.7ms={} rgba={:.1}MiB elapsed={ended:.2?}",
+            times[59], times[113], times[119], times.iter().filter(|&&t| t > 1000.0 / 60.0).count(), bytes as f64 / 1048576.0);
+    }
+}
+
+#[test]
+fn night_reading_buttons_toggle_only_the_active_document_view() {
+    use crate::editor::Editor;
+    use crate::output::{PdfPurpose, pdf_bytes};
+
+    fn print_image(editor: &mut Editor) -> Vec<u8> {
+        let bytes = pdf_bytes(editor, PdfPurpose::Print).unwrap();
+        let mut session = pdfcraft_engine::Session::new();
+        let id = session.open("print.pdf", None, std::sync::Arc::new(bytes), None).unwrap();
+        pdfcraft_engine::export::Exporter::new(session.get(id).unwrap()).png(0, 72.0).unwrap()
+    }
+
+    fn exported_image(editor: &Editor) -> Option<Vec<u8>> {
+        let Editor::Pdf(app) = editor else { return None };
+        let (_, doc) = app.active_ids().unwrap();
+        Some(pdfcraft_engine::export::Exporter::new(app.session.get(doc).unwrap()).png(0, 72.0).unwrap())
+    }
+
+    fn has_fill(shapes: &[egui::epaint::ClippedShape], color: egui::Color32) -> bool {
+        fn filled(shape: &egui::Shape, color: egui::Color32) -> bool {
+            match shape {
+                egui::Shape::Rect(rect) => rect.fill == color && rect.rect.area() > 20_000.0,
+                egui::Shape::Vec(shapes) => shapes.iter().any(|shape| filled(shape, color)),
+                _ => false,
+            }
+        }
+        shapes.iter().any(|shape| filled(&shape.shape, color))
+    }
+
+    let button = |running: &Running| {
+        ["夜间阅读", "Night reading"]
+            .into_iter()
+            .find_map(|label| running.widget(label))
+    };
+    for kind in [DocumentKind::Text, DocumentKind::Spreadsheet, DocumentKind::Pdf, DocumentKind::RichText] {
+        let (mut running, id) = Running::after(&[kind], kind);
+        let other = running.app.host.workspace.tabs().iter().find(|tab| tab.id != id).unwrap().id;
+        let original = running.editor(id).snapshot().unwrap()().unwrap();
+        let dirty = running.editor(id).dirty();
+        let history = running.editor(id).history_available();
+        let printed = print_image(running.editor(id));
+        let image = exported_image(running.editor(id));
+        let night = egui::Color32::from_rgb(28, 30, 34);
+        let at = button(&running).unwrap_or_else(|| panic!("no night button in {kind:?}")).center();
+        for on in [true, false] {
+            running.click(at);
+            match running.editor(id) {
+                Editor::Pdf(app) => {
+                    let (_, doc) = app.active_ids().unwrap();
+                    assert_eq!(app.session.reading_colors(doc).unwrap().params.map(|p| p.background), on.then_some([28, 30, 34]));
+                }
+                Editor::Word(app) => assert_eq!(app.session.view.dark_mode, on),
+                Editor::Sheet(_) | Editor::Rich(_) => assert_eq!(has_fill(&running.output.shapes, night), on, "{kind:?}"),
+                _ => unreachable!(),
+            }
+            assert_eq!(running.editor(id).snapshot().unwrap()().unwrap(), original, "serialized {kind:?}");
+            assert_eq!(running.editor(id).dirty(), dirty);
+            assert_eq!(running.editor(id).history_available(), history);
+            if on {
+                assert_eq!(print_image(running.editor(id)), printed, "print rendering for {kind:?}");
+                assert_eq!(exported_image(running.editor(id)), image, "PDF image export");
+                running.app.actions.push_back(Action::Activate(other));
+                running.idle(8);
+                assert_eq!(running.app.mounted, Some(other));
+                match running.editor(other) {
+                    Editor::Pdf(app) => assert!(app.session.reading_colors(app.active_ids().unwrap().1).unwrap().params.is_none()),
+                    Editor::Word(app) => assert!(!app.session.view.dark_mode),
+                    Editor::Sheet(_) | Editor::Rich(_) => assert!(!has_fill(&running.output.shapes, night), "other {kind:?}"),
+                    _ => unreachable!(),
+                }
+                running.app.actions.push_back(Action::Activate(id));
+                running.idle(8);
+                assert_eq!(running.app.mounted, Some(id));
+            }
+        }
+    }
+
+    let (running, _) = Running::new(DocumentKind::Presentation);
+    assert!(button(&running).is_none());
+}
+
+#[test]
+fn document_night_follows_resolved_theme_in_both_split_panes() {
+    use crate::editor::Editor;
+
+    let (mut running, word) = Running::after(&[DocumentKind::Pdf], DocumentKind::Text);
+    let pdf_id = running.app.host.workspace.tabs().iter().find(|tab| tab.id != word).unwrap().id;
+    let legacy: Settings = serde_json::from_value(json!({"theme": "system"})).unwrap();
+    assert_eq!(legacy.document_appearance, DocumentAppearance::FollowAppearance);
+    running.app.settings = legacy;
+    running.ctx.set_theme(egui::ThemePreference::System);
+    running.app.actions.push_back(Action::Split(crate::panes::SplitAxis::LeftRight, Some(pdf_id), None));
+    running.idle(5);
+    assert!(running.app.panes.is_split());
+
+    for (theme, policy, on) in [
+        (egui::Theme::Dark, DocumentAppearance::FollowAppearance, true),
+        (egui::Theme::Light, DocumentAppearance::FollowAppearance, false),
+        (egui::Theme::Dark, DocumentAppearance::Original, false),
+        (egui::Theme::Light, DocumentAppearance::Night, true),
+    ] {
+        running.system_theme = Some(theme);
+        running.app.settings.document_appearance = policy;
+        running.idle(5);
+        assert_eq!(running.ctx.theme(), theme);
+        let Editor::Word(app) = running.editor(word) else { unreachable!() };
+        assert_eq!(app.session.view.dark_mode, on, "Word: {theme:?} {policy:?}");
+        let app = pdf(&mut running, pdf_id);
+        let colors = app.session.reading_colors(app.active_ids().unwrap().1).unwrap();
+        assert_eq!(colors.params.is_some_and(|p| p.adaptive_night), on, "PDF: {theme:?} {policy:?}");
+    }
+    let saved = serde_json::to_value(&running.app.settings).unwrap();
+    assert_eq!(serde_json::from_value::<Settings>(saved).unwrap().document_appearance, DocumentAppearance::Night);
+}
+
+fn word_zoom_replay() -> (usize, usize, Vec<f64>, Vec<f64>, usize) {
+    fn zoom(running: &mut Running, id: TabId, percent: u32) {
+        running.editor(id).command("view.zoom", json!({"value": percent})).unwrap();
+    }
+
+    let (mut running, id) = Running::new(DocumentKind::Text);
+    running.type_text(&"Zoom test: the quick brown fox jumps over the lazy dog. ".repeat(60));
+    zoom(&mut running, id, 150);
+    running.idle(15);
+    let mut gesture = Vec::new();
+    let mut settled = Vec::new();
+    let mut motion_bytes = 0;
+    let mut settle_bytes = 0;
+    let mut largest_frame = 0;
+    for pct in (155..=500).step_by(5) {
+        let start = std::time::Instant::now();
+        zoom(&mut running, id, pct);
+        running.pass_at_rate(Vec::new(), 60.0);
+        gesture.push(start.elapsed().as_secs_f64() * 1000.0);
+        motion_bytes += running.texture_bytes;
+    }
+    for _ in 0..18 {
+        let start = std::time::Instant::now();
+        running.pass_at_rate(Vec::new(), 60.0);
+        settled.push(start.elapsed().as_secs_f64() * 1000.0);
+        settle_bytes += running.texture_bytes;
+        largest_frame = largest_frame.max(running.texture_bytes);
+    }
+    assert_eq!(running.texture_bytes, 0, "sharp rasters settle instead of repainting forever");
+    (motion_bytes, settle_bytes, gesture, settled, largest_frame)
+}
+
+#[test]
+fn word_zoom_reuses_page_pixels_and_sharpens_after_pausing() {
+    let (motion, settled, _, _, peak) = word_zoom_replay();
+    assert!(motion < 8 * 1024 * 1024, "zoom motion uploaded {motion} bytes");
+    assert!(settled > 0, "stopping zoom must upload sharper tiles");
+    assert!(peak <= 3 * 640 * 640 * 4, "only visible, bounded tiles should be rendered per frame: {peak} bytes");
+}
+
+#[test]
+#[ignore = "run alone in release mode with --nocapture to measure CPU frame times"]
+fn word_zoom_replay_report() {
+    let (motion, settled, mut gesture, mut idle, peak) = word_zoom_replay();
+    gesture.sort_by(f64::total_cmp);
+    idle.sort_by(f64::total_cmp);
+    let p95 = |samples: &[f64]| samples[(samples.len() * 95).div_ceil(100) - 1];
+    eprintln!("Word 150–500%: motion p95={:.2}ms max={:.2}ms, post-gesture max={:.2}ms, motion RGBA={:.2}MiB, post-gesture RGBA={:.2}MiB peak={:.2}MiB/frame",
+        p95(&gesture), gesture.last().unwrap(), idle.last().unwrap(), motion as f64 / 1048576.0, settled as f64 / 1048576.0, peak as f64 / 1048576.0);
 }
 
 /// Settled frames need one pass: a font set that the host and an editor keep replacing

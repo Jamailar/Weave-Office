@@ -446,6 +446,8 @@ pub(crate) struct Renderer {
     /// PdfCraft patch: when set, solid text and line-art paint colours are remapped
     /// while rendering (the "reading colours" view setting).
     color_replacement: Option<ColorReplacement>,
+    /// Whole-page crop bounds in this raster's coordinates, never the tile bounds.
+    pub(crate) reading_page: Option<Rect>,
     /// PdfCraft patch (17): while the page's annotations are being drawn, paints keep their
     /// colours — reading colours replace document colours, never annotation colours.
     in_annotations: bool,
@@ -568,6 +570,7 @@ impl Renderer {
         Self {
             ctx: RenderContext::new_with(width, height, settings),
             color_replacement,
+            reading_page: None,
             in_annotations: false,
             knockout: Vec::new(),
             erasing: false,
@@ -674,6 +677,7 @@ impl Renderer {
                 // PdfCraft patch: this renders an image's alpha mask, which must keep its
                 // original values, so it is never remapped by the reading-colours setting.
                 color_replacement: None,
+                reading_page: None,
                 in_annotations: false,
                 knockout: Vec::new(),
                 erasing: false,
@@ -1171,6 +1175,7 @@ impl Renderer {
         let mut renderer = Self {
             ctx: RenderContext::new_with(width, height, derive_settings(self.ctx.render_settings())),
             color_replacement: None,
+            reading_page: None,
             in_annotations: self.in_annotations,
             inside_pattern: self.inside_pattern,
             soft_mask_cache: HashMap::default(),
@@ -1227,6 +1232,37 @@ impl Renderer {
             }
             other => other.clone(),
         }
+    }
+
+    /// PDF paths have no background role. Recognize opaque rectangles covering the
+    /// crop box conservatively, including a rectangle expressed as a plain path.
+    fn paper_paint<'a>(&self, paint: &Paint<'a>, transform: Affine, rect: Rect) -> Option<Paint<'a>> {
+        let replacement = self.color_replacement?;
+        let crop = self.reading_page?;
+        if !replacement.line_art || self.in_annotations || self.cur_mask.is_some() || self.ctx.blend_mode() != peniko::BlendMode::default() {
+            return None;
+        }
+        let [a, b, c, d, _, _] = transform.as_coeffs();
+        let zero = |v: f64| v.abs() <= 1e-9;
+        if !((zero(b) && zero(c)) || (zero(a) && zero(d))) {
+            return None;
+        }
+        let bounds = transform.transform_rect_bbox(rect);
+        let tolerance = crop.width().min(crop.height()) * 0.002;
+        if bounds.width() <= 0.0 || bounds.height() <= 0.0 || !bounds.inflate(tolerance, tolerance).contains_rect(crop) {
+            return None;
+        }
+        let Paint::Color(color) = paint else { return None };
+        let [r, g, b, alpha] = color.to_rgba().to_rgba8();
+        if alpha != 255 {
+            return None;
+        }
+        let [pr, pg, pb] = replacement.background;
+        if r.max(g).max(b) <= 64 {
+            return Some(paint.clone());
+        }
+        let paper = hayro_interpret::color::AlphaColor::from_rgba8(pr, pg, pb, alpha);
+        Some(Paint::Color(Color::from_rgba(paper)))
     }
 
     /// The device-space area a shading painted on `path` covers: the path's bounding box, with
@@ -1444,6 +1480,7 @@ impl Renderer {
                                     derive_settings(self.ctx.render_settings()),
                                 ),
                                 color_replacement: None,
+                                reading_page: None,
                                 in_annotations: false,
                                 knockout: Vec::new(),
                                 erasing: false,
@@ -1508,6 +1545,7 @@ impl Renderer {
                             // PdfCraft patch: a pattern cell is painted as one artwork, so its
                             // content is never remapped by the reading-colours setting.
                             color_replacement: None,
+                            reading_page: None,
                             in_annotations: false,
                             knockout: Vec::new(),
                             erasing: false,
@@ -1612,7 +1650,20 @@ impl Renderer {
         }
 
         // PdfCraft patch: apply the reading-colours mapping before painting.
-        let paint = self.replaced(paint, is_text);
+        let paper = if !is_text && self.reading_page.is_some() && path.elements().len() <= 6 {
+            let bounds = path.bounding_box();
+            // A single straight-edged path with the area of its bounding rectangle.
+            let straight = path.elements().iter().all(|el| matches!(el, kurbo::PathEl::MoveTo(_) | kurbo::PathEl::LineTo(_) | kurbo::PathEl::ClosePath));
+            let one_subpath = path.elements().iter().filter(|el| matches!(el, kurbo::PathEl::MoveTo(_))).count() == 1;
+            if straight && one_subpath && (path.area().abs() - bounds.area()).abs() <= bounds.area() * 1e-6 {
+                self.paper_paint(paint, transform, bounds)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let paint = paper.unwrap_or_else(|| self.replaced(paint, is_text));
         let PaintSetup::Clip(clip_path) = self.set_paint(&paint, path, false) else { return };
         if let Some(clip_path) = clip_path.as_ref() {
             self.push_clip_path_inner(clip_path, fill_rule);
@@ -1739,7 +1790,7 @@ impl<'a> Device<'a> for Renderer {
                         // paint goes through the reading-colours mapping (line-art gate) like
                         // every other solid fill; baked in raw, its ink would stay at its
                         // original colour and vanish into a mapped background.
-                        let paint = &self.replaced(paint, false);
+                        let paint = &if self.reading_page.is_some() { paint.clone() } else { self.replaced(paint, false) };
                         match paint {
                             Paint::Color(c) => {
                                 let color = c.to_rgba().to_rgba8();
@@ -1814,6 +1865,7 @@ impl<'a> Device<'a> for Renderer {
                                         // coverage values, so its content is never remapped by
                                         // the reading-colours setting.
                                         color_replacement: None,
+                                        reading_page: None,
                                         in_annotations: false,
                                         knockout: Vec::new(),
                                         erasing: false,
@@ -2195,7 +2247,7 @@ impl<'a> Device<'a> for Renderer {
                 }
 
                 // PdfCraft patch: apply the reading-colours mapping before painting.
-                let paint = self.replaced(paint, false);
+                let paint = self.paper_paint(paint, transform, *rect).unwrap_or_else(|| self.replaced(paint, false));
                 let PaintSetup::Clip(clip_path) = self.set_paint(&paint, &path, false) else { return };
                 if let Some(clip_path) = clip_path.as_ref() {
                     self.push_clip_path_inner(clip_path, *fill_rule);
@@ -2331,6 +2383,7 @@ fn draw_soft_mask(mask: &SoftMask<'_>, settings: RenderSettings, width: u16, hei
         // PdfCraft patch: a soft mask must keep its original luminance values, so its
         // content is never remapped by the reading-colours setting.
         color_replacement: None,
+        reading_page: None,
         in_annotations: false,
         knockout: Vec::new(),
         erasing: false,

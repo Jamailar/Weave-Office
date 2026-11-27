@@ -7,6 +7,7 @@ pub fn tr(zh: bool, text: &str) -> &str {
     match text {
         "视图" => "View",
         "设计" => "Design",
+        "夜间阅读" => "Night reading",
         "源码" => "Source",
         "手机宽度" => "Phone width",
         "桌面宽度" => "Desktop width",
