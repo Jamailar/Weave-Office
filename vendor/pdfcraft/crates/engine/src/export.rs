@@ -73,7 +73,7 @@ impl Document {
     pub fn export_source(&self) -> ExportSource {
         ExportSource {
             bytes: self.display.clone(),
-            config: self.config.clone(),
+            config: pdfcraft_render::RenderConfig { reading_colors: Default::default(), ..self.config.clone() },
             pages: self.info.pages.len(),
             sizes: self.info.pages.iter().map(|p| (p.width, p.height)).collect(),
         }

@@ -482,6 +482,10 @@ impl weave_ribbon::HostedRibbon for WordApp {
         if self.session.view.read_mode {
             return;
         }
+        let label = if crate::i18n::current().code() == "zh-hans" { "夜间阅读" } else { "Night reading" };
+        if ui.selectable_label(self.session.view.dark_mode, label).clicked() {
+            let _ = self.run("view.darkMode", json!({}));
+        }
         let t = Tokens::get(ui.ctx());
         let level = match ui.available_width() {
             w if w >= 720.0 => 0,

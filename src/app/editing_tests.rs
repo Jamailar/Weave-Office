@@ -259,6 +259,87 @@ fn pdf_zoom_replay() {
     }
 }
 
+#[test]
+fn night_reading_buttons_toggle_only_the_active_document_view() {
+    use crate::editor::Editor;
+    use crate::output::{PdfPurpose, pdf_bytes};
+
+    fn print_image(editor: &mut Editor) -> Vec<u8> {
+        let bytes = pdf_bytes(editor, PdfPurpose::Print).unwrap();
+        let mut session = pdfcraft_engine::Session::new();
+        let id = session.open("print.pdf", None, std::sync::Arc::new(bytes), None).unwrap();
+        pdfcraft_engine::export::Exporter::new(session.get(id).unwrap()).png(0, 72.0).unwrap()
+    }
+
+    fn exported_image(editor: &Editor) -> Option<Vec<u8>> {
+        let Editor::Pdf(app) = editor else { return None };
+        let (_, doc) = app.active_ids().unwrap();
+        Some(pdfcraft_engine::export::Exporter::new(app.session.get(doc).unwrap()).png(0, 72.0).unwrap())
+    }
+
+    fn has_fill(shapes: &[egui::epaint::ClippedShape], color: egui::Color32) -> bool {
+        fn filled(shape: &egui::Shape, color: egui::Color32) -> bool {
+            match shape {
+                egui::Shape::Rect(rect) => rect.fill == color && rect.rect.area() > 20_000.0,
+                egui::Shape::Vec(shapes) => shapes.iter().any(|shape| filled(shape, color)),
+                _ => false,
+            }
+        }
+        shapes.iter().any(|shape| filled(&shape.shape, color))
+    }
+
+    let button = |running: &Running| {
+        ["夜间阅读", "Night reading"]
+            .into_iter()
+            .find_map(|label| running.widget(label))
+    };
+    for kind in [DocumentKind::Text, DocumentKind::Spreadsheet, DocumentKind::Pdf, DocumentKind::RichText] {
+        let (mut running, id) = Running::after(&[kind], kind);
+        let other = running.app.host.workspace.tabs().iter().find(|tab| tab.id != id).unwrap().id;
+        let original = running.editor(id).snapshot().unwrap()().unwrap();
+        let dirty = running.editor(id).dirty();
+        let history = running.editor(id).history_available();
+        let printed = print_image(running.editor(id));
+        let image = exported_image(running.editor(id));
+        let night = egui::Color32::from_rgb(28, 30, 34);
+        let at = button(&running).unwrap_or_else(|| panic!("no night button in {kind:?}")).center();
+        for on in [true, false] {
+            running.click(at);
+            match running.editor(id) {
+                Editor::Pdf(app) => {
+                    let (_, doc) = app.active_ids().unwrap();
+                    assert_eq!(app.session.reading_colors(doc).unwrap().params.map(|p| p.background), on.then_some([28, 30, 34]));
+                }
+                Editor::Word(app) => assert_eq!(app.session.view.dark_mode, on),
+                Editor::Sheet(_) | Editor::Rich(_) => assert_eq!(has_fill(&running.output.shapes, night), on, "{kind:?}"),
+                _ => unreachable!(),
+            }
+            assert_eq!(running.editor(id).snapshot().unwrap()().unwrap(), original, "serialized {kind:?}");
+            assert_eq!(running.editor(id).dirty(), dirty);
+            assert_eq!(running.editor(id).history_available(), history);
+            if on {
+                assert_eq!(print_image(running.editor(id)), printed, "print rendering for {kind:?}");
+                assert_eq!(exported_image(running.editor(id)), image, "PDF image export");
+                running.app.actions.push_back(Action::Activate(other));
+                running.idle(8);
+                assert_eq!(running.app.mounted, Some(other));
+                match running.editor(other) {
+                    Editor::Pdf(app) => assert!(app.session.reading_colors(app.active_ids().unwrap().1).unwrap().params.is_none()),
+                    Editor::Word(app) => assert!(!app.session.view.dark_mode),
+                    Editor::Sheet(_) | Editor::Rich(_) => assert!(!has_fill(&running.output.shapes, night), "other {kind:?}"),
+                    _ => unreachable!(),
+                }
+                running.app.actions.push_back(Action::Activate(id));
+                running.idle(8);
+                assert_eq!(running.app.mounted, Some(id));
+            }
+        }
+    }
+
+    let (running, _) = Running::new(DocumentKind::Presentation);
+    assert!(button(&running).is_none());
+}
+
 /// Settled frames need one pass: a font set that the host and an editor keep replacing
 /// makes every frame a discarded pass, and editors drop input on discarded passes.
 #[test]

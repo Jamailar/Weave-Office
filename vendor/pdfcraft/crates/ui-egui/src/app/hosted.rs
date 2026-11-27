@@ -157,6 +157,10 @@ impl PdfCraftApp {
         if !params.is_null() && params.as_object().is_none_or(|object| !object.is_empty()) {
             return Err("PDF UI commands do not accept parameters".into());
         }
+        if id == "view.nightReading" && self.active_ids().is_some() && !self.combine_showing() {
+            self.toggle_host_night_reading();
+            return Ok(serde_json::json!({"on": self.host_day_colors.is_some()}));
+        }
         if self.execute(id) { Ok(serde_json::Value::Null) } else { Err(format!("PDF command is unknown or unavailable: {id}")) }
     }
 

@@ -122,7 +122,28 @@ pub fn layout(
     families: &Families,
     images: &mut dyn ImageSizes,
 ) -> Page {
-    let styles = style::compute_all(doc);
+    layout_with_colors(doc, width, ctx, families, images, false)
+}
+
+pub fn layout_with_colors(
+    doc: &Document,
+    width: f32,
+    ctx: &egui::Context,
+    families: &Families,
+    images: &mut dyn ImageSizes,
+    night: bool,
+) -> Page {
+    // Recolor only the transient layout styles. The DOM and formatting toolbar keep original colors.
+    let mut styles = style::compute_all(doc);
+    if night {
+        for style in &mut styles {
+            style.color = night_ink(style.color);
+            style.background = style.background.map(night_fill);
+            for border in &mut style.border {
+                border.color = night_ink(border.color);
+            }
+        }
+    }
     let mut cx = Cx {
         doc,
         styles: &styles,
@@ -152,6 +173,25 @@ pub fn layout(
         size: vec2(right, height.max(1.0)),
         background,
     }
+}
+
+pub(crate) const NIGHT_PAPER: Color32 = Color32::from_rgb(28, 30, 34);
+pub(crate) const NIGHT_INK: Color32 = Color32::from_gray(224);
+
+fn remap_color(color: Color32, channel: impl Fn(u8) -> u8) -> Color32 {
+    if color == Color32::TRANSPARENT {
+        return color;
+    }
+    let [r, g, b, a] = color.to_srgba_unmultiplied();
+    Color32::from_rgba_unmultiplied(channel(r), channel(g), channel(b), a)
+}
+
+fn night_fill(color: Color32) -> Color32 {
+    remap_color(color, |c| 24 + c / 4)
+}
+
+fn night_ink(color: Color32) -> Color32 {
+    remap_color(color, |c| 207 + c / 6)
 }
 
 struct Cx<'a> {
@@ -1170,6 +1210,27 @@ mod tests {
         });
         output.textures_delta.clear();
         result.unwrap()
+    }
+
+    #[test]
+    fn night_layout_darkens_paint_without_moving_text_or_images() {
+        let html = "<body style='background:#fff'><p style='background:#ffe080;color:#080'>Test</p><img src='example.png'></body>";
+        let original = page(html, 360.0);
+        let doc = Document::parse(html);
+        let mut night = None;
+        egui::Context::default().run_ui(Default::default(), |ui| {
+            night = Some(layout_with_colors(&doc, 360.0, ui.ctx(), &Families::default(), &mut (), true));
+        }).drop_without_applying_deltas();
+        let night = night.unwrap();
+        assert_eq!(original.background, Some(Color32::WHITE));
+        assert_eq!(night.background, Some(night_fill(Color32::WHITE)));
+        assert_eq!(texts(&original), texts(&night));
+        for (day, dark) in original.items.iter().zip(&night.items) {
+            assert_eq!(day.rect(), dark.rect());
+            if let (Item::Text { galley: a, .. }, Item::Text { galley: b, .. }) = (day, dark) {
+                assert_ne!(a.job.sections[0].format.color, b.job.sections[0].format.color);
+            }
+        }
     }
 
     fn boxes(page: &Page) -> Vec<Rect> {

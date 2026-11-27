@@ -102,6 +102,7 @@ pub(crate) struct QuadrantPaint<'a> {
     pub(crate) cols: (u32, u32),
     pub(crate) cf: &'a mut CfCache,
     pub(crate) tokens: &'a Tokens,
+    pub(crate) night: bool,
 }
 
 /// Paint a worksheet quadrant, including backgrounds, borders, and text.
@@ -200,11 +201,14 @@ fn paint_backgrounds(q: &mut QuadrantPaint<'_>, cells: &[CellRef], merges: &[Ran
             Some(m) => (geo.range_rect(sh, m), m.start),
             None => (geo.cell_rect(sh, c), c),
         };
-        let (lk, cfl) = look(wb, si, sh, anchor, cf);
+        let (mut lk, cfl) = look(wb, si, sh, anchor, cf);
+        if q.night {
+            lk.fill = lk.fill.map(theme::night_cell_fill);
+        }
         if let Some(f) = lk.fill {
             p.rect_filled(rect.expand(0.0), 0.0, f);
         } else if in_merge(c).is_some() {
-            p.rect_filled(rect.shrink(0.5), 0.0, Color32::WHITE);
+            p.rect_filled(rect.shrink(0.5), 0.0, q.tokens.grid_bg);
         }
         looks.push((anchor, rect, lk, cfl));
     }
@@ -368,6 +372,7 @@ fn paint_cell(q: &QuadrantPaint<'_>, painted: &(CellRef, Rect, Look, Option<CfLo
         return;
     }
     let color = ncolor.unwrap_or(lk.text_color);
+    let color = if q.night { theme::night_cell_ink(color, lk.fill.unwrap_or(t.grid_bg)) } else { color };
     let halign = match st.align.h {
         HAlign::General => match v {
             Value::Number(_) => HAlign::Right,
@@ -554,6 +559,10 @@ fn paint_borders(q: &mut QuadrantPaint<'_>, looks: &[(CellRef, Rect, Look, Optio
     // Borders (over fills and text).
     for (c, rect, lk, _) in looks {
         let b = &lk.style.borders;
+        let border_color = |color| {
+            let color = col32(color, wb, Color32::BLACK);
+            if q.night { theme::night_cell_ink(color, lk.fill.unwrap_or(t.grid_bg)) } else { color }
+        };
         let merge = merges.iter().find(|m| m.start == *c);
         let edges = match merge {
             // A merged area's outline lives on the cells along each of its edges (Excel writes the
@@ -571,14 +580,14 @@ fn paint_borders(q: &mut QuadrantPaint<'_>, looks: &[(CellRef, Rect, Look, Optio
             if line.is_none() {
                 continue;
             }
-            let col = col32(line.color, wb, Color32::BLACK);
+            let col = border_color(line.color);
             paint_border(p, pts, line.style, col);
         }
         if !b.diag_down.is_none() {
-            paint_border(p, [rect.left_top(), rect.right_bottom()], b.diag_down.style, col32(b.diag_down.color, wb, Color32::BLACK));
+            paint_border(p, [rect.left_top(), rect.right_bottom()], b.diag_down.style, border_color(b.diag_down.color));
         }
         if !b.diag_up.is_none() {
-            paint_border(p, [rect.left_bottom(), rect.right_top()], b.diag_up.style, col32(b.diag_up.color, wb, Color32::BLACK));
+            paint_border(p, [rect.left_bottom(), rect.right_top()], b.diag_up.style, border_color(b.diag_up.color));
         }
         // Comment / note indicator.
         if let Some(cm) = sh.comments.get(c) {

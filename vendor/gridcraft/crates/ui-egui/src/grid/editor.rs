@@ -49,10 +49,12 @@ pub(super) fn in_cell_editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, s
     };
     // Grows to the left on a right-to-left sheet.
     let erect = geo.mirror_rect(Rect::from_min_size(rect.min, vec2(w, h)));
-    let fill = match st.fill.pattern {
-        PatternType::Solid => st.fill.fg.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::WHITE),
-        _ => Color32::WHITE,
-    };
+    let t = Tokens::get(ui.ctx()).worksheet(app.night_reading);
+    let fill = (st.fill.pattern == PatternType::Solid)
+        .then(|| st.fill.fg.resolve(&wb.theme).map(theme::color32))
+        .flatten()
+        .map(|fill| if app.night_reading { theme::night_cell_fill(fill) } else { fill })
+        .unwrap_or(t.grid_bg);
     let split = pos2(geo.cells.left() + geo.frozen_w, geo.cells.top() + geo.frozen_h);
     let quadrant = Rect::from_min_max(
         pos2(if cell.col >= geo.fc { split.x } else { geo.cells.left() }, if cell.row >= geo.fr { split.y } else { geo.cells.top() }),
@@ -72,13 +74,14 @@ pub(super) fn in_cell_editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, s
     let clip = if on_screen { ui.clip_rect().intersect(screen_quadrant) } else { Rect::NOTHING };
     let painter = ui.painter().with_clip_rect(clip);
     painter.rect_filled(erect, 0.0, fill);
-    painter.rect_stroke(erect.expand(1.0), 0.0, Stroke::new(2.0, Tokens::get(ui.ctx()).sel_border), StrokeKind::Middle);
+    painter.rect_stroke(erect.expand(1.0), 0.0, Stroke::new(2.0, t.sel_border), StrokeKind::Middle);
     let id = egui::Id::unique("gridcraft.cell_editor");
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(erect.shrink2(vec2(2.0, 1.0))));
     child.set_clip_rect(clip);
     // The theme's caret is meant for the UI chrome and vanishes on some fills (and, in the dark
     // theme, on the white paper): pick black or white against the fill, like Excel.
     child.visuals_mut().text_cursor.stroke.color = ink_on(fill);
+    child.visuals_mut().extreme_bg_color = fill;
     crate::formula_bar::editor_widget(app, &mut child, id, font, wrap, erect.width() - 4.0, erect.height() - 2.0);
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("gridcraft.cell_editor.rect"), erect));
 }
