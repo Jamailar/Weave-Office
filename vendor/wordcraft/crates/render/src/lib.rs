@@ -129,7 +129,7 @@ impl Rendered {
 
 /// Paint `p` as the context's paint (gradients in page points, under the view transform).
 fn set_paint(ctx: &mut RenderContext, p: &Paint, opts: &RenderOptions) {
-    set_paint_inked(ctx, p, |c| opts.ink(c));
+    set_paint_inked(ctx, p, |c| opts.fill(c));
 }
 
 /// [`set_paint`] with each colour passed through `ink` (a dark page's text inking, #1252).
@@ -166,6 +166,8 @@ pub struct RenderOptions {
     /// Dark page (View › Switch Modes): every colour but pictures has its lightness inverted, so
     /// white paper turns black and black text white while hues stay the same. Screen only.
     pub dark: bool,
+    /// Hosted night reading adapts paper/fill and ink separately, without inverting lightness.
+    pub adaptive_night: bool,
     /// The grey that black becomes on a dark page (white paper turns this, not pure black).
     pub dark_paper: u8,
     /// Read Mode's Page Color: paper drawn instead of the document's page color and page
@@ -183,13 +185,46 @@ impl RenderOptions {
     /// The on-screen color of the paper under `doc`'s pages: [`RenderOptions::read_paper`],
     /// else the document's page color, else [`RenderOptions::paper`].
     pub fn paper_of(&self, doc: &Document) -> Rgb {
-        self.ink(self.read_paper.or(doc.settings.page_color).unwrap_or(self.paper))
+        let paper = self.read_paper.or(doc.settings.page_color).unwrap_or(self.paper);
+        if self.dark && self.adaptive_night && paper == Rgb::WHITE {
+            return Rgb(self.dark_paper, self.dark_paper, self.dark_paper);
+        }
+        self.fill(paper)
+    }
+
+    fn fill(&self, c: Rgb) -> Rgb {
+        if !self.dark || !self.adaptive_night {
+            return self.ink(c);
+        }
+        let peak = u16::from(c.0.max(c.1).max(c.2));
+        if peak <= 51 {
+            return c;
+        }
+        let target = 51 + (peak - 51) * 23 / 204;
+        let dim = |v: u8| (u16::from(v) * target / peak) as u8;
+        Rgb(dim(c.0), dim(c.1), dim(c.2))
     }
 
     /// The on-screen colour for a document colour (see [`RenderOptions::dark`]).
     pub fn ink(&self, c: Rgb) -> Rgb {
         if !self.dark {
             return c;
+        }
+        if self.adaptive_night {
+            // Keep existing light ink. Lift darker ink only as far as needed for contrast
+            // against the brightest possible adapted fill (#4a4a4a).
+            let bg = Rgb(74, 74, 74);
+            if contrast(c, bg) >= 4.5 {
+                return c;
+            }
+            for amount in [64_u16, 128, 192] {
+                let lift = |v: u8| (u16::from(v) + (255 - u16::from(v)) * amount / 255) as u8;
+                let lighter = Rgb(lift(c.0), lift(c.1), lift(c.2));
+                if contrast(lighter, bg) >= 4.5 {
+                    return lighter;
+                }
+            }
+            return Rgb::WHITE;
         }
         // Invert, then lift the blacks to the paper grey so the page isn't a black hole.
         let Rgb(r, g, b) = invert_lightness(c);
@@ -203,6 +238,9 @@ impl RenderOptions {
     /// hues such as yellow bright, so the white text on them can't be read (#1252). Every
     /// colour lands dark enough for white text (WCAG contrast ≥ 4.5); yellow turns a dim olive.
     pub fn ink_bg(&self, c: Rgb) -> Rgb {
+        if self.adaptive_night {
+            return self.fill(c);
+        }
         if !self.dark {
             return c;
         }
@@ -218,6 +256,9 @@ impl RenderOptions {
     /// reaches it: no dimmed background is lighter than #4A4A4A.
     pub fn ink_text(&self, c: Rgb, bg: Option<Rgb>) -> Rgb {
         let inked = self.ink(c);
+        if self.adaptive_night {
+            return inked;
+        }
         let Some(bg) = bg.filter(|_| self.dark) else { return inked };
         let lighter = if c.luma() > inked.luma() { c } else { inked };
         if contrast(lighter, self.ink_bg(bg)) >= 4.5 { lighter } else { Rgb::WHITE }
@@ -260,6 +301,7 @@ impl Default for RenderOptions {
             mark_color: Rgb(0x2B, 0x57, 0x9A),
             text_darkening: false,
             dark: false,
+            adaptive_night: false,
             dark_paper: DARK_PAPER,
             read_paper: None,
         }
@@ -370,7 +412,7 @@ fn blend_backgrounds(items: &[Draw], p: wordcraft_geom::Point, opts: &RenderOpti
             _ => continue,
         };
         let a = if alpha.is_finite() { alpha.clamp(0.0, 1.0) } else { 1.0 };
-        let c = opts.ink(color);
+        let c = opts.fill(color);
         for (v, n) in bg.iter_mut().zip([c.0, c.1, c.2]) {
             *v += (n as f32 - *v) * a;
         }
@@ -623,7 +665,7 @@ fn draw_fill(ctx: &mut RenderContext, fr: &Frame, it: &Draw) {
         return;
     }
     ctx.set_transform(fr.view);
-    ctx.set_paint(color(if *text_bg { fr.opts.ink_bg(*c) } else { fr.opts.ink(*c) }, *alpha));
+    ctx.set_paint(color(if *text_bg { fr.opts.ink_bg(*c) } else { fr.opts.fill(*c) }, *alpha));
     ctx.fill_rect(&r);
 }
 

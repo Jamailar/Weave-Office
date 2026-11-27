@@ -3246,18 +3246,18 @@ fn long_web_page_uses_only_visible_native_resolution_tiles() {
     let viewport = Rect::from_min_size(pos2(0.0, 100.0), vec2(1440.0, 700.0));
     assert!(17_843.0 * raster_scale > 8192.0);
     assert!(800.0 * raster_scale < 8192.0);
-    let tiles = visible_tiles(page, viewport, screen_scale, raster_scale, TILE_HEIGHT_PX);
+    let tiles = visible_tiles(page, viewport, screen_scale, raster_scale, TILE_SIDE_PX);
     assert!(!tiles.is_empty());
-    assert!(tiles.len() <= 3, "only the viewport should be rasterized: {tiles:?}");
+    assert!(tiles.len() <= 4, "only the viewport should be rasterized: {tiles:?}");
     let total_px = (17_843.0 * raster_scale).ceil() as usize;
     for tile in tiles {
-        let start = tile * TILE_HEIGHT_PX;
+        let start = tile * TILE_SIDE_PX;
         assert!(start < total_px);
-        assert!(total_px.saturating_sub(start).min(TILE_HEIGHT_PX) <= TILE_HEIGHT_PX);
+        assert!(total_px.saturating_sub(start).min(TILE_SIDE_PX) <= TILE_SIDE_PX);
     }
-    assert_eq!(visible_tiles(page, Rect::from_min_size(pos2(1500.0, 0.0), vec2(300.0, 500.0)), screen_scale, raster_scale, TILE_HEIGHT_PX), 0..0);
-    assert_eq!(visible_tiles(page, viewport, 0.0, raster_scale, TILE_HEIGHT_PX), 0..0);
-    assert_eq!(visible_tiles(page, viewport, screen_scale, f32::NAN, TILE_HEIGHT_PX), 0..0);
+    assert_eq!(visible_tiles(page, Rect::from_min_size(pos2(1500.0, 0.0), vec2(300.0, 500.0)), screen_scale, raster_scale, TILE_SIDE_PX), 0..0);
+    assert_eq!(visible_tiles(page, viewport, 0.0, raster_scale, TILE_SIDE_PX), 0..0);
+    assert_eq!(visible_tiles(page, viewport, screen_scale, f32::NAN, TILE_SIDE_PX), 0..0);
     assert_eq!(visible_tiles(page, viewport, screen_scale, raster_scale, 0), 0..0);
     assert!(visible_tiles(page, viewport, screen_scale, raster_scale, 512).len() <= 5);
 }

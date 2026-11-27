@@ -5544,6 +5544,47 @@ fn reading_colors_map_solid_paints_and_leave_images() {
     assert_eq!(pixel(&on, 150, 55), &[255, 255, 255, 255], "the image's white quadrant stays white");
 }
 
+#[test]
+fn host_night_preserves_dark_pdf_paper_and_image_pixels_at_any_zoom() {
+    let night = ReadingColors { params: Some(crate::ReadingParams::HOST_NIGHT) };
+    for (paper, foreground, path, expected) in [
+        ("0.08 g", "1 g", "0 0 100 50 re f", [20, 20, 20]),
+        ("1 g", "0 g", "0 0 m 100 0 l 100 50 l 0 50 l h f", [28, 30, 34]),
+    ] {
+        let content = format!("{paper} {path}\n{foreground} 10 10 30 20 re f\nq 20 0 0 10 60 20 cm /Im Do Q");
+        let pdf = Arc::new(format!(
+            "%PDF-1.4\n\
+             1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+             2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+             3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] /Contents 4 0 R /Resources << /XObject << /Im 5 0 R >> >> >> endobj\n\
+             4 0 obj << /Length {} >> stream\n{content}\nendstream endobj\n\
+             5 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 25 >> stream\nFF000000FF00000000FFFFFFFF>\nendstream endobj\n\
+             trailer << /Root 1 0 R >>\n%%EOF",
+            content.len()
+        ).into_bytes());
+        let req = RenderRequest { scale: 2.0, ..Default::default() };
+        let off = PageRenderer::new(pdf.clone(), RenderConfig::default()).render(req);
+        let mut renderer = PageRenderer::new(pdf, RenderConfig { reading_colors: night, ..Default::default() });
+        let on = renderer.render(req);
+        assert!(off.error.is_none() && on.error.is_none(), "{:?} {:?}", off.error, on.error);
+        let pixel = |p: &RenderedPage, x: u32, y: u32| -> [u8; 4] {
+            let i = ((y * p.width + x) * 4) as usize;
+            p.rgba[i..i + 4].try_into().unwrap()
+        };
+        assert_eq!(pixel(&on, 5, 5)[..3], expected);
+        assert!(pixel(&on, 50, 60)[0] >= 220, "foreground remains readable");
+        for y in 44..56 {
+            for x in 124..156 {
+                assert_eq!(pixel(&on, x, y), pixel(&off, x, y), "image pixel {x},{y}");
+            }
+        }
+        let tile = Tile { x: 30, y: 45, w: 20, h: 20 };
+        let part = renderer.render(RenderRequest { tile: Some(tile), ..req });
+        assert!(part.error.is_none(), "{:?}", part.error);
+        assert_eq!(pixel(&part, 5, 5), pixel(&on, tile.x + 5, tile.y + 5), "a foreground rectangle stays foreground even if it covers the tile");
+    }
+}
+
 /// #2975: a stencil mask (`/ImageMask true`) is painted in the fill colour at the fill
 /// opacity, once: at `ca 0.5` it is as opaque as a rectangle filled at `ca 0.5` beside it
 /// (it was a quarter as opaque, the opacity applied by both the image's group and its paint).

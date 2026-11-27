@@ -86,6 +86,12 @@ pub fn tr(text: &str) -> &str {
         "最近文件" => "Recent Files",
         "打开或新建文件，开始办公" => "Open or create a file to get started",
         "外观" => "Appearance",
+        "文档夜间阅读" => "Document night reading",
+        "跟随外观" => "Follow appearance",
+        "原始配色" => "Original colors",
+        "始终夜间" => "Always on",
+        "适用于 PDF、Word、Excel 和富文本，仅改变显示。标签页可临时切换。" =>
+            "Display only: PDF, Word, Excel and rich text. Each tab can temporarily override this setting.",
         "浅色" => "Light",
         "深色" => "Dark",
         "跟随系统" => "System",

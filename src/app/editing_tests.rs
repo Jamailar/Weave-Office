@@ -17,6 +17,7 @@ struct Running {
     output: egui::FullOutput,
     time: f64,
     texture_bytes: usize,
+    system_theme: Option<egui::Theme>,
 }
 
 impl Running {
@@ -34,6 +35,7 @@ impl Running {
         app.mounted = None;
         app.ui_font = Some(crate::ui_fonts::UiFonts::load());
         let ctx = egui::Context::default();
+        ctx.set_theme(theme_preference(&app.settings.theme));
         ctx.enable_accesskit();
         let mut running = Self {
             app,
@@ -42,6 +44,7 @@ impl Running {
             output: egui::FullOutput::default(),
             time: 0.0,
             texture_bytes: 0,
+            system_theme: None,
         };
         for _ in 0..20 {
             running.pass(Vec::new());
@@ -75,6 +78,7 @@ impl Running {
             )),
             time: Some(self.time),
             focused: true,
+            system_theme: self.system_theme,
             events,
             ..Default::default()
         };
@@ -338,6 +342,91 @@ fn night_reading_buttons_toggle_only_the_active_document_view() {
 
     let (running, _) = Running::new(DocumentKind::Presentation);
     assert!(button(&running).is_none());
+}
+
+#[test]
+fn document_night_follows_resolved_theme_in_both_split_panes() {
+    use crate::editor::Editor;
+
+    let (mut running, word) = Running::after(&[DocumentKind::Pdf], DocumentKind::Text);
+    let pdf_id = running.app.host.workspace.tabs().iter().find(|tab| tab.id != word).unwrap().id;
+    let legacy: Settings = serde_json::from_value(json!({"theme": "system"})).unwrap();
+    assert_eq!(legacy.document_appearance, DocumentAppearance::FollowAppearance);
+    running.app.settings = legacy;
+    running.ctx.set_theme(egui::ThemePreference::System);
+    running.app.actions.push_back(Action::Split(crate::panes::SplitAxis::LeftRight, Some(pdf_id), None));
+    running.idle(5);
+    assert!(running.app.panes.is_split());
+
+    for (theme, policy, on) in [
+        (egui::Theme::Dark, DocumentAppearance::FollowAppearance, true),
+        (egui::Theme::Light, DocumentAppearance::FollowAppearance, false),
+        (egui::Theme::Dark, DocumentAppearance::Original, false),
+        (egui::Theme::Light, DocumentAppearance::Night, true),
+    ] {
+        running.system_theme = Some(theme);
+        running.app.settings.document_appearance = policy;
+        running.idle(5);
+        assert_eq!(running.ctx.theme(), theme);
+        let Editor::Word(app) = running.editor(word) else { unreachable!() };
+        assert_eq!(app.session.view.dark_mode, on, "Word: {theme:?} {policy:?}");
+        let app = pdf(&mut running, pdf_id);
+        let colors = app.session.reading_colors(app.active_ids().unwrap().1).unwrap();
+        assert_eq!(colors.params.is_some_and(|p| p.adaptive_night), on, "PDF: {theme:?} {policy:?}");
+    }
+    let saved = serde_json::to_value(&running.app.settings).unwrap();
+    assert_eq!(serde_json::from_value::<Settings>(saved).unwrap().document_appearance, DocumentAppearance::Night);
+}
+
+fn word_zoom_replay() -> (usize, usize, Vec<f64>, Vec<f64>, usize) {
+    fn zoom(running: &mut Running, id: TabId, percent: u32) {
+        running.editor(id).command("view.zoom", json!({"value": percent})).unwrap();
+    }
+
+    let (mut running, id) = Running::new(DocumentKind::Text);
+    running.type_text(&"Zoom test: the quick brown fox jumps over the lazy dog. ".repeat(60));
+    zoom(&mut running, id, 150);
+    running.idle(15);
+    let mut gesture = Vec::new();
+    let mut settled = Vec::new();
+    let mut motion_bytes = 0;
+    let mut settle_bytes = 0;
+    let mut largest_frame = 0;
+    for pct in (155..=500).step_by(5) {
+        let start = std::time::Instant::now();
+        zoom(&mut running, id, pct);
+        running.pass_at_rate(Vec::new(), 60.0);
+        gesture.push(start.elapsed().as_secs_f64() * 1000.0);
+        motion_bytes += running.texture_bytes;
+    }
+    for _ in 0..18 {
+        let start = std::time::Instant::now();
+        running.pass_at_rate(Vec::new(), 60.0);
+        settled.push(start.elapsed().as_secs_f64() * 1000.0);
+        settle_bytes += running.texture_bytes;
+        largest_frame = largest_frame.max(running.texture_bytes);
+    }
+    assert_eq!(running.texture_bytes, 0, "sharp rasters settle instead of repainting forever");
+    (motion_bytes, settle_bytes, gesture, settled, largest_frame)
+}
+
+#[test]
+fn word_zoom_reuses_page_pixels_and_sharpens_after_pausing() {
+    let (motion, settled, _, _, peak) = word_zoom_replay();
+    assert!(motion < 8 * 1024 * 1024, "zoom motion uploaded {motion} bytes");
+    assert!(settled > 0, "stopping zoom must upload sharper tiles");
+    assert!(peak <= 3 * 640 * 640 * 4, "only visible, bounded tiles should be rendered per frame: {peak} bytes");
+}
+
+#[test]
+#[ignore = "run alone in release mode with --nocapture to measure CPU frame times"]
+fn word_zoom_replay_report() {
+    let (motion, settled, mut gesture, mut idle, peak) = word_zoom_replay();
+    gesture.sort_by(f64::total_cmp);
+    idle.sort_by(f64::total_cmp);
+    let p95 = |samples: &[f64]| samples[(samples.len() * 95).div_ceil(100) - 1];
+    eprintln!("Word 150–500%: motion p95={:.2}ms max={:.2}ms, post-gesture max={:.2}ms, motion RGBA={:.2}MiB, post-gesture RGBA={:.2}MiB peak={:.2}MiB/frame",
+        p95(&gesture), gesture.last().unwrap(), idle.last().unwrap(), motion as f64 / 1048576.0, settled as f64 / 1048576.0, peak as f64 / 1048576.0);
 }
 
 /// Settled frames need one pass: a font set that the host and an editor keep replacing

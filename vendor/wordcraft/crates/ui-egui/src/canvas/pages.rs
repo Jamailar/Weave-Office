@@ -82,10 +82,10 @@ impl PageKeys {
     }
 }
 
-/// The texture cache key of page `i`: its content, the view, and the raster scale.
-pub(super) fn page_key(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, i: usize, view: u64, scale_px: f32) -> u64 {
+/// The texture cache key of page `i`: its content and view, independent of zoom.
+pub(super) fn page_key(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, i: usize, view: u64) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (view, scale_px.to_bits(), app.canvas.page_keys.content(layout, i)).hash(&mut h);
+    (view, app.canvas.page_keys.content(layout, i)).hash(&mut h);
     h.finish()
 }
 
@@ -240,9 +240,11 @@ pub(super) fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_re
     // In Read Mode the Page color sets the paper and the dark page, and Switch Modes is ignored.
     if app.session.view.read_mode {
         use wordcraft_engine::cmd::view::ReadPageColor;
-        let color = app.session.view.read_page_color;
+            let color = app.session.view.read_page_color;
         opts.read_paper = Some(if color == ReadPageColor::Sepia { wordcraft_render::SEPIA_PAPER } else { wordcraft_doc::props::Rgb::WHITE });
         opts.dark = color == ReadPageColor::Inverse;
+    } else {
+        opts.adaptive_night = app.hosted;
     }
     opts.display.dim_header = !dim_body;
     opts.display.dim_body = dim_body;

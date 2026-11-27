@@ -59,6 +59,7 @@ struct Settings {
     recent: Vec<PathBuf>,
     scale: f32,
     theme: String,
+    document_appearance: DocumentAppearance,
     language: UiLanguage,
 }
 impl Default for Settings {
@@ -67,7 +68,27 @@ impl Default for Settings {
             recent: Vec::new(),
             scale: 1.0,
             theme: "light".into(),
+            document_appearance: DocumentAppearance::default(),
             language: UiLanguage::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DocumentAppearance {
+    #[default]
+    FollowAppearance,
+    Original,
+    Night,
+}
+
+impl DocumentAppearance {
+    pub(crate) fn night(self, theme: egui::Theme) -> bool {
+        match self {
+            Self::FollowAppearance => theme == egui::Theme::Dark,
+            Self::Original => false,
+            Self::Night => true,
         }
     }
 }
@@ -1563,6 +1584,7 @@ impl WeaveApp {
             |ui| {
                 ui.shrink_clip_rect(rect);
                 if let Some(document) = self.host.documents.get_mut(&tab) {
+                    document.sync_appearance(self.settings.document_appearance, ctx.theme());
                     commands = document.editor.ui(ui);
                 }
             },
@@ -2115,6 +2137,17 @@ impl WeaveApp {
                                     }
                                 }
                             });
+                            ui.horizontal(|ui| {
+                                ui.label(tr("文档夜间阅读"));
+                                for (value, label) in [
+                                    (DocumentAppearance::FollowAppearance, "跟随外观"),
+                                    (DocumentAppearance::Original, "原始配色"),
+                                    (DocumentAppearance::Night, "始终夜间"),
+                                ] {
+                                    ui.selectable_value(&mut self.settings.document_appearance, value, tr(label));
+                                }
+                            });
+                            ui.label(tr("适用于 PDF、Word、Excel 和富文本，仅改变显示。标签页可临时切换。"));
                             ui.label(tr("界面缩放"));
                             if ui
                                 .add(
@@ -2433,6 +2466,7 @@ impl eframe::App for WeaveApp {
                     .show(ui, |_| {});
                 ctx.request_repaint();
             } else if let Some(doc) = self.host.active_mut() {
+                doc.sync_appearance(self.settings.document_appearance, ctx.theme());
                 if blocked {
                     frozen_editor_input(&ctx, || {
                         row_commands = doc.editor.ui(ui);

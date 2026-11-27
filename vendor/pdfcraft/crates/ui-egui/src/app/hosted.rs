@@ -4,12 +4,20 @@ use std::path::Path;
 
 impl PdfCraftApp {
     fn toggle_host_night_reading(&mut self) {
+        self.set_host_night_reading(self.host_day_colors.is_none());
+    }
+
+    /// Apply the host's display-only palette without disturbing an existing override on a no-op.
+    pub fn set_host_night_reading(&mut self, on: bool) {
+        if on == self.host_day_colors.is_some() {
+            return;
+        }
         let Some((index, id)) = self.active_ids() else { return };
         let Some(current) = self.session.reading_colors(id) else { return };
         let colors = self.host_day_colors.take().unwrap_or_else(|| {
             self.host_day_colors = Some(current);
             pdfcraft_render::ReadingColors {
-                params: Some(pdfcraft_render::ReadingParams { text: [220, 222, 225], background: [28, 30, 34], only_black: false, line_art: true }),
+                params: Some(pdfcraft_render::ReadingParams::HOST_NIGHT),
             }
         });
         if self.session.set_reading_colors(id, colors) {

@@ -231,8 +231,8 @@ impl DocView {
 
     /// The print preview's picture of `page`: the sheet raster when it has arrived, otherwise the
     /// thumbnail.
-    pub(crate) fn page_preview(&self, page: usize) -> Option<egui::TextureId> {
-        self.print_pages.get(&page).map(|(_, tex)| tex.id()).or_else(|| self.thumb_id(page))
+    pub(crate) fn page_preview(&self, page: usize, original_thumbnail: bool) -> Option<egui::TextureId> {
+        self.print_pages.get(&page).map(|(_, tex)| tex.id()).or_else(|| original_thumbnail.then(|| self.thumb_id(page)).flatten())
     }
 
     pub(crate) fn page_text(&self, page: usize) -> Option<Arc<PageText>> {

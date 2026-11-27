@@ -187,7 +187,13 @@ fn remap_color(color: Color32, channel: impl Fn(u8) -> u8) -> Color32 {
 }
 
 fn night_fill(color: Color32) -> Color32 {
-    remap_color(color, |c| 24 + c / 4)
+    let [r, g, b, _] = color.to_srgba_unmultiplied();
+    let peak = u16::from(r.max(g).max(b));
+    if peak <= 51 {
+        return color;
+    }
+    let target = 51 + (peak - 51) * 23 / 204;
+    remap_color(color, |c| (u16::from(c) * target / peak) as u8)
 }
 
 fn night_ink(color: Color32) -> Color32 {

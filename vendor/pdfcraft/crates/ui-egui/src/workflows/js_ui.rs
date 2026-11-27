@@ -679,6 +679,7 @@ fn reading_colours_section(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens)
                 background: [255, 255, 255],
                 only_black: false,
                 line_art: true,
+                adaptive_night: false,
             });
             ui.vertical(|ui| {
                 ui.set_width(104.0);

@@ -302,7 +302,12 @@ impl Tokens {
 
 /// Dim deliberate fills without reversing the order of a heatmap or changing the stored colors.
 pub(crate) fn night_cell_fill(color: Color32) -> Color32 {
-    let dim = |c: u8| 24 + c / 4;
+    let peak = u16::from(color.r().max(color.g()).max(color.b()));
+    if peak <= 51 {
+        return color;
+    }
+    let target = 51 + (peak - 51) * 23 / 204;
+    let dim = |c: u8| (u16::from(c) * target / peak) as u8;
     Color32::from_rgb(dim(color.r()), dim(color.g()), dim(color.b()))
 }
 

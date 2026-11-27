@@ -21,21 +21,31 @@ pub struct ReadingParams {
     pub only_black: bool,
     /// When `true`, line-art paints are mapped in addition to text paints.
     pub line_art: bool,
+    /// Adapt paper and ink separately for the host's night mode.
+    #[serde(default)]
+    pub adaptive_night: bool,
+}
+
+impl ReadingParams {
+    /// The host's display-only night palette.
+    pub const HOST_NIGHT: Self = Self {
+        text: [220, 222, 225], background: [28, 30, 34], only_black: false, line_art: true, adaptive_night: true,
+    };
 }
 
 impl ReadingColors {
     /// Black text on a white page.
     pub const BLACK_ON_WHITE: Self =
-        Self { params: Some(ReadingParams { text: [0x00, 0x00, 0x00], background: [0xff, 0xff, 0xff], only_black: false, line_art: true }) };
+        Self { params: Some(ReadingParams { text: [0x00, 0x00, 0x00], background: [0xff, 0xff, 0xff], only_black: false, line_art: true, adaptive_night: false }) };
     /// White text on a black page.
     pub const WHITE_ON_BLACK: Self =
-        Self { params: Some(ReadingParams { text: [0xff, 0xff, 0xff], background: [0x00, 0x00, 0x00], only_black: false, line_art: true }) };
+        Self { params: Some(ReadingParams { text: [0xff, 0xff, 0xff], background: [0x00, 0x00, 0x00], only_black: false, line_art: true, adaptive_night: false }) };
     /// Yellow text on a black page.
     pub const YELLOW_ON_BLACK: Self =
-        Self { params: Some(ReadingParams { text: [0xff, 0xff, 0x00], background: [0x00, 0x00, 0x00], only_black: false, line_art: true }) };
+        Self { params: Some(ReadingParams { text: [0xff, 0xff, 0x00], background: [0x00, 0x00, 0x00], only_black: false, line_art: true, adaptive_night: false }) };
     /// Green text on a black page.
     pub const GREEN_ON_BLACK: Self =
-        Self { params: Some(ReadingParams { text: [0x00, 0xff, 0x00], background: [0x00, 0x00, 0x00], only_black: false, line_art: true }) };
+        Self { params: Some(ReadingParams { text: [0x00, 0xff, 0x00], background: [0x00, 0x00, 0x00], only_black: false, line_art: true, adaptive_night: false }) };
 
     /// Parses tool/settings input. `mode` is one of `off | black-on-white | white-on-black |
     /// yellow-on-black | green-on-black | custom`; `custom` needs `text` and `background` as
@@ -71,6 +81,7 @@ impl ReadingColors {
                         background: parse_hex("background", background)?,
                         only_black: false,
                         line_art: true,
+                        adaptive_night: false,
                     }),
                 })),
             },
@@ -113,7 +124,7 @@ impl ReadingColors {
 
 impl From<ReadingParams> for hayro::ColorReplacement {
     fn from(p: ReadingParams) -> Self {
-        hayro::ColorReplacement { text: p.text, background: p.background, only_black: p.only_black, line_art: p.line_art }
+        hayro::ColorReplacement { text: p.text, background: p.background, only_black: p.only_black, line_art: p.line_art, adaptive_night: p.adaptive_night }
     }
 }
 
